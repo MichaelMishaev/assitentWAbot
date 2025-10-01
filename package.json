@@ -5,27 +5,44 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "jest",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create",
+    "type-check": "tsc --noEmit"
   },
-  "keywords": ["whatsapp", "bot", "assistant", "baileys"],
-  "author": "",
+  "keywords": ["whatsapp", "bot", "assistant", "baileys", "hebrew", "calendar"],
+  "author": "Michael Mishaev",
   "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.0",
-    "bullmq": "^5.0.0",
-    "pg": "^8.11.0",
-    "redis": "^4.6.0",
-    "dotenv": "^16.4.0"
+    "@whiskeysockets/baileys": "^6.7.9",
+    "bcrypt": "^5.1.1",
+    "bullmq": "^5.28.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ioredis": "^5.4.2",
+    "luxon": "^3.5.0",
+    "pg": "^8.13.1",
+    "winston": "^3.17.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "@types/pg": "^8.11.0",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.3.0"
+    "@types/bcrypt": "^5.0.2",
+    "@types/express": "^5.0.0",
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "jest": "^29.7.0",
+    "node-pg-migrate": "^7.9.0",
+    "nodemon": "^3.1.9",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   }
 }

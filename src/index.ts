@@ -1,40 +1,61 @@
-// WhatsApp Assistant Bot - Entry Point
-// This is a placeholder until we build the actual bot (Week 1-2 of DEV_PLAN.md)
+import dotenv from 'dotenv';
+import logger from './utils/logger';
+import { testConnection as testDatabase } from './config/database';
+import { testRedisConnection } from './config/redis';
+import { startHealthCheck } from './api/health';
 
-const PORT = process.env.PORT || 3000;
+// Load environment variables
+dotenv.config();
 
-console.log('🤖 WhatsApp Assistant Bot starting...');
-console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
-console.log(`🗄️  Database: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
-console.log(`🔴 Redis: ${process.env.REDIS_URL ? 'Connected' : 'Not configured'}`);
+async function main() {
+  try {
+    logger.info('🚀 Starting WhatsApp Assistant Bot...');
+    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
 
-// Health check endpoint (for Railway to verify deployment)
-const http = require('http');
-const server = http.createServer((req: any, res: any) => {
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      status: 'ok',
-      message: 'WhatsApp Bot is running (placeholder mode)',
-      timestamp: new Date().toISOString()
-    }));
-  } else {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('WhatsApp Assistant Bot - Placeholder\nReady for development!\n');
+    // Test database connection
+    logger.info('Testing database connection...');
+    const dbConnected = await testDatabase();
+    if (!dbConnected) {
+      throw new Error('Failed to connect to database');
+    }
+
+    // Test Redis connection
+    logger.info('Testing Redis connection...');
+    const redisConnected = await testRedisConnection();
+    if (!redisConnected) {
+      throw new Error('Failed to connect to Redis');
+    }
+
+    // Start health check API
+    logger.info('Starting health check API...');
+    startHealthCheck();
+
+    logger.info('✅ WhatsApp Assistant Bot is running!');
+    logger.info('📋 Next steps:');
+    logger.info('  1. Run migrations: npm run migrate:up');
+    logger.info('  2. Setup Baileys WhatsApp client');
+    logger.info('  3. Implement authentication service');
+  } catch (error) {
+    logger.error('❌ Failed to start bot:', error);
+    process.exit(1);
   }
+}
+
+// Handle uncaught errors
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-server.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-  console.log('\n📋 Next: Follow docs/DEV_PLAN.md Week 1 to start building!\n');
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
+  process.exit(1);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM received, shutting down gracefully...');
-  server.close(() => {
-    console.log('✅ Server closed');
-    process.exit(0);
-  });
+  logger.info('👋 SIGTERM received, shutting down gracefully...');
+  process.exit(0);
 });
+
+// Start the application
+main();
