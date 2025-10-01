@@ -29,8 +29,10 @@ Thumbs.db
 
 # Baileys session files
 sessions/
-*.json
 auth_info_baileys/
+# Only ignore session JSON files, not project config files
+sessions/**/*.json
+auth_info_baileys/**/*.json
 
 # Logs
 logs/
