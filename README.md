@@ -14,14 +14,31 @@ That's it. Everything else is optional.
 
 ## 📚 Documentation
 
+**Start Here:**
+
 | File | Purpose | Read When |
 |------|---------|-----------|
-| **[START_HERE.md](docs/START_HERE.md)** ⭐ | Quick start + tech stack decisions | First |
-| **[prd.md](docs/prd.md)** | Product requirements | Before coding |
-| **[DEV_PLAN.md](docs/DEV_PLAN.md)** | Week-by-week development checklist | Throughout development |
-| [ARCHITECTURE_ANALYSIS.md](docs/ARCHITECTURE_ANALYSIS.md) | Monorepo vs single server decision | If curious |
-| [ARCHITECTURE_SPEC.md](docs/ARCHITECTURE_SPEC.md) | Technical deep dive | When implementing |
-| [TECH_STACK_DECISION.md](docs/TECH_STACK_DECISION.md) | Database & language analysis | If questioning choices |
+| **[START_HERE.md](docs/START_HERE.md)** ⭐ | Quick start guide + setup | **First!** |
+| **[PROJECT_STATUS.md](docs/PROJECT_STATUS.md)** | Current progress & roadmap | After setup |
+| **[commands.md](docs/commands.md)** | Development commands reference | Daily use |
+
+**Deep Dives:**
+
+| File | Purpose | Read When |
+|------|---------|-----------|
+| [prd.md](docs/prd.md) | Product requirements & vision | Understanding goals |
+| [ARCHITECTURE_SPEC.md](docs/ARCHITECTURE_SPEC.md) | Technical architecture deep dive | Implementation details |
+| [DEV_PLAN.md](docs/DEV_PLAN.md) | Week-by-week development plan | Project planning |
+| [ARCHITECTURE_ANALYSIS.md](docs/ARCHITECTURE_ANALYSIS.md) | Architecture decisions explained | If curious about choices |
+| [TESTING.md](docs/TESTING.md) | Test coverage & quality metrics | Writing tests |
+
+**Recent Work:**
+
+| File | Purpose |
+|------|---------|
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Production deployment guide |
+| [BUG_FIX_SUMMARY.md](BUG_FIX_SUMMARY.md) | Date parsing fixes (Oct 2025) |
+| [TEST_REPORT_COMPREHENSIVE.md](TEST_REPORT_COMPREHENSIVE.md) | Hebrew NLP test results |
 
 ---
 
@@ -139,12 +156,16 @@ npm run dev
 
 ## 🎯 Next Steps
 
-1. Read [docs/START_HERE.md](docs/START_HERE.md)
-2. Setup Railway
-3. Follow [docs/DEV_PLAN.md](docs/DEV_PLAN.md) Week 1
+1. Read **[docs/START_HERE.md](docs/START_HERE.md)** ⭐
+2. Check **[docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)** for current progress
+3. Setup local development (see START_HERE.md)
+4. Review **[docs/commands.md](docs/commands.md)** for daily tasks
+5. Deploy when ready (see [DEPLOYMENT.md](DEPLOYMENT.md))
 
 **Start building!** 🚀
 
 ---
 
-*Status: Ready for Development ✅*
+*Last Updated: October 2, 2025*
+*Status: **MVP Complete + Production Ready** ✅*
+*Version: 0.1.0*

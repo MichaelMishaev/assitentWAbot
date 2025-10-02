@@ -1,10 +1,12 @@
 import express, { Request, Response } from 'express';
+import { Server } from 'http';
 import { testConnection } from '../config/database';
 import { testRedisConnection } from '../config/redis';
 import logger from '../utils/logger';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+let server: Server | null = null;
 
 app.get('/health', async (req: Request, res: Response) => {
   try {
@@ -42,9 +44,22 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 export function startHealthCheck() {
-  app.listen(PORT, () => {
+  server = app.listen(PORT, () => {
     logger.info(`Health check API listening on port ${PORT}`);
     logger.info(`Health endpoint: http://localhost:${PORT}/health`);
+  });
+}
+
+export async function stopHealthCheck(): Promise<void> {
+  return new Promise((resolve) => {
+    if (server) {
+      server.close(() => {
+        logger.info('Health check API stopped');
+        resolve();
+      });
+    } else {
+      resolve();
+    }
   });
 }
 

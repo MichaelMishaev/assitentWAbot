@@ -5,7 +5,7 @@ dotenv.config();
 
 const redisConfig = {
   url: process.env.REDIS_URL || 'redis://localhost:6379',
-  maxRetriesPerRequest: 3,
+  maxRetriesPerRequest: null, // Required for BullMQ blocking operations
   retryStrategy(times: number) {
     const delay = Math.min(times * 50, 2000);
     return delay;
