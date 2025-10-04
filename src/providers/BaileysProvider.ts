@@ -316,6 +316,38 @@ export class BaileysProvider implements IMessageProvider {
     }
   }
 
+  async reactToMessage(to: string, messageId: string, emoji: string): Promise<void> {
+    if (!this.socket) {
+      throw new Error('WhatsApp socket not initialized');
+    }
+
+    if (!this.isConnected()) {
+      throw new Error('WhatsApp not connected');
+    }
+
+    try {
+      // Format phone number for WhatsApp (add @s.whatsapp.net suffix)
+      const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+
+      // Send reaction
+      await this.socket.sendMessage(jid, {
+        react: {
+          text: emoji,
+          key: {
+            remoteJid: jid,
+            fromMe: false,
+            id: messageId
+          }
+        }
+      });
+
+      logger.info(`👍 Reacted to message ${messageId} from ${to} with ${emoji}`);
+    } catch (error) {
+      logger.error(`Failed to react to message ${messageId} from ${to}:`, error);
+      throw error;
+    }
+  }
+
   onMessage(handler: MessageHandler): void {
     this.messageHandlers.push(handler);
     logger.debug('Message handler registered');

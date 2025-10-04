@@ -130,9 +130,24 @@ export class MessageRouter {
   /**
    * Main routing function
    */
-  async routeMessage(from: string, text: string): Promise<void> {
+  async routeMessage(from: string, text: string, messageId?: string): Promise<void> {
     try {
-      logger.info('Routing message', { from, text });
+      logger.info('Routing message', { from, text, messageId });
+
+      // Store messageId for potential reactions
+      if (messageId) {
+        const userId = await this.authService.getUserIdByPhone(from);
+        if (userId) {
+          const session = await this.stateManager.getState(userId);
+          if (session) {
+            await this.stateManager.setState(userId, session.state, {
+              ...session.context,
+              lastMessageId: messageId,
+              lastMessageFrom: from
+            });
+          }
+        }
+      }
 
       if (this.isCommand(text)) {
         await this.handleCommand(from, text);
@@ -490,19 +505,32 @@ export class MessageRouter {
       finalDate = dt.set({ hour: hours, minute: minutes }).toJSDate();
     }
 
-    // Skip location (it's optional, user can add it later via edit)
-    // Go straight to confirmation
-    await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_CONFIRM, {
-      title,
-      startTsUtc: finalDate,
-      location: null // Optional - can be added via edit
-    });
+    // Create event immediately (no confirmation needed)
+    try {
+      await this.eventService.createEvent({
+        userId,
+        title,
+        startTsUtc: finalDate,
+        location: null, // Optional - can be added via edit
+        notes: undefined
+      });
 
-    // Show confirmation
-    const confirmDt = DateTime.fromJSDate(finalDate).setZone('Asia/Jerusalem');
-    const summary = `📌 ${title}\n⏰ ${confirmDt.toFormat('dd/MM/yyyy HH:mm')}\n\nהאם הכל נכון?\n\n✅ שלח "כן" לאישור\n❌ שלח "לא" לביטול`;
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
-    await this.sendMessage(phone, summary);
+      // React to user's original message with thumbs up
+      await this.reactToLastMessage(userId, '👍');
+
+      // Send success message
+      const confirmDt = DateTime.fromJSDate(finalDate).setZone('Asia/Jerusalem');
+      await this.sendMessage(phone, `✅ ${title} - ${confirmDt.toFormat('dd/MM/yyyy HH:mm')}`);
+      await this.showMainMenu(phone);
+
+    } catch (error) {
+      logger.error('Failed to create event', { userId, error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    }
   }
 
   private async handleEventLocation(phone: string, userId: string, text: string): Promise<void> {
@@ -2363,24 +2391,32 @@ export class MessageRouter {
       return;
     }
 
-    // Format date for display - use DateTime to ensure correct timezone display
-    const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+    // Create event immediately (no confirmation needed)
+    try {
+      await this.eventService.createEvent({
+        userId,
+        title: event.title,
+        startTsUtc: eventDate,
+        location: event.location || undefined,
+        notes: event.contactName ? `עם ${event.contactName}` : undefined
+      });
 
-    const confirmMessage = `✅ זיהיתי אירוע חדש:
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
-📌 ${event.title}
-📅 ${displayDate}${event.location ? `\n📍 ${event.location}` : ''}${event.contactName ? `\n👤 ${event.contactName}` : ''}
+      // React to user's original message with thumbs up
+      await this.reactToLastMessage(userId, '👍');
 
-האם לקבוע את האירוע? (כן/לא)`;
+      // Send success message
+      const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+      const successMessage = `✅ ${event.title} - ${displayDate}${event.location ? `\n📍 ${event.location}` : ''}${event.contactName ? `\n👤 ${event.contactName}` : ''}`;
 
-    await this.sendMessage(phone, confirmMessage);
-    await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_CONFIRM, {
-      title: event.title,
-      startTsUtc: eventDate,
-      location: event.location,
-      notes: event.contactName ? `עם ${event.contactName}` : undefined,
-      fromNLP: true
-    });
+      await this.sendMessage(phone, successMessage);
+
+    } catch (error) {
+      logger.error('Failed to create NLP event', { userId, error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+    }
   }
 
   private async handleNLPCreateReminder(phone: string, userId: string, intent: any): Promise<void> {
@@ -2897,6 +2933,25 @@ export class MessageRouter {
     } catch (error) {
       logger.error('Failed to send message', { to, error });
       throw error;
+    }
+  }
+
+  private async reactToLastMessage(userId: string, emoji: string): Promise<void> {
+    try {
+      const session = await this.stateManager.getState(userId);
+      const lastMessageId = session?.context?.lastMessageId;
+      const lastMessageFrom = session?.context?.lastMessageFrom;
+
+      if (!lastMessageId || !lastMessageFrom) {
+        logger.warn('Cannot react: no last message found', { userId });
+        return;
+      }
+
+      await this.messageProvider.reactToMessage(lastMessageFrom, lastMessageId, emoji);
+      logger.info(`Reacted to message with ${emoji}`, { userId, messageId: lastMessageId });
+    } catch (error) {
+      logger.error('Failed to react to last message', { userId, error });
+      // Don't throw - reactions are non-critical
     }
   }
 

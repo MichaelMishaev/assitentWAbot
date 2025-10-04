@@ -48,6 +48,15 @@ export interface IMessageProvider {
   sendMessage(to: string, message: string): Promise<string>;
 
   /**
+   * React to a message with an emoji
+   * @param to Phone number in international format (without +)
+   * @param messageId Message ID to react to
+   * @param emoji Emoji to react with (e.g., '👍', '❤️', '✅')
+   * @returns Promise that resolves when reaction is sent
+   */
+  reactToMessage(to: string, messageId: string, emoji: string): Promise<void>;
+
+  /**
    * Register a handler for incoming messages
    * @param handler Function to call when message is received
    */
