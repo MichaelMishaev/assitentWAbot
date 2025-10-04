@@ -151,6 +151,8 @@ SEARCH/LIST (ALL VARIATIONS):
 - "תראה מה יש", "מה קורה", "מה עושים" (slang: what's up / what's happening)
 - "מה מתוכנן", "מה בתכנון", "מה על הפרק", "מה מסתדר" (what's planned/arranged)
 - "איזה אירועים", "אילו אירועים" (which events)
+- "מתי", "מתי יש לי", "מתי ה", "מתי זה", "when is", "when's", "when do I have" (asking when specific event is)
+- "מתי הבר מצווה", "מתי הפגישה", "מתי האירוע" (when is the bar mitzvah/meeting/event)
 - English: "what do I have", "what have I got", "what's on", "what events", "my events", "my schedule"
 → search_event/list_events
 
@@ -298,6 +300,18 @@ Examples:
 
 15. "כמה אירועים יש לי היום?"
    → {"intent":"list_events","confidence":0.95,"event":{"date":"<today ISO>"}}
+
+16. "משחק כדורגל נתניה סכנין יום ראשון 5 באוקטובר 20:00 אצטדיון נתניה"
+   → {"intent":"create_event","confidence":0.95,"event":{"title":"משחק כדורגל נתניה סכנין","date":"2025-10-05T20:00:00+03:00","location":"אצטדיון נתניה"}}
+   IMPORTANT: Parse full date+time strings! "יום ראשון 5 באוקטובר 20:00" = Sunday October 5th at 20:00
+
+17. "מתי הבר מצווה של טל?" or "מתי הפגישה עם דני?"
+   → {"intent":"search_event","confidence":0.95,"event":{"title":"בר מצווה של טל"}}
+   IMPORTANT: "מתי" (when) = search intent, NOT create! Extract event title for search.
+
+18. "תבטל בדיקת דם" (to cancel: blood test)
+   → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}}
+   IMPORTANT: "בדיקת דם" should fuzzy match "בדיקת דם עם ריאל" - don't require exact match!
 
 16. "מה האירועים שיש לי?" or "יש לי אירועים?"
    → {"intent":"list_events","confidence":0.95}

@@ -490,16 +490,19 @@ export class MessageRouter {
       finalDate = dt.set({ hour: hours, minute: minutes }).toJSDate();
     }
 
-    // Move to location
-    await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_LOCATION, {
+    // Skip location (it's optional, user can add it later via edit)
+    // Go straight to confirmation
+    await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_CONFIRM, {
       title,
-      startDate: finalDate.toISOString()
+      startTsUtc: finalDate,
+      location: null // Optional - can be added via edit
     });
 
-    await this.sendMessage(
-      phone,
-      `מצוין! 📍\n\nאיפה האירוע?\n\nהזן מיקום (למשל: "בית", "משרד", "תל אביב")\n\nאו שלח "דלג" אם אין מיקום`
-    );
+    // Show confirmation
+    const confirmDt = DateTime.fromJSDate(finalDate).setZone('Asia/Jerusalem');
+    const summary = `📌 ${title}\n⏰ ${confirmDt.toFormat('dd/MM/yyyy HH:mm')}\n\nהאם הכל נכון?\n\n✅ שלח "כן" לאישור\n❌ שלח "לא" לביטול`;
+
+    await this.sendMessage(phone, summary);
   }
 
   private async handleEventLocation(phone: string, userId: string, text: string): Promise<void> {
@@ -2302,17 +2305,36 @@ export class MessageRouter {
     let eventDate: Date = dateQuery.date;
 
     // CRITICAL FIX: Check if time is included in the date
-    // If hour is 0 and minute is 0, it means no time was specified - ASK for time
+    // Check if NLP provided explicit time by examining the original date field
     const dt = DateTime.fromJSDate(eventDate).setZone('Asia/Jerusalem');
-    const hasTime = dt.hour !== 0 || dt.minute !== 0;
 
-    if (!hasTime) {
+    // Better time detection: check if the original ISO string from NLP has explicit time
+    // OR if the parsed time is not midnight
+    let hasExplicitTime = false;
+
+    if (event?.date && typeof event.date === 'string') {
+      // Check if ISO string includes explicit time (not just T00:00:00)
+      const timeMatch = event.date.match(/T(\d{2}):(\d{2})/);
+      if (timeMatch) {
+        const hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        hasExplicitTime = hours !== 0 || minutes !== 0;
+      }
+    }
+
+    // Also check if parsed date has non-zero time
+    const hasNonMidnightTime = dt.hour !== 0 || dt.minute !== 0;
+    const hasTime = hasExplicitTime || hasNonMidnightTime;
+
+    if (!hasTime && !event?.dateText?.includes(':')) {
       // No time specified - ask user for time instead of defaulting to 00:00
       logger.info('NLP event has no time, asking user', {
         title: event.title,
         date: dt.toFormat('dd/MM/yyyy'),
         hour: dt.hour,
-        minute: dt.minute
+        minute: dt.minute,
+        originalDate: event?.date,
+        dateText: event?.dateText
       });
 
       await this.sendMessage(phone, `📌 ${event.title}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן שעה (למשל: 14:00)\n\nאו שלח /ביטול`);
@@ -2487,7 +2509,7 @@ export class MessageRouter {
 
       // Filter by title if provided using fuzzy matching
       if (titleFilter && events.length > 0) {
-        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.5);
+        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.6);
       }
 
       // Log for debugging
@@ -2587,9 +2609,9 @@ export class MessageRouter {
         events = await this.eventService.getUpcomingEvents(userId, 50);
       }
 
-      // Filter by title if provided using fuzzy matching
+      // Filter by title if provided using fuzzy matching (60% threshold for flexibility)
       if (event.title && events.length > 0) {
-        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.5);
+        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.6);
       }
 
       if (events.length === 0) {
@@ -2656,7 +2678,7 @@ export class MessageRouter {
         // User said "update EVENT_TITLE to NEW_VALUE"
         // Search by title only
         events = await this.eventService.getUpcomingEvents(userId, 50);
-        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.5);
+        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.6);
       } else if (event.date || event.dateText) {
         // User said "update event on DATE" - date is search term
         const dateQuery = parseDateFromNLP(event, 'handleNLPUpdateEvent');
@@ -2668,17 +2690,17 @@ export class MessageRouter {
 
         events = await this.eventService.getEventsByDate(userId, dateQuery.date!);
 
-        // Filter by title if provided
+        // Filter by title if provided (60% threshold for flexibility)
         if (event.title && events.length > 0) {
-          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.5);
+          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.6);
         }
       } else {
         // Search all upcoming events
         events = await this.eventService.getUpcomingEvents(userId, 50);
 
-        // Filter by title if provided
+        // Filter by title if provided (60% threshold for flexibility)
         if (event.title && events.length > 0) {
-          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.5);
+          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.6);
         }
       }
 
