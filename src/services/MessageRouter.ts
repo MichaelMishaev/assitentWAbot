@@ -1598,7 +1598,7 @@ export class MessageRouter {
       await this.reminderService.cancelReminder(reminder.id, userId);
 
       // Cancel BullMQ job
-      const { cancelReminder } = await import('../queues/ReminderQueue');
+      const { cancelReminder } = await import('../queues/ReminderQueue.js');
       await cancelReminder(reminder.id);
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
@@ -2188,7 +2188,7 @@ export class MessageRouter {
 
   private async handleNLPMessage(phone: string, userId: string, text: string): Promise<void> {
     try {
-      const { NLPService } = await import('./NLPService');
+      const { NLPService } = await import('./NLPService.js');
       const nlp = new NLPService();
 
       const user = await this.authService.getUserByPhone(phone);

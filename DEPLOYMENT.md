@@ -1,83 +1,376 @@
-# Railway Deployment Guide - WhatsApp Assistant Bot
+# Deployment Guide - WhatsApp Assistant Bot
 
-## Quick Deploy (Automated)
+## 🚀 Quick Reference
 
 ```bash
-./scripts/deploy-railway.sh
-```
+# SSH Access
+ssh root@167.71.145.9
 
-This script will:
-1. Install Railway CLI
-2. Login to Railway
-3. Create/link project
-4. Add PostgreSQL + Redis
-5. Set environment variables
-6. Deploy your bot
-7. Run database migrations
+# Deploy new changes
+ssh root@167.71.145.9 "cd wAssitenceBot && git pull && npm install && npm run build && pm2 restart ultrathink --update-env"
+
+# View logs
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink"
+
+# Check status
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 status"
+```
 
 ---
 
-## Manual Deployment (Step by Step)
+## 📋 Table of Contents
 
-### 1. Install Railway CLI
-```bash
-npm install -g @railway/cli
-```
-
-### 2. Login to Railway
-```bash
-railway login
-```
-This opens your browser to authenticate.
-
-### 3. Initialize Project
-```bash
-railway init
-```
-Choose "Create new project" or select existing one.
-
-### 4. Add Databases
-
-**Add PostgreSQL:**
-```bash
-railway add --database postgresql
-```
-
-**Add Redis:**
-```bash
-railway add --database redis
-```
-
-### 5. Set Environment Variables
-```bash
-railway variables set NODE_ENV=production
-railway variables set SESSION_PATH=/app/sessions
-railway variables set MESSAGE_PROVIDER=baileys
-railway variables set LOG_LEVEL=info
-railway variables set PORT=7100
-railway variables set OPENAI_API_KEY=sk-your-actual-key-here
-```
-
-### 6. Deploy
-```bash
-railway up
-```
-
-### 7. Run Migrations
-```bash
-railway run npm run migrate:up
-```
-
-### 8. Get QR Code
-```bash
-railway logs --follow
-```
-
-Look for QR code in logs, scan with WhatsApp.
+1. [SSH Deployment](#ssh-deployment)
+2. [Deploying Changes](#deploying-changes)
+3. [Managing the Application](#managing-the-application)
+4. [Troubleshooting](#troubleshooting)
+5. [Environment Variables](#environment-variables)
 
 ---
 
-## Environment Variables
+## 🔧 SSH Deployment
+
+### Server Information
+- **Host:** `167.71.145.9`
+- **User:** `root`
+- **App Directory:** `/root/wAssitenceBot`
+- **App Name (PM2):** `ultrathink`
+- **Port:** `8080`
+
+### First Time Deployment
+
+```bash
+# 1. SSH into server
+ssh root@167.71.145.9
+
+# 2. Clone repository (if not already done)
+cd ~
+git clone <your-repo-url> wAssitenceBot
+cd wAssitenceBot
+
+# 3. Install dependencies
+npm install
+
+# 4. Setup environment variables
+nano .env
+# Add all required variables (see Environment Variables section)
+
+# 5. Build the project
+npm run build
+
+# 6. Start with PM2
+pm2 start dist/index.js --name ultrathink
+pm2 save
+pm2 startup  # Follow instructions to enable auto-start on reboot
+
+# 7. Verify it's running
+pm2 status
+pm2 logs ultrathink --lines 30
+```
+
+---
+
+## 🔄 Deploying Changes
+
+### Standard Deployment Workflow
+
+**Step 1: Local Development**
+
+```bash
+# Make your changes locally
+# Test locally
+npm run dev
+
+# Commit and push to GitHub
+git add .
+git commit -m "Your commit message"
+git push origin main
+```
+
+**Step 2: Deploy to Production**
+
+```bash
+# One-line deployment (from your local machine)
+ssh root@167.71.145.9 "cd wAssitenceBot && git pull origin main && npm install && npm run build && pm2 restart ultrathink --update-env && pm2 logs ultrathink --lines 30 --nostream"
+```
+
+**Step 3: Verify Deployment**
+
+```bash
+# Check app status
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 status"
+
+# View recent logs
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink --lines 50 --nostream"
+
+# Test health endpoint
+ssh root@167.71.145.9 "curl http://localhost:8080/health"
+```
+
+### Deployment Examples by Scenario
+
+#### Scenario 1: Quick Bug Fix (No New Dependencies)
+
+```bash
+# Local
+git add .
+git commit -m "Fix: Handle undefined user in NLP service"
+git push origin main
+
+# Deploy (fast - skip npm install)
+ssh root@167.71.145.9 "cd wAssitenceBot && git pull && npm run build && pm2 restart ultrathink --update-env"
+```
+
+#### Scenario 2: New Feature with Dependencies
+
+```bash
+# Local
+npm install new-package
+# ... make changes ...
+git add .
+git commit -m "Feature: Add event export functionality"
+git push origin main
+
+# Deploy (full install)
+ssh root@167.71.145.9 "cd wAssitenceBot && git pull && npm install && npm run build && pm2 restart ultrathink --update-env"
+```
+
+#### Scenario 3: Database Migration
+
+```bash
+# Local
+npm run migrate:create add-new-table
+# Edit migration file
+git add .
+git commit -m "Migration: Add new table"
+git push origin main
+
+# Deploy with migration
+ssh root@167.71.145.9 "cd wAssitenceBot && git pull && npm install && npm run migrate:up && npm run build && pm2 restart ultrathink --update-env"
+```
+
+#### Scenario 4: Environment Variable Update
+
+```bash
+# Update .env on remote
+ssh root@167.71.145.9 "cd wAssitenceBot && nano .env"
+# OR use sed for specific variable
+ssh root@167.71.145.9 "cd wAssitenceBot && sed -i 's|OPENAI_API_KEY=.*|OPENAI_API_KEY=sk-proj-NEW_KEY|' .env"
+
+# Restart with updated env (IMPORTANT: use --update-env flag)
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 restart ultrathink --update-env"
+```
+
+#### Scenario 5: Rebuild Native Modules (bcrypt, etc.)
+
+```bash
+# If you get "invalid ELF header" errors
+ssh root@167.71.145.9 "cd wAssitenceBot && npm rebuild bcrypt && pm2 restart ultrathink --update-env"
+
+# Or rebuild all native modules
+ssh root@167.71.145.9 "cd wAssitenceBot && npm rebuild && pm2 restart ultrathink --update-env"
+```
+
+---
+
+## 🎮 Managing the Application
+
+### PM2 Process Management
+
+```bash
+# View all PM2 processes
+ssh root@167.71.145.9 "pm2 status"
+
+# Start the app
+ssh root@167.71.145.9 "pm2 start ultrathink"
+
+# Stop the app
+ssh root@167.71.145.9 "pm2 stop ultrathink"
+
+# Restart the app
+ssh root@167.71.145.9 "pm2 restart ultrathink"
+
+# Restart with updated environment variables (ALWAYS use this after .env changes)
+ssh root@167.71.145.9 "pm2 restart ultrathink --update-env"
+
+# Delete from PM2 (stop and remove)
+ssh root@167.71.145.9 "pm2 delete ultrathink"
+
+# View detailed info
+ssh root@167.71.145.9 "pm2 show ultrathink"
+
+# Monitor CPU/Memory in real-time
+ssh root@167.71.145.9 "pm2 monit"
+
+# Save PM2 process list (persist across reboots)
+ssh root@167.71.145.9 "pm2 save"
+
+# Clear PM2 logs
+ssh root@167.71.145.9 "pm2 flush ultrathink"
+```
+
+### Viewing Logs
+
+```bash
+# Real-time logs (streaming)
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink"
+
+# Last 100 lines (no streaming)
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink --lines 100 --nostream"
+
+# Only error logs
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink --err"
+
+# Filter logs with grep
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink --nostream | grep -i 'error'"
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink --nostream | grep -i 'nlp'"
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink --nostream | grep -i 'whatsapp'"
+```
+
+### Git Operations on Remote
+
+```bash
+# Check current status
+ssh root@167.71.145.9 "cd wAssitenceBot && git status"
+
+# View recent commits
+ssh root@167.71.145.9 "cd wAssitenceBot && git log --oneline -10"
+
+# Pull latest changes
+ssh root@167.71.145.9 "cd wAssitenceBot && git pull origin main"
+
+# Discard local changes (BE CAREFUL!)
+ssh root@167.71.145.9 "cd wAssitenceBot && git reset --hard origin/main"
+
+# Check which branch you're on
+ssh root@167.71.145.9 "cd wAssitenceBot && git branch"
+
+# View remote URL
+ssh root@167.71.145.9 "cd wAssitenceBot && git remote -v"
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### Common Issues and Solutions
+
+#### 1. **bcrypt Module Error**
+
+**Error:** `invalid ELF header` or `ERR_DLOPEN_FAILED`
+
+**Cause:** Native modules compiled for different architecture
+
+**Solution:**
+```bash
+ssh root@167.71.145.9 "cd wAssitenceBot && npm rebuild bcrypt && pm2 restart ultrathink --update-env"
+```
+
+#### 2. **Application Crashes on Start**
+
+**Check error logs:**
+```bash
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink --err --lines 50"
+```
+
+**Common causes:**
+- Missing environment variables
+- Database connection failure
+- Redis connection failure
+- Port already in use
+
+**Solution:**
+```bash
+# Check environment variables
+ssh root@167.71.145.9 "cd wAssitenceBot && grep -v '^#' .env | grep -v '^$'"
+
+# Test database connection
+ssh root@167.71.145.9 "cd wAssitenceBot && psql \$DATABASE_URL -c 'SELECT 1'"
+
+# Test Redis connection
+ssh root@167.71.145.9 "redis-cli -u \$REDIS_URL ping"
+
+# Check what's using port 8080
+ssh root@167.71.145.9 "lsof -i :8080"
+```
+
+#### 3. **OpenAI API Not Working**
+
+**Symptoms:** Bot responds with "לא הבנתי את הבקשה" to all messages
+
+**Check API key:**
+```bash
+ssh root@167.71.145.9 "cd wAssitenceBot && grep OPENAI_API_KEY .env"
+```
+
+**Solution:**
+```bash
+# Update API key in .env
+ssh root@167.71.145.9 "cd wAssitenceBot && sed -i 's|OPENAI_API_KEY=.*|OPENAI_API_KEY=sk-proj-YOUR_KEY|' .env && pm2 restart ultrathink --update-env"
+
+# Test OpenAI connection
+ssh root@167.71.145.9 "cd wAssitenceBot && node -e \"import('openai').then(m => { const o = new m.default({apiKey: process.env.OPENAI_API_KEY}); o.chat.completions.create({model:'gpt-4o-mini',messages:[{role:'user',content:'test'}],max_tokens:5}).then(() => console.log('✅ OpenAI OK')).catch(e => console.error('❌ Error:', e.message)); })\""
+```
+
+#### 4. **Git Pull Conflicts**
+
+**Error:** `error: Your local changes to the following files would be overwritten by merge`
+
+**Solution:**
+```bash
+# Option 1: Stash changes
+ssh root@167.71.145.9 "cd wAssitenceBot && git stash && git pull origin main && git stash pop"
+
+# Option 2: Discard local changes (BE CAREFUL!)
+ssh root@167.71.145.9 "cd wAssitenceBot && git reset --hard origin/main && git pull origin main"
+```
+
+#### 5. **TypeScript Build Errors**
+
+```bash
+# Clean build
+ssh root@167.71.145.9 "cd wAssitenceBot && rm -rf dist && npm run build"
+
+# Check for TypeScript errors without building
+ssh root@167.71.145.9 "cd wAssitenceBot && npm run type-check"
+```
+
+#### 6. **WhatsApp Session Lost**
+
+**Symptoms:** QR code appears again, or "Connection closed (401)"
+
+**Solution:**
+```bash
+# Clear session and re-authenticate
+ssh root@167.71.145.9 "cd wAssitenceBot && rm -rf sessions/* && pm2 restart ultrathink"
+
+# Then scan new QR code from logs
+ssh root@167.71.145.9 "cd wAssitenceBot && pm2 logs ultrathink"
+```
+
+#### 7. **High Memory Usage**
+
+```bash
+# Check memory usage
+ssh root@167.71.145.9 "pm2 monit"
+
+# Restart with memory limit
+ssh root@167.71.145.9 "pm2 stop ultrathink && pm2 start dist/index.js --name ultrathink --max-memory-restart 500M && pm2 save"
+```
+
+### Diagnostic Commands
+
+```bash
+# Full system diagnostic
+ssh root@167.71.145.9 "cd wAssitenceBot && echo '=== PM2 Status ===' && pm2 status && echo -e '\n=== Last 30 Logs ===' && pm2 logs ultrathink --lines 30 --nostream && echo -e '\n=== Disk Space ===' && df -h && echo -e '\n=== Memory ===' && free -h && echo -e '\n=== Git Status ===' && git status"
+
+# Health check
+ssh root@167.71.145.9 "curl http://localhost:8080/health"
+```
+
+---
+
+## 🔐 Environment Variables
 
 ### Required Variables
 
