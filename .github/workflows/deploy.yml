@@ -6,9 +6,34 @@ on:
       - main
 
 jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🧪 Run tests
+        run: npm test
+        continue-on-error: false
+
+      - name: 🔨 Build TypeScript
+        run: npm run build
+
   deploy:
     name: Deploy to DigitalOcean
     runs-on: ubuntu-latest
+    needs: test
 
     steps:
       - name: 🚀 Deploy to server
@@ -17,5 +42,48 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script_stop: true
           script: |
             /root/deploy.sh
+
+      - name: ✅ Deployment notification
+        if: success()
+        run: |
+          echo "🎉 Deployment successful!"
+          echo "Server: ${{ secrets.SSH_HOST }}"
+          echo "Time: $(date)"
+
+      - name: ❌ Deployment failed notification
+        if: failure()
+        run: |
+          echo "⚠️ Deployment failed!"
+          echo "Check the logs above for details"
+          exit 1
+
+  health-check:
+    name: Health Check
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: 🏥 Check server health
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            echo "Checking PM2 status..."
+            pm2 status ultrathink
+
+            echo ""
+            echo "Checking if process is online..."
+            if pm2 status | grep -q "ultrathink.*online"; then
+              echo "✅ Process is running"
+              exit 0
+            else
+              echo "❌ Process is not running!"
+              exit 1
+            fi
