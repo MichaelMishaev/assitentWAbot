@@ -266,13 +266,17 @@ export function formatEventInList(
 
   // Add comments inline (compact)
   if (event.notes && event.notes.length > 0) {
-    output += `\n   💬 ${event.notes.length} הערות`;
     const firstComment = event.notes[0];
     const priority = getPriorityIndicator(firstComment.priority);
     const preview = firstComment.text.length > 30
       ? firstComment.text.substring(0, 30) + '...'
       : firstComment.text;
-    output += `: "${preview}"${priority ? ' ' + priority : ''}`;
+    output += `\n   💬 ${event.notes.length} הערות: "${preview}"${priority ? ' ' + priority : ''}`;
+
+    // Add hint for viewing all comments
+    if (event.notes.length > 1) {
+      output += `\n   💡 לצפייה בכל ההערות: "הצג הערות ${event.title}"`;
+    }
   }
 
   return output;
