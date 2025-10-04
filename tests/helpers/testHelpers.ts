@@ -176,8 +176,23 @@ export async function teardownTestEnvironment(env: {
   db: TestDatabase;
   redis: TestRedis;
 }) {
-  await env.db.close();
-  await env.redis.close();
+  // Defensive check to prevent accessing properties of undefined
+  if (!env) {
+    console.warn('teardownTestEnvironment called with undefined env');
+    return;
+  }
+
+  if (!env.db) {
+    console.warn('teardownTestEnvironment called with undefined env.db');
+  } else {
+    await env.db.close();
+  }
+
+  if (!env.redis) {
+    console.warn('teardownTestEnvironment called with undefined env.redis');
+  } else {
+    await env.redis.close();
+  }
 }
 
 // Helper to generate unique phone numbers for tests
