@@ -33,10 +33,19 @@ auth_info_baileys/
 # Only ignore session JSON files, not project config files
 sessions/**/*.json
 auth_info_baileys/**/*.json
+*.png
 
 # Logs
 logs/
 *.log
+
+# Database dumps and backups
+*.dump
+*.sql.gz
+*.backup
+
+# Documentation with secrets
+DEPLOYMENT_CHECKLIST.md
 
 # Testing
 coverage/
