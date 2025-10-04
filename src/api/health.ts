@@ -1,8 +1,8 @@
 import express, { Request, Response } from 'express';
 import { Server } from 'http';
-import { testConnection } from '../config/database';
-import { testRedisConnection } from '../config/redis';
-import logger from '../utils/logger';
+import { testConnection } from '../config/database.js';
+import { testRedisConnection } from '../config/redis.js';
+import logger from '../utils/logger.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;

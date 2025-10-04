@@ -15,14 +15,14 @@ import makeWASocket, {
   ConnectionState as BaileysConnectionState,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
-import logger from '../utils/logger';
+import logger from '../utils/logger.js';
 import {
   IMessageProvider,
   IncomingMessage,
   MessageHandler,
   ConnectionState,
   ConnectionStateHandler,
-} from './IMessageProvider';
+} from './IMessageProvider.js';
 import path from 'path';
 import fs from 'fs';
 import QRCode from 'qrcode';

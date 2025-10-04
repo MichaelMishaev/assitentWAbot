@@ -1,6 +1,6 @@
-import { redis } from '../config/redis';
-import { ConversationState, Session } from '../types';
-import logger from '../utils/logger';
+import { redis } from '../config/redis.js';
+import { ConversationState, Session } from '../types/index.js';
+import logger from '../utils/logger.js';
 
 /**
  * StateManager - Redis-based conversation state tracking for WhatsApp bot

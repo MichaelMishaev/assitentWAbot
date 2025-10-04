@@ -246,6 +246,39 @@ export function formatNoCommentsToDelete(eventTitle: string): string {
 }
 
 /**
+ * Format event in list view with inline comment preview
+ */
+export function formatEventInList(
+  event: Event,
+  index: number,
+  timezone: string = 'Asia/Jerusalem',
+  showFullDate: boolean = false
+): string {
+  const dt = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
+  const dateFormat = showFullDate ? 'dd/MM/yyyy HH:mm' : 'dd/MM HH:mm';
+
+  let output = `${index}. ${event.title}\n`;
+  output += `   📅 ${dt.toFormat(dateFormat)}`;
+
+  if (event.location) {
+    output += `\n   📍 ${event.location}`;
+  }
+
+  // Add comments inline (compact)
+  if (event.notes && event.notes.length > 0) {
+    output += `\n   💬 ${event.notes.length} הערות`;
+    const firstComment = event.notes[0];
+    const priority = getPriorityIndicator(firstComment.priority);
+    const preview = firstComment.text.length > 30
+      ? firstComment.text.substring(0, 30) + '...'
+      : firstComment.text;
+    output += `: "${preview}"${priority ? ' ' + priority : ''}`;
+  }
+
+  return output;
+}
+
+/**
  * Format event details with comments (for event display/updates)
  */
 export function formatEventWithComments(

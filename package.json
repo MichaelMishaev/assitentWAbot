@@ -6,8 +6,9 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
-    "dev": "lsof -ti:7100 | xargs kill 2>/dev/null || true && sleep 1 && nodemon --exec ts-node src/index.ts",
+    "dev": "lsof -ti:7100 | xargs kill 2>/dev/null || true && sleep 1 && nodemon --exec node --loader ts-node/esm src/index.ts",
     "build": "tsc",
+    "postinstall": "npm run build",
     "test": "jest --config jest.config.js",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

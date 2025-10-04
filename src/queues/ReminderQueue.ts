@@ -1,6 +1,6 @@
 import { Queue, QueueOptions } from 'bullmq';
-import { redis } from '../config/redis';
-import logger from '../utils/logger';
+import { redis } from '../config/redis.js';
+import logger from '../utils/logger.js';
 
 export interface ReminderJob {
   reminderId: string;

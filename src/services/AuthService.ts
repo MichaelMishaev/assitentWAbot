@@ -1,8 +1,8 @@
 import bcrypt from 'bcrypt';
-import { pool } from '../config/database';
-import { redis } from '../config/redis';
-import logger from '../utils/logger';
-import { User } from '../types';
+import { pool } from '../config/database.js';
+import { redis } from '../config/redis.js';
+import logger from '../utils/logger.js';
+import { User } from '../types/index.js';
 
 const SALT_ROUNDS = 10;
 const LOCKOUT_DURATION_SECONDS = 300; // 5 minutes

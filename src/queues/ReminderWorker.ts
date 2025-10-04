@@ -1,8 +1,8 @@
 import { Worker, Job } from 'bullmq';
-import { redis } from '../config/redis';
-import logger from '../utils/logger';
-import { ReminderJob } from './ReminderQueue';
-import { IMessageProvider } from '../providers/IMessageProvider';
+import { redis } from '../config/redis.js';
+import logger from '../utils/logger.js';
+import { ReminderJob } from './ReminderQueue.js';
+import { IMessageProvider } from '../providers/IMessageProvider.js';
 
 export class ReminderWorker {
   private worker: Worker<ReminderJob>;

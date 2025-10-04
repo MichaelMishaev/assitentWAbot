@@ -1,0 +1,35 @@
+name: whatsapp-assistant-bot
+services:
+- name: web
+  source_dir: /
+  github:
+    repo: your-username/your-repo-name
+    branch: main
+  run_command: npm start
+  build_command: npm ci && npm run build
+  environment_slug: node-js
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 8080
+  routes:
+  - path: /
+  health_check:
+    http_path: /health
+  envs:
+  - key: NODE_ENV
+    value: production
+  - key: PORT
+    value: "8080"
+  - key: SESSION_PATH
+    value: /app/sessions
+  - key: MESSAGE_PROVIDER
+    value: baileys
+  - key: LOG_LEVEL
+    value: info
+  # Add your database URLs here after creating the databases
+  - key: DATABASE_URL
+    value: ${DATABASE_URL}
+  - key: REDIS_URL
+    value: ${REDIS_URL}
+  - key: OPENAI_API_KEY
+    value: ${OPENAI_API_KEY}

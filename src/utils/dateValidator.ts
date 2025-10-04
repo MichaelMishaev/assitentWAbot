@@ -5,7 +5,7 @@
  * that cause PostgreSQL timestamp errors like "0NaN-NaN-NaN..."
  */
 
-import logger from './logger';
+import logger from './logger.js';
 
 /**
  * Check if a value is a valid date string that can be parsed

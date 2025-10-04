@@ -1,15 +1,15 @@
-import { StateManager } from './StateManager';
-import { AuthService } from './AuthService';
-import { EventService } from './EventService';
-import { ReminderService } from './ReminderService';
-import { ContactService } from './ContactService';
-import { SettingsService } from './SettingsService';
-import { IMessageProvider } from '../providers/IMessageProvider';
-import { ConversationState, AuthState } from '../types';
-import { redis } from '../config/redis';
-import logger from '../utils/logger';
-import { parseHebrewDate } from '../utils/hebrewDateParser';
-import { safeParseDate, extractDateFromIntent } from '../utils/dateValidator';
+import { StateManager } from './StateManager.js';
+import { AuthService } from './AuthService.js';
+import { EventService } from './EventService.js';
+import { ReminderService } from './ReminderService.js';
+import { ContactService } from './ContactService.js';
+import { SettingsService } from './SettingsService.js';
+import { IMessageProvider } from '../providers/IMessageProvider.js';
+import { ConversationState, AuthState } from '../types/index.js';
+import { redis } from '../config/redis.js';
+import logger from '../utils/logger.js';
+import { parseHebrewDate } from '../utils/hebrewDateParser.js';
+import { safeParseDate, extractDateFromIntent } from '../utils/dateValidator.js';
 import {
   formatEventComments,
   formatCommentAdded,
@@ -20,8 +20,9 @@ import {
   formatCommentNotFound,
   formatNoCommentsToDelete,
   formatCommentEducationTip,
-  formatEventWithComments
-} from '../utils/commentFormatter';
+  formatEventWithComments,
+  formatEventInList
+} from '../utils/commentFormatter.js';
 
 /**
  * Date query type - single date vs range
@@ -105,8 +106,8 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
   return result;
 }
 import { DateTime } from 'luxon';
-import { scheduleReminder } from '../queues/ReminderQueue';
-import { filterByFuzzyMatch } from '../utils/hebrewMatcher';
+import { scheduleReminder } from '../queues/ReminderQueue.js';
+import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';
 
 /**
  * MessageRouter - COMPLETE IMPLEMENTATION
@@ -963,13 +964,7 @@ export class MessageRouter {
 
       let message = `${header}\n\n`;
       events.forEach((event, index) => {
-        const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-        const formatted = dt.toFormat('dd/MM HH:mm');
-        message += `${index + 1}. ${event.title}\n   📅 ${formatted}`;
-        if (event.location) {
-          message += `\n   📍 ${event.location}`;
-        }
-        message += `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false) + `\n\n`;
       });
 
       await this.sendMessage(phone, message);
@@ -1013,19 +1008,7 @@ export class MessageRouter {
 
       const displayEvents = events.slice(0, 20); // Show max 20 results
       displayEvents.forEach((event, index) => {
-        const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-        const now = DateTime.now().setZone('Asia/Jerusalem');
-        const daysDiff = Math.floor(dt.diff(now, 'days').days);
-        const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
-
-        message += `${index + 1}. ${event.title}\n   📅 ${formatted}`;
-        if (daysDiff > 7) {
-          message += ` (בעוד ${daysDiff} ימים)`;
-        }
-        if (event.location) {
-          message += `\n   📍 ${event.location}`;
-        }
-        message += `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true) + `\n\n`;
       });
 
       if (events.length > 20) {
@@ -1348,21 +1331,7 @@ export class MessageRouter {
       } else {
         let message = `${header}\n\nבחר מספר אירוע למחיקה:\n\n`;
         events.forEach((event, index) => {
-          const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-          const now = DateTime.now().setZone('Asia/Jerusalem');
-          const daysDiff = Math.floor(dt.diff(now, 'days').days);
-
-          // Show full date with year for clarity
-          const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
-
-          message += `${index + 1}. ${event.title}\n   📅 ${formatted}`;
-          if (daysDiff > 7) {
-            message += ` (בעוד ${daysDiff} ימים)`;
-          }
-          if (event.location) {
-            message += `\n   📍 ${event.location}`;
-          }
-          message += `\n\n`;
+          message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true) + `\n\n`;
         });
 
         message += 'שלח מספר האירוע או /ביטול';
@@ -1406,19 +1375,7 @@ export class MessageRouter {
 
       const displayEvents = events.slice(0, 15); // Show max 15 results
       displayEvents.forEach((event, index) => {
-        const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-        const now = DateTime.now().setZone('Asia/Jerusalem');
-        const daysDiff = Math.floor(dt.diff(now, 'days').days);
-        const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
-
-        message += `${index + 1}. ${event.title}\n   📅 ${formatted}`;
-        if (daysDiff > 7) {
-          message += ` (בעוד ${daysDiff} ימים)`;
-        }
-        if (event.location) {
-          message += `\n   📍 ${event.location}`;
-        }
-        message += `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true) + `\n\n`;
       });
 
       if (events.length > 15) {
@@ -2557,16 +2514,9 @@ export class MessageRouter {
       }
 
       events.forEach((event, index) => {
-        const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-
-        // For week/month ranges or title searches, show date+time. For single date, just time.
-        const timeFormat = (dateDescription.includes('בשבוע') || dateDescription.includes('בחודש') || titleFilter)
-          ? dt.toFormat('dd/MM HH:mm')
-          : dt.toFormat('HH:mm');
-
-        message += `${index + 1}. ${event.title}\n   📅 ${timeFormat}`;
-        if (event.location) message += `\n   📍 ${event.location}`;
-        message += `\n\n`;
+        // For week/month ranges or title searches, show full date. For single date, show shorter format.
+        const showFullDate = (dateDescription.includes('בשבוע') || dateDescription.includes('בחודש') || titleFilter);
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', showFullDate) + `\n\n`;
       });
 
       await this.sendMessage(phone, message);
@@ -2581,10 +2531,7 @@ export class MessageRouter {
 
       let message = '📅 האירועים הקרובים שלך:\n\n';
       events.forEach((event, index) => {
-        const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-        message += `${index + 1}. ${event.title}\n   📅 ${dt.toFormat('dd/MM HH:mm')}`;
-        if (event.location) message += `\n   📍 ${event.location}`;
-        message += `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false) + `\n\n`;
       });
 
       await this.sendMessage(phone, message);
@@ -2667,8 +2614,7 @@ export class MessageRouter {
       // Multiple events found - show list
       let message = `📅 נמצאו ${events.length} אירועים:\n\n`;
       events.slice(0, 10).forEach((event, index) => {
-        const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-        message += `${index + 1}. ${event.title}\n   📅 ${dt.toFormat('dd/MM HH:mm')}\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false) + `\n\n`;
       });
       message += 'בחר מספר אירוע למחיקה או שלח /ביטול';
 
@@ -3205,12 +3151,12 @@ export class MessageRouter {
 }
 
 // Export factory function
-import stateManager from './StateManager';
-import authService from './AuthService';
-import eventService from './EventService';
-import reminderService from './ReminderService';
-import contactService from './ContactService';
-import settingsService from './SettingsService';
+import stateManager from './StateManager.js';
+import authService from './AuthService.js';
+import eventService from './EventService.js';
+import reminderService from './ReminderService.js';
+import contactService from './ContactService.js';
+import settingsService from './SettingsService.js';
 
 export const createMessageRouter = (messageProvider: IMessageProvider): MessageRouter => {
   return new MessageRouter(

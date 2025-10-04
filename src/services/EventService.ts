@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
-import { pool } from '../config/database';
-import logger from '../utils/logger';
+import { pool } from '../config/database.js';
+import logger from '../utils/logger.js';
 import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 import { EventComment } from '../types/index.js';

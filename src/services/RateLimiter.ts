@@ -1,5 +1,5 @@
-import { redis } from '../config/redis';
-import logger from '../utils/logger';
+import { redis } from '../config/redis.js';
+import logger from '../utils/logger.js';
 
 /**
  * RateLimiter - Multi-layer rate limiting service for WhatsApp bot

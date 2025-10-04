@@ -1,13 +1,13 @@
 import dotenv from 'dotenv';
-import logger from './utils/logger';
-import { testConnection as testDatabase } from './config/database';
-import { testRedisConnection } from './config/redis';
-import { startHealthCheck, stopHealthCheck } from './api/health';
-import { BaileysProvider } from './providers';
-import { IncomingMessage } from './providers/IMessageProvider';
-import { createMessageRouter } from './services/MessageRouter';
-import { ReminderWorker } from './queues/ReminderWorker';
-import type { MessageRouter } from './services/MessageRouter';
+import logger from './utils/logger.js';
+import { testConnection as testDatabase } from './config/database.js';
+import { testRedisConnection } from './config/redis.js';
+import { startHealthCheck, stopHealthCheck } from './api/health.js';
+import { BaileysProvider } from './providers/index.js';
+import { IncomingMessage } from './providers/IMessageProvider.js';
+import { createMessageRouter } from './services/MessageRouter.js';
+import { ReminderWorker } from './queues/ReminderWorker.js';
+import type { MessageRouter } from './services/MessageRouter.js';
 
 // Load environment variables
 dotenv.config();

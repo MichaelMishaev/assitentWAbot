@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
-import { pool } from '../config/database';
-import logger from '../utils/logger';
+import { pool } from '../config/database.js';
+import logger from '../utils/logger.js';
 import { DateTime } from 'luxon';
 
 export interface Reminder {

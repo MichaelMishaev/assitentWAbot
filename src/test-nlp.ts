@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { NLPService } from './services/NLPService';
+import { NLPService } from './services/NLPService.js';
 
 dotenv.config();
 
