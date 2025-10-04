@@ -136,11 +136,11 @@ export class MessageRouter {
 
       // Store messageId for potential reactions
       if (messageId) {
-        const userId = await this.authService.getUserIdByPhone(from);
-        if (userId) {
-          const session = await this.stateManager.getState(userId);
+        const user = await this.authService.getUserByPhone(from);
+        if (user) {
+          const session = await this.stateManager.getState(user.id);
           if (session) {
-            await this.stateManager.setState(userId, session.state, {
+            await this.stateManager.setState(user.id, session.state, {
               ...session.context,
               lastMessageId: messageId,
               lastMessageFrom: from
@@ -511,7 +511,7 @@ export class MessageRouter {
         userId,
         title,
         startTsUtc: finalDate,
-        location: null, // Optional - can be added via edit
+        location: undefined, // Optional - can be added via edit
         notes: undefined
       });
 
@@ -2393,13 +2393,17 @@ export class MessageRouter {
 
     // Create event immediately (no confirmation needed)
     try {
-      await this.eventService.createEvent({
+      const newEvent = await this.eventService.createEvent({
         userId,
         title: event.title,
         startTsUtc: eventDate,
-        location: event.location || undefined,
-        notes: event.contactName ? `עם ${event.contactName}` : undefined
+        location: event.location || undefined
       });
+
+      // If contact name exists, add it as a comment
+      if (event.contactName && newEvent) {
+        await this.eventService.addComment(newEvent.id, userId, `עם ${event.contactName}`, { priority: 'normal' });
+      }
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
