@@ -10,6 +10,17 @@ import { redis } from '../config/redis';
 import logger from '../utils/logger';
 import { parseHebrewDate } from '../utils/hebrewDateParser';
 import { safeParseDate, extractDateFromIntent } from '../utils/dateValidator';
+import {
+  formatEventComments,
+  formatCommentAdded,
+  formatCommentAddedWithPriority,
+  formatCommentWithReminder,
+  formatCommentDeleted,
+  formatEventNotFound,
+  formatCommentNotFound,
+  formatNoCommentsToDelete,
+  formatCommentEducationTip
+} from '../utils/commentFormatter';
 
 /**
  * Date query type - single date vs range
@@ -1057,6 +1068,82 @@ export class MessageRouter {
   private async handleEventEditMenu(phone: string, userId: string, text: string): Promise<void> {
     const choice = text.trim();
     const session = await this.stateManager.getState(userId);
+
+    // Handle NLP flow: user picked event from list
+    if (session?.context?.events && !session?.context?.selectedEvent && !session?.context?.eventId) {
+      const eventIds = session.context.events;
+      const eventIndex = parseInt(choice) - 1;
+
+      if (isNaN(eventIndex) || eventIndex < 0 || eventIndex >= eventIds.length) {
+        await this.sendMessage(phone, 'מספר אירוע לא תקין. אנא בחר מספר מהרשימה או שלח /ביטול');
+        return;
+      }
+
+      // Get the event ID
+      const eventId = eventIds[eventIndex];
+
+      // Check if this is a postpone scenario
+      if (session.context.postponeToDate) {
+        // User wants to postpone this event to a specific date
+        const postponeDate = new Date(session.context.postponeToDate);
+
+        try {
+          const updated = await this.eventService.updateEvent(eventId, userId, {
+            startTsUtc: postponeDate
+          });
+
+          if (updated) {
+            const dt = DateTime.fromJSDate(updated.startTsUtc).setZone('Asia/Jerusalem');
+            await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n📌 ${updated.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}`);
+            await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+            await this.showMainMenu(phone);
+          } else {
+            await this.sendMessage(phone, '❌ לא הצלחתי לעדכן את האירוע. נסה שוב.');
+            await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+            await this.showMainMenu(phone);
+          }
+        } catch (error) {
+          logger.error('Failed to postpone event', { eventId, userId, error });
+          await this.sendMessage(phone, '❌ אירעה שגיאה בעדכון האירוע.');
+          await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+          await this.showMainMenu(phone);
+        }
+        return;
+      }
+
+      // Normal edit flow - show edit menu
+      const event = await this.eventService.getEventById(eventId, userId);
+      if (!event) {
+        await this.sendMessage(phone, '❌ אירוע לא נמצא.');
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+        return;
+      }
+
+      const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
+      const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
+
+      const editMenu = `✏️ עריכת אירוע: ${event.title}\n\nמה לערוך?\n\n1️⃣ שם (${event.title})\n2️⃣ תאריך ושעה (${formatted})\n3️⃣ מיקום (${event.location || 'לא הוגדר'})\n4️⃣ חזרה\n\nבחר מספר (1-4)`;
+
+      await this.sendMessage(phone, editMenu);
+      await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, { selectedEvent: event });
+      return;
+    }
+
+    // Handle case where we have eventId but no selectedEvent
+    if (session?.context?.eventId && !session?.context?.selectedEvent) {
+      const event = await this.eventService.getEventById(session.context.eventId, userId);
+      if (!event) {
+        await this.sendMessage(phone, '❌ אירוע לא נמצא.');
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+        return;
+      }
+
+      // Update context with full event object
+      session.context.selectedEvent = event;
+    }
+
     const selectedEvent = session?.context?.selectedEvent;
 
     if (!selectedEvent) {
@@ -2217,6 +2304,18 @@ export class MessageRouter {
           await this.sendMessage(phone, '📝 תכונת שליחת הודעות תהיה זמינה בקרוב!\n\nשלח /תפריט לחזרה לתפריט ראשי');
           break;
 
+        case 'add_comment':
+          await this.handleNLPAddComment(phone, userId, intent);
+          break;
+
+        case 'view_comments':
+          await this.handleNLPViewComments(phone, userId, intent);
+          break;
+
+        case 'delete_comment':
+          await this.handleNLPDeleteComment(phone, userId, intent);
+          break;
+
         default:
           await this.sendMessage(phone, 'לא הבנתי. שלח /תפריט לתפריט ראשי');
       }
@@ -2379,65 +2478,89 @@ export class MessageRouter {
   private async handleNLPSearchEvents(phone: string, userId: string, intent: any): Promise<void> {
     const { event } = intent;
 
-    if (event?.date || event?.dateText) {
-      const dateQuery = parseDateFromNLP(event, 'handleNLPSearchEvents');
-
-      if (!dateQuery.date) {
-        await this.sendMessage(phone, '❌ לא הצלחתי להבין את התאריך.\n\nנסה לפרט יותר או שלח /תפריט לתפריט ראשי');
-        return;
-      }
-
-      // Determine which query to use based on date type
+    // CRITICAL FIX: Support searching by TITLE in addition to date
+    // Query like "מתי יש לי רופא שיניים?" should filter by title="רופא שיניים"
+    if (event?.date || event?.dateText || event?.title) {
       let events: any[] = [];
       let dateDescription = '';
+      let titleFilter = event?.title;
 
-      if (dateQuery.isWeekRange) {
-        // Week range query
-        events = await this.eventService.getEventsForWeek(userId, dateQuery.date);
-        const dt = DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem');
-        dateDescription = `בשבוע (${dt.startOf('week').toFormat('dd/MM')} - ${dt.endOf('week').toFormat('dd/MM')})`;
-      } else if (dateQuery.isMonthRange) {
-        // Month range query - get all events in month
-        const dt = DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem');
-        const monthStart = dt.startOf('month').toJSDate();
-        const monthEnd = dt.endOf('month').toJSDate();
+      // First, get events by date if date is specified
+      if (event?.date || event?.dateText) {
+        const dateQuery = parseDateFromNLP(event, 'handleNLPSearchEvents');
 
-        const query = `
-          SELECT * FROM events
-          WHERE user_id = $1
-            AND start_ts_utc >= $2
-            AND start_ts_utc < $3
-          ORDER BY start_ts_utc ASC
-        `;
-        const result = await this.eventService['dbPool'].query(query, [userId, monthStart, monthEnd]);
-        events = result.rows.map((row: any) => this.eventService['mapRowToEvent'](row));
+        if (!dateQuery.date) {
+          await this.sendMessage(phone, '❌ לא הצלחתי להבין את התאריך.\n\nנסה לפרט יותר או שלח /תפריט לתפריט ראשי');
+          return;
+        }
 
-        dateDescription = `בחודש ${dt.toFormat('MMMM', { locale: 'he' })}`;
-      } else {
-        // Single date query
-        events = await this.eventService.getEventsByDate(userId, dateQuery.date!);
-        dateDescription = `ב-${DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy')}`;
+        // Determine which query to use based on date type
+        if (dateQuery.isWeekRange) {
+          // Week range query
+          events = await this.eventService.getEventsForWeek(userId, dateQuery.date);
+          const dt = DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem');
+          dateDescription = `בשבוע (${dt.startOf('week').toFormat('dd/MM')} - ${dt.endOf('week').toFormat('dd/MM')})`;
+        } else if (dateQuery.isMonthRange) {
+          // Month range query - get all events in month
+          const dt = DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem');
+          const monthStart = dt.startOf('month').toJSDate();
+          const monthEnd = dt.endOf('month').toJSDate();
+
+          const query = `
+            SELECT * FROM events
+            WHERE user_id = $1
+              AND start_ts_utc >= $2
+              AND start_ts_utc < $3
+            ORDER BY start_ts_utc ASC
+          `;
+          const result = await this.eventService['dbPool'].query(query, [userId, monthStart, monthEnd]);
+          events = result.rows.map((row: any) => this.eventService['mapRowToEvent'](row));
+
+          dateDescription = `בחודש ${dt.toFormat('MMMM', { locale: 'he' })}`;
+        } else {
+          // Single date query
+          events = await this.eventService.getEventsByDate(userId, dateQuery.date!);
+          dateDescription = `ב-${DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy')}`;
+        }
+      } else if (titleFilter) {
+        // CRITICAL FIX: User only specified title, no date - search all upcoming events by title
+        events = await this.eventService.getUpcomingEvents(userId, 50);
+        dateDescription = '';
+      }
+
+      // Filter by title if provided using fuzzy matching
+      if (titleFilter && events.length > 0) {
+        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.5);
       }
 
       // Log for debugging
       logger.info('NLP search events result', {
-        isWeekRange: dateQuery.isWeekRange,
-        isMonthRange: dateQuery.isMonthRange,
+        titleFilter,
         dateDescription,
         eventCount: events.length
       });
 
       if (events.length === 0) {
-        await this.sendMessage(phone, `📭 לא נמצאו אירועים ${dateDescription}.\n\nשלח /תפריט לחזרה לתפריט`);
+        const searchDesc = titleFilter ? `עבור "${titleFilter}"` : dateDescription;
+        await this.sendMessage(phone, `📭 לא נמצאו אירועים ${searchDesc}.\n\nשלח /תפריט לחזרה לתפריט`);
         return;
       }
 
-      let message = `📅 אירועים ${dateDescription}:\n\n`;
+      // Build response message
+      let message = '';
+      if (titleFilter && dateDescription) {
+        message = `📅 אירועים ${dateDescription} המכילים "${titleFilter}":\n\n`;
+      } else if (titleFilter) {
+        message = `📅 אירועים המכילים "${titleFilter}":\n\n`;
+      } else {
+        message = `📅 אירועים ${dateDescription}:\n\n`;
+      }
+
       events.forEach((event, index) => {
         const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
 
-        // For week/month ranges, show date+time. For single date, just time.
-        const timeFormat = (dateQuery.isWeekRange || dateQuery.isMonthRange)
+        // For week/month ranges or title searches, show date+time. For single date, just time.
+        const timeFormat = (dateDescription.includes('בשבוע') || dateDescription.includes('בחודש') || titleFilter)
           ? dt.toFormat('dd/MM HH:mm')
           : dt.toFormat('HH:mm');
 
@@ -2448,7 +2571,7 @@ export class MessageRouter {
 
       await this.sendMessage(phone, message);
     } else {
-      // Show all upcoming events
+      // Show all upcoming events (no filters)
       const events = await this.eventService.getUpcomingEvents(userId, 10);
 
       if (events.length === 0) {
@@ -2570,12 +2693,26 @@ export class MessageRouter {
   private async handleNLPUpdateEvent(phone: string, userId: string, intent: any): Promise<void> {
     const { event } = intent;
 
+    // Check if user provided specific update values (date, location, etc.)
+    // If yes, we should search by title ONLY and apply the update directly
+    const hasUpdateValue = (event?.date || event?.dateText || event?.location);
+    const hasSearchTerm = (event?.title);
+
     // Search for the event to update
-    if (event?.title || event?.date) {
+    if (hasSearchTerm || (event?.date && !hasUpdateValue)) {
       let events: any[] = [];
 
-      // Try to find the event - with validation
-      if (event.date || event.dateText) {
+      // CRITICAL FIX: When we have BOTH title and date/location:
+      // - The title is the SEARCH term
+      // - The date/location is the NEW VALUE to update
+      // So we should search by title ONLY, not by date!
+      if (hasUpdateValue && hasSearchTerm) {
+        // User said "update EVENT_TITLE to NEW_VALUE"
+        // Search by title only
+        events = await this.eventService.getUpcomingEvents(userId, 50);
+        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.5);
+      } else if (event.date || event.dateText) {
+        // User said "update event on DATE" - date is search term
         const dateQuery = parseDateFromNLP(event, 'handleNLPUpdateEvent');
 
         if (!dateQuery.date) {
@@ -2584,13 +2721,19 @@ export class MessageRouter {
         }
 
         events = await this.eventService.getEventsByDate(userId, dateQuery.date!);
-      } else {
-        events = await this.eventService.getUpcomingEvents(userId, 50);
-      }
 
-      // Filter by title if provided using fuzzy matching
-      if (event.title && events.length > 0) {
-        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.5);
+        // Filter by title if provided
+        if (event.title && events.length > 0) {
+          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.5);
+        }
+      } else {
+        // Search all upcoming events
+        events = await this.eventService.getUpcomingEvents(userId, 50);
+
+        // Filter by title if provided
+        if (event.title && events.length > 0) {
+          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.5);
+        }
       }
 
       if (events.length === 0) {
@@ -2598,8 +2741,40 @@ export class MessageRouter {
         return;
       }
 
+      if (events.length === 1 && hasUpdateValue) {
+        // CRITICAL FIX: If user specified what to update (date/location), apply it directly!
+        const eventToUpdate = events[0];
+
+        // Parse the new date if provided
+        let newDate: Date | undefined;
+        if (event.date || event.dateText) {
+          const dateQuery = parseDateFromNLP(event, 'handleNLPUpdateEvent-newValue');
+          newDate = dateQuery.date || undefined;
+        }
+
+        // Apply the update
+        try {
+          const updateData: any = {};
+          if (newDate) updateData.startTsUtc = newDate;
+          if (event.location) updateData.location = event.location;
+
+          const updated = await this.eventService.updateEvent(eventToUpdate.id, userId, updateData);
+
+          if (updated) {
+            const dt = DateTime.fromJSDate(updated.startTsUtc).setZone('Asia/Jerusalem');
+            await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n📌 ${updated.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}${updated.location ? `\n📍 ${updated.location}` : ''}`);
+          } else {
+            await this.sendMessage(phone, '❌ לא הצלחתי לעדכן את האירוע. נסה שוב.');
+          }
+        } catch (error) {
+          logger.error('Failed to update event from NLP', { eventId: eventToUpdate.id, error });
+          await this.sendMessage(phone, '❌ אירעה שגיאה בעדכון האירוע. נסה שוב.');
+        }
+        return;
+      }
+
       if (events.length === 1) {
-        // Found one event - redirect to edit flow
+        // Found one event but no specific update value - show menu
         const eventToUpdate = events[0];
         const dt = DateTime.fromJSDate(eventToUpdate.startTsUtc).setZone('Asia/Jerusalem');
 
@@ -2622,6 +2797,76 @@ export class MessageRouter {
       await this.sendMessage(phone, message);
       await this.stateManager.setState(userId, ConversationState.EDITING_EVENT, {
         events: events.slice(0, 10).map(e => e.id),
+        fromNLP: true
+      });
+      return;
+    }
+
+    // SMART FALLBACK: Handle date-only scenario (no title)
+    // This happens when user says "דחה את האירוע מחר למחרתיים"
+    // NLP only returns destination date, not source
+    if (event?.date || event?.dateText) {
+      const dateQuery = parseDateFromNLP(event, 'handleNLPUpdateEvent-dateOnly');
+
+      if (!dateQuery.date) {
+        await this.sendMessage(phone, '❌ לא הצלחתי להבין את התאריך.\n\nנסה לפרט יותר או שלח /תפריט');
+        return;
+      }
+
+      // First, try searching for events ON this date (maybe user wants to update event happening on this date)
+      let events = await this.eventService.getEventsByDate(userId, dateQuery.date);
+      const dt = DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem');
+      const formattedDate = dt.toFormat('dd/MM/yyyy');
+
+      if (events.length > 0) {
+        // Found events on this date - user probably meant "update event ON this date"
+        if (events.length === 1) {
+          const eventToUpdate = events[0];
+          const eventDt = DateTime.fromJSDate(eventToUpdate.startTsUtc).setZone('Asia/Jerusalem');
+
+          await this.sendMessage(phone, `✏️ עריכת אירוע: ${eventToUpdate.title}\n📅 ${eventDt.toFormat('dd/MM/yyyy HH:mm')}\n\nמה לערוך?\n\n1️⃣ שם\n2️⃣ תאריך ושעה\n3️⃣ מיקום\n4️⃣ חזרה\n\nבחר מספר`);
+          await this.stateManager.setState(userId, ConversationState.EDITING_EVENT, {
+            eventId: eventToUpdate.id,
+            fromNLP: true
+          });
+        } else {
+          // Multiple events on this date
+          let message = `📅 נמצאו ${events.length} אירועים ב-${formattedDate}:\n\n`;
+          events.slice(0, 10).forEach((e, index) => {
+            const eventDt = DateTime.fromJSDate(e.startTsUtc).setZone('Asia/Jerusalem');
+            message += `${index + 1}. ${e.title}\n   📅 ${eventDt.toFormat('HH:mm')}\n\n`;
+          });
+          message += 'בחר מספר אירוע לעדכון';
+
+          await this.sendMessage(phone, message);
+          await this.stateManager.setState(userId, ConversationState.EDITING_EVENT, {
+            events: events.slice(0, 10).map(e => e.id),
+            fromNLP: true
+          });
+        }
+        return;
+      }
+
+      // No events found ON this date - user probably meant "postpone/reschedule TO this date"
+      // Show upcoming events so user can pick which one to reschedule
+      events = await this.eventService.getUpcomingEvents(userId, 10);
+
+      if (events.length === 0) {
+        await this.sendMessage(phone, '📭 לא נמצאו אירועים קרובים לעדכון.\n\nשלח /תפריט לחזרה לתפריט');
+        return;
+      }
+
+      let message = `לא נמצאו אירועים ב-${formattedDate}.\n\nהאם רצית לדחות אירוע לתאריך זה?\n\n📅 האירועים הקרובים שלך:\n\n`;
+      events.forEach((e, index) => {
+        const eventDt = DateTime.fromJSDate(e.startTsUtc).setZone('Asia/Jerusalem');
+        message += `${index + 1}. ${e.title}\n   📅 ${eventDt.toFormat('dd/MM HH:mm')}\n\n`;
+      });
+      message += `בחר מספר אירוע לדחות ל-${formattedDate}\n\nאו שלח /ביטול`;
+
+      await this.sendMessage(phone, message);
+      await this.stateManager.setState(userId, ConversationState.EDITING_EVENT, {
+        events: events.map(e => e.id),
+        postponeToDate: dateQuery.date.toISOString(),
         fromNLP: true
       });
       return;
@@ -2718,6 +2963,245 @@ export class MessageRouter {
 
   private getAuthStateKey(phone: string): string {
     return `${this.AUTH_STATE_PREFIX}${phone}`;
+  }
+
+  // ============================================================================
+  // COMMENT HANDLERS (NEW FEATURE)
+  // ============================================================================
+
+  /**
+   * Handle adding a comment to an event via NLP
+   */
+  private async handleNLPAddComment(phone: string, userId: string, intent: any): Promise<void> {
+    const { comment } = intent;
+
+    if (!comment?.eventTitle || !comment?.text) {
+      await this.sendMessage(phone, 'לא זיהיתי את כל הפרטים. אנא נסה שוב.\n\nדוגמה: הוסף הערה לרופא שיניים: תזכיר על הביק');
+      return;
+    }
+
+    try {
+      // Find the event by title (fuzzy match)
+      const events = await this.eventService.searchEvents(userId, comment.eventTitle);
+      const matchedEvents = filterByFuzzyMatch(events, comment.eventTitle, (e) => e.title);
+
+      if (matchedEvents.length === 0) {
+        await this.sendMessage(phone, formatEventNotFound(comment.eventTitle));
+        return;
+      }
+
+      if (matchedEvents.length > 1) {
+        // Multiple matches - ask user to be more specific
+        const eventList = matchedEvents.slice(0, 5).map((e, idx) => {
+          const dt = DateTime.fromJSDate(e.startTsUtc).setZone('Asia/Jerusalem');
+          return `${idx + 1}. ${e.title} - ${dt.toFormat('dd/MM/yyyy HH:mm')}`;
+        }).join('\n');
+
+        await this.sendMessage(phone, `נמצאו ${matchedEvents.length} אירועים:\n\n${eventList}\n\nאנא פרט יותר את שם האירוע.`);
+        return;
+      }
+
+      const event = matchedEvents[0];
+
+      // Add the comment
+      const newComment = await this.eventService.addComment(
+        event.id,
+        userId,
+        comment.text,
+        {
+          priority: comment.priority || 'normal',
+        }
+      );
+
+      // Check if user wants a reminder from this comment
+      if (comment.reminderTime) {
+        const reminderDate = safeParseDate(comment.reminderTime, 'handleNLPAddComment');
+        if (reminderDate) {
+          // Create reminder and link it to comment
+          const reminder = await this.reminderService.createReminder({
+            userId,
+            title: comment.text,
+            dueTsUtc: reminderDate,
+          });
+
+          // Update comment with reminderId
+          await this.eventService.updateComment(event.id, userId, newComment.id, {
+            reminderId: reminder.id,
+          });
+
+          // Schedule reminder
+          await scheduleReminder({
+            reminderId: reminder.id,
+            userId,
+            title: comment.text,
+            phone,
+          }, reminderDate);
+
+          // Send confirmation with reminder
+          const message = formatCommentWithReminder(newComment, event, reminderDate);
+          await this.sendMessage(phone, message);
+          return;
+        }
+      }
+
+      // Send confirmation based on priority
+      let message: string;
+      if (comment.priority && comment.priority !== 'normal') {
+        message = formatCommentAddedWithPriority(newComment, event);
+      } else {
+        message = formatCommentAdded(newComment, event);
+      }
+
+      // Check if this is user's first comment - show education tip
+      const commentCount = await this.eventService.getCommentCount(event.id, userId);
+      if (commentCount === 1) {
+        message += '\n\n' + formatCommentEducationTip();
+      }
+
+      await this.sendMessage(phone, message);
+
+    } catch (error) {
+      logger.error('Failed to add comment', { userId, comment, error });
+      await this.sendMessage(phone, '❌ שגיאה בהוספת הערה. נסה שוב מאוחר יותר.');
+    }
+  }
+
+  /**
+   * Handle viewing comments for an event via NLP
+   */
+  private async handleNLPViewComments(phone: string, userId: string, intent: any): Promise<void> {
+    const { comment } = intent;
+
+    if (!comment?.eventTitle) {
+      await this.sendMessage(phone, 'לא זיהיתי את שם האירוע. אנא נסה שוב.\n\nדוגמה: הצג הערות רופא שיניים');
+      return;
+    }
+
+    try {
+      // Find the event by title (fuzzy match)
+      const events = await this.eventService.searchEvents(userId, comment.eventTitle);
+      const matchedEvents = filterByFuzzyMatch(events, comment.eventTitle, (e) => e.title);
+
+      if (matchedEvents.length === 0) {
+        await this.sendMessage(phone, formatEventNotFound(comment.eventTitle));
+        return;
+      }
+
+      if (matchedEvents.length > 1) {
+        // Multiple matches - ask user to be more specific
+        const eventList = matchedEvents.slice(0, 5).map((e, idx) => {
+          const dt = DateTime.fromJSDate(e.startTsUtc).setZone('Asia/Jerusalem');
+          return `${idx + 1}. ${e.title} - ${dt.toFormat('dd/MM/yyyy HH:mm')}`;
+        }).join('\n');
+
+        await this.sendMessage(phone, `נמצאו ${matchedEvents.length} אירועים:\n\n${eventList}\n\nאנא פרט יותר את שם האירוע.`);
+        return;
+      }
+
+      const event = matchedEvents[0];
+
+      // Format and send comments
+      const message = formatEventComments(event);
+      await this.sendMessage(phone, message);
+
+    } catch (error) {
+      logger.error('Failed to view comments', { userId, comment, error });
+      await this.sendMessage(phone, '❌ שגיאה בהצגת הערות. נסה שוב מאוחר יותר.');
+    }
+  }
+
+  /**
+   * Handle deleting a comment from an event via NLP
+   */
+  private async handleNLPDeleteComment(phone: string, userId: string, intent: any): Promise<void> {
+    const { comment } = intent;
+
+    if (!comment?.deleteBy) {
+      await this.sendMessage(phone, 'לא זיהיתי איזו הערה למחוק. אנא נסה שוב.\n\nדוגמאות:\n• מחק הערה 2\n• מחק הערה אחרונה\n• מחק "להביא מסמכים"');
+      return;
+    }
+
+    try {
+      // Find the event - if eventTitle is provided, search for it
+      let event: any = null;
+
+      if (comment.eventTitle) {
+        const events = await this.eventService.searchEvents(userId, comment.eventTitle);
+        const matchedEvents = filterByFuzzyMatch(events, comment.eventTitle, (e) => e.title);
+
+        if (matchedEvents.length === 0) {
+          await this.sendMessage(phone, formatEventNotFound(comment.eventTitle));
+          return;
+        }
+
+        if (matchedEvents.length > 1) {
+          const eventList = matchedEvents.slice(0, 5).map((e, idx) => {
+            const dt = DateTime.fromJSDate(e.startTsUtc).setZone('Asia/Jerusalem');
+            return `${idx + 1}. ${e.title} - ${dt.toFormat('dd/MM/yyyy HH:mm')}`;
+          }).join('\n');
+
+          await this.sendMessage(phone, `נמצאו ${matchedEvents.length} אירועים:\n\n${eventList}\n\nאנא פרט יותר את שם האירוע.`);
+          return;
+        }
+
+        event = matchedEvents[0];
+      } else {
+        // No event specified - find the most recent event with comments
+        const recentEvents = await this.eventService.getUpcomingEvents(userId, 50);
+        const eventsWithComments = recentEvents.filter(e => e.notes && e.notes.length > 0);
+
+        if (eventsWithComments.length === 0) {
+          await this.sendMessage(phone, '❌ לא נמצאו אירועים עם הערות.');
+          return;
+        }
+
+        event = eventsWithComments[0];
+      }
+
+      // Delete comment based on deleteBy method
+      let deletedComment: any = null;
+
+      switch (comment.deleteBy) {
+        case 'index':
+          if (typeof comment.deleteValue === 'number') {
+            deletedComment = await this.eventService.deleteCommentByIndex(event.id, userId, comment.deleteValue);
+          }
+          break;
+
+        case 'last':
+          deletedComment = await this.eventService.deleteLastComment(event.id, userId);
+          break;
+
+        case 'text':
+          if (typeof comment.deleteValue === 'string') {
+            const foundComment = await this.eventService.findCommentByText(event.id, userId, comment.deleteValue);
+            if (foundComment) {
+              deletedComment = await this.eventService.deleteComment(event.id, userId, foundComment.id);
+            }
+          }
+          break;
+      }
+
+      if (!deletedComment) {
+        if (comment.deleteBy === 'index') {
+          await this.sendMessage(phone, formatCommentNotFound(comment.deleteValue as number));
+        } else {
+          await this.sendMessage(phone, formatCommentNotFound());
+        }
+        return;
+      }
+
+      // Get remaining comment count
+      const remainingCount = await this.eventService.getCommentCount(event.id, userId);
+
+      // Send confirmation
+      const message = formatCommentDeleted(deletedComment, event, remainingCount);
+      await this.sendMessage(phone, message);
+
+    } catch (error) {
+      logger.error('Failed to delete comment', { userId, comment, error });
+      await this.sendMessage(phone, '❌ שגיאה במחיקת הערה. נסה שוב מאוחר יותר.');
+    }
   }
 }
 

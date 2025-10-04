@@ -13,7 +13,7 @@ interface Contact {
 }
 
 export interface NLPIntent {
-  intent: 'create_event' | 'create_reminder' | 'search_event' | 'list_events' | 'delete_event' | 'delete_reminder' | 'update_event' | 'update_reminder' | 'complete_task' | 'send_message' | 'add_contact' | 'unknown';
+  intent: 'create_event' | 'create_reminder' | 'search_event' | 'list_events' | 'delete_event' | 'delete_reminder' | 'update_event' | 'update_reminder' | 'complete_task' | 'send_message' | 'add_contact' | 'add_comment' | 'view_comments' | 'delete_comment' | 'unknown';
   confidence: number;
   urgency?: 'urgent' | 'important' | 'normal'; // NEW: Emotional context
   event?: {
@@ -37,6 +37,14 @@ export interface NLPIntent {
     name: string;
     phone: string;
     relation?: string;
+  };
+  comment?: {
+    eventTitle: string; // Which event to add/view/delete comment from
+    text?: string; // Comment text (for add_comment)
+    priority?: 'normal' | 'high' | 'urgent'; // Comment priority
+    reminderTime?: string; // ISO 8601 datetime if user wants reminder from comment
+    deleteBy?: 'index' | 'last' | 'text'; // How to identify comment to delete
+    deleteValue?: string | number; // Index number or text to search
   };
   clarificationNeeded?: string;
 }
@@ -90,7 +98,7 @@ User contacts: ${JSON.stringify(contactNames, null, 2)}
 
 Parse the message and return JSON with this structure:
 {
-  "intent": "create_event|create_reminder|search_event|list_events|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|unknown",
+  "intent": "create_event|create_reminder|search_event|list_events|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|unknown",
   "confidence": 0.0-1.0,
   "urgency": "urgent|important|normal (optional)",
   "event": {
@@ -115,6 +123,14 @@ Parse the message and return JSON with this structure:
     "name": "contact name",
     "phone": "phone number (with country code if provided)",
     "relation": "relationship (optional, e.g., אמא, אבא, חבר)"
+  },
+  "comment": {
+    "eventTitle": "event name/title",
+    "text": "comment text (for add_comment)",
+    "priority": "normal|high|urgent (optional, default: normal)",
+    "reminderTime": "ISO 8601 datetime if user wants reminder (optional)",
+    "deleteBy": "index|last|text (for delete_comment)",
+    "deleteValue": "index number or text to search (for delete_comment)"
   },
   "clarificationNeeded": "string - ask user for missing info (optional)"
 }
@@ -157,6 +173,23 @@ COMPLETE:
 COMMUNICATION:
 - "שלח", "כתוב", "send", "write", "message" → send_message
 - "הוסף קשר", "add contact", "צור קשר" → add_contact
+
+COMMENTS (NEW FEATURE):
+ADD COMMENT:
+- "הוסף הערה ל[אירוע]: [טקסט]", "רשום ב[אירוע]: [טקסט]", "add comment to [event]: [text]" → add_comment
+- With priority: "הוסף הערה דחוף/חשוב ל[אירוע]: [טקסט]" → add_comment with priority: urgent/high
+- With reminder: "הוסף הערה ל[אירוע] והזכר לי [זמן]: [טקסט]" → add_comment with reminderTime
+- Examples: "הוסף הערה לרופא שיניים: תזכיר על הביק", "רשום בפגישה דחוף: להביא מסמכים"
+
+VIEW COMMENTS:
+- "הצג הערות [אירוע]", "מה רשום ב[אירוע]", "הערות של [אירוע]", "show comments for [event]" → view_comments
+- Examples: "הצג הערות רופא שיניים", "מה רשום בפגישה"
+
+DELETE COMMENT:
+- By index: "מחק הערה [מספר]", "מחק הערה [מספר] מ[אירוע]", "delete comment [number]" → delete_comment with deleteBy: "index"
+- Last: "מחק הערה אחרונה", "מחק את ההערה האחרונה", "delete last comment" → delete_comment with deleteBy: "last"
+- By text: "מחק \"[טקסט]\"", "מחק הערה \"[טקסט]\"" → delete_comment with deleteBy: "text"
+- Examples: "מחק הערה 2", "מחק הערה אחרונה מרופא שיניים", "מחק \"להביא מסמכים\""
 
 URGENCY DETECTION:
 - "דחוף", "urgent", "ASAP", "עכשיו", "מיידי" → urgency: "urgent"

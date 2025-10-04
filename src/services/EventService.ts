@@ -2,6 +2,8 @@ import { Pool } from 'pg';
 import { pool } from '../config/database';
 import logger from '../utils/logger';
 import { DateTime } from 'luxon';
+import { v4 as uuidv4 } from 'uuid';
+import { EventComment } from '../types/index.js';
 
 export interface Event {
   id: string;
@@ -11,7 +13,7 @@ export interface Event {
   endTsUtc: Date | null;
   rrule: string | null;
   location: string | null;
-  notes: string | null;
+  notes: EventComment[]; // Changed from string to EventComment array
   source: string;
   confidence: number;
   createdAt: Date;
@@ -24,7 +26,7 @@ export interface CreateEventInput {
   endTsUtc?: Date;
   rrule?: string;
   location?: string;
-  notes?: string;
+  notes?: EventComment[]; // Changed from string to EventComment array
 }
 
 export interface UpdateEventInput {
@@ -33,7 +35,7 @@ export interface UpdateEventInput {
   endTsUtc?: Date;
   rrule?: string;
   location?: string;
-  notes?: string;
+  notes?: EventComment[]; // Changed from string to EventComment array
 }
 
 export class EventService {
@@ -65,7 +67,7 @@ export class EventService {
         input.endTsUtc || null,
         input.rrule || null,
         input.location || null,
-        input.notes || null,
+        JSON.stringify(input.notes || []), // Convert EventComment[] to JSONB
         'user_input',
         1.0,
       ];
@@ -225,7 +227,7 @@ export class EventService {
       }
       if (update.notes !== undefined) {
         updateFields.push(`notes = $${paramIndex++}`);
-        values.push(update.notes);
+        values.push(JSON.stringify(update.notes)); // Convert EventComment[] to JSONB
       }
 
       if (updateFields.length === 0) {
@@ -342,11 +344,262 @@ export class EventService {
       endTsUtc: row.end_ts_utc,
       rrule: row.rrule,
       location: row.location,
-      notes: row.notes,
+      notes: Array.isArray(row.notes) ? row.notes : [], // Parse JSONB array
       source: row.source,
       confidence: parseFloat(row.confidence),
       createdAt: row.created_at,
     };
+  }
+
+  // ============================================================================
+  // COMMENT MANAGEMENT METHODS
+  // ============================================================================
+
+  /**
+   * Add a comment to an event
+   */
+  async addComment(
+    eventId: string,
+    userId: string,
+    text: string,
+    options?: {
+      priority?: 'normal' | 'high' | 'urgent';
+      tags?: string[];
+      reminderId?: string;
+    }
+  ): Promise<EventComment> {
+    try {
+      const comment: EventComment = {
+        id: uuidv4(),
+        text,
+        timestamp: new Date().toISOString(),
+        priority: options?.priority || 'normal',
+        tags: options?.tags || [],
+        reminderId: options?.reminderId,
+      };
+
+      const query = `
+        UPDATE events
+        SET notes = COALESCE(notes, '[]'::jsonb) || $1::jsonb
+        WHERE id = $2 AND user_id = $3
+        RETURNING notes
+      `;
+
+      const result = await this.dbPool.query(query, [
+        JSON.stringify(comment),
+        eventId,
+        userId,
+      ]);
+
+      if (result.rows.length === 0) {
+        throw new Error('Event not found or unauthorized');
+      }
+
+      logger.info('Comment added to event', { eventId, userId, commentId: comment.id });
+      return comment;
+    } catch (error) {
+      logger.error('Failed to add comment', { eventId, userId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get all comments for an event
+   */
+  async getComments(eventId: string, userId: string): Promise<EventComment[]> {
+    try {
+      const query = `
+        SELECT notes FROM events
+        WHERE id = $1 AND user_id = $2
+      `;
+
+      const result = await this.dbPool.query(query, [eventId, userId]);
+
+      if (result.rows.length === 0) {
+        throw new Error('Event not found');
+      }
+
+      const notes = result.rows[0]?.notes;
+      return Array.isArray(notes) ? notes : [];
+    } catch (error) {
+      logger.error('Failed to get comments', { eventId, userId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a comment by ID
+   */
+  async deleteComment(
+    eventId: string,
+    userId: string,
+    commentId: string
+  ): Promise<EventComment | null> {
+    try {
+      // First get the comment to return it
+      const comments = await this.getComments(eventId, userId);
+      const deletedComment = comments.find(c => c.id === commentId);
+
+      if (!deletedComment) {
+        logger.warn('Comment not found', { eventId, userId, commentId });
+        return null;
+      }
+
+      const query = `
+        UPDATE events
+        SET notes = (
+          SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+          FROM jsonb_array_elements(notes) elem
+          WHERE elem->>'id' != $1
+        )
+        WHERE id = $2 AND user_id = $3
+        RETURNING notes
+      `;
+
+      await this.dbPool.query(query, [commentId, eventId, userId]);
+
+      logger.info('Comment deleted', { eventId, userId, commentId });
+      return deletedComment;
+    } catch (error) {
+      logger.error('Failed to delete comment', { eventId, userId, commentId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a comment by index (1-based for user-friendliness)
+   */
+  async deleteCommentByIndex(
+    eventId: string,
+    userId: string,
+    index: number
+  ): Promise<EventComment | null> {
+    try {
+      const comments = await this.getComments(eventId, userId);
+      const arrayIndex = index - 1; // Convert to 0-based
+
+      if (arrayIndex < 0 || arrayIndex >= comments.length) {
+        logger.warn('Comment index out of range', { eventId, userId, index, total: comments.length });
+        return null;
+      }
+
+      const comment = comments[arrayIndex];
+      return await this.deleteComment(eventId, userId, comment.id);
+    } catch (error) {
+      logger.error('Failed to delete comment by index', { eventId, userId, index, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Delete the last comment from an event
+   */
+  async deleteLastComment(
+    eventId: string,
+    userId: string
+  ): Promise<EventComment | null> {
+    try {
+      const comments = await this.getComments(eventId, userId);
+
+      if (comments.length === 0) {
+        logger.warn('No comments to delete', { eventId, userId });
+        return null;
+      }
+
+      const lastComment = comments[comments.length - 1];
+      return await this.deleteComment(eventId, userId, lastComment.id);
+    } catch (error) {
+      logger.error('Failed to delete last comment', { eventId, userId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Update a comment (e.g., add reminderId after creating reminder)
+   */
+  async updateComment(
+    eventId: string,
+    userId: string,
+    commentId: string,
+    updates: Partial<Omit<EventComment, 'id'>>
+  ): Promise<EventComment | null> {
+    try {
+      const comments = await this.getComments(eventId, userId);
+      const commentIndex = comments.findIndex(c => c.id === commentId);
+
+      if (commentIndex === -1) {
+        logger.warn('Comment not found for update', { eventId, userId, commentId });
+        return null;
+      }
+
+      // Merge updates
+      const updatedComment = { ...comments[commentIndex], ...updates };
+
+      const query = `
+        UPDATE events
+        SET notes = (
+          SELECT jsonb_agg(
+            CASE
+              WHEN elem->>'id' = $1
+              THEN $2::jsonb
+              ELSE elem
+            END
+          )
+          FROM jsonb_array_elements(notes) elem
+        )
+        WHERE id = $3 AND user_id = $4
+        RETURNING notes
+      `;
+
+      await this.dbPool.query(query, [
+        commentId,
+        JSON.stringify(updatedComment),
+        eventId,
+        userId,
+      ]);
+
+      logger.info('Comment updated', { eventId, userId, commentId });
+      return updatedComment;
+    } catch (error) {
+      logger.error('Failed to update comment', { eventId, userId, commentId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Find a comment by text search (partial match)
+   */
+  async findCommentByText(
+    eventId: string,
+    userId: string,
+    searchText: string
+  ): Promise<EventComment | null> {
+    try {
+      const comments = await this.getComments(eventId, userId);
+
+      // Find first comment that contains the search text
+      const found = comments.find(c =>
+        c.text.includes(searchText) || searchText.includes(c.text)
+      );
+
+      return found || null;
+    } catch (error) {
+      logger.error('Failed to find comment by text', { eventId, userId, searchText, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get comment count for an event
+   */
+  async getCommentCount(eventId: string, userId: string): Promise<number> {
+    try {
+      const comments = await this.getComments(eventId, userId);
+      return comments.length;
+    } catch (error) {
+      logger.error('Failed to get comment count', { eventId, userId, error });
+      throw error;
+    }
   }
 }
 

@@ -24,6 +24,15 @@ export interface Contact {
   updatedAt: Date;
 }
 
+export interface EventComment {
+  id: string;
+  text: string;
+  timestamp: string; // ISO 8601 format
+  priority: 'normal' | 'high' | 'urgent';
+  tags?: string[];
+  reminderId?: string; // Reference to reminder if created from comment
+}
+
 export interface Event {
   id: string;
   userId: string;
@@ -32,7 +41,7 @@ export interface Event {
   endTsUtc?: Date;
   rrule?: string;
   location?: string;
-  notes?: string;
+  notes?: EventComment[]; // Changed from string to EventComment array
   source: string;
   confidence?: number;
   externalRefJsonb?: Record<string, any>;
