@@ -19,7 +19,8 @@ import {
   formatEventNotFound,
   formatCommentNotFound,
   formatNoCommentsToDelete,
-  formatCommentEducationTip
+  formatCommentEducationTip,
+  formatEventWithComments
 } from '../utils/commentFormatter';
 
 /**
@@ -1093,8 +1094,7 @@ export class MessageRouter {
           });
 
           if (updated) {
-            const dt = DateTime.fromJSDate(updated.startTsUtc).setZone('Asia/Jerusalem');
-            await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n📌 ${updated.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}`);
+            await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n${formatEventWithComments(updated)}`);
             await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
             await this.showMainMenu(phone);
           } else {
@@ -2761,8 +2761,7 @@ export class MessageRouter {
           const updated = await this.eventService.updateEvent(eventToUpdate.id, userId, updateData);
 
           if (updated) {
-            const dt = DateTime.fromJSDate(updated.startTsUtc).setZone('Asia/Jerusalem');
-            await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n📌 ${updated.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}${updated.location ? `\n📍 ${updated.location}` : ''}`);
+            await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n${formatEventWithComments(updated)}`);
           } else {
             await this.sendMessage(phone, '❌ לא הצלחתי לעדכן את האירוע. נסה שוב.');
           }

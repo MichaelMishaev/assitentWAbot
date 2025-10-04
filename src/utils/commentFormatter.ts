@@ -244,3 +244,33 @@ export function formatCommentNotFound(index?: number): string {
 export function formatNoCommentsToDelete(eventTitle: string): string {
   return `❌ אין הערות למחוק באירוע '${eventTitle}'`;
 }
+
+/**
+ * Format event details with comments (for event display/updates)
+ */
+export function formatEventWithComments(
+  event: Event,
+  timezone: string = 'Asia/Jerusalem'
+): string {
+  const dt = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
+
+  let output = `📌 ${event.title}\n`;
+  output += `📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}`;
+
+  if (event.location) {
+    output += `\n📍 ${event.location}`;
+  }
+
+  // Add comments if they exist
+  if (event.notes && event.notes.length > 0) {
+    output += `\n\n📝 הערות:\n`;
+    event.notes.forEach((comment, idx) => {
+      const priority = getPriorityIndicator(comment.priority);
+      const time = formatCommentTimestamp(comment.timestamp, timezone);
+      output += `${idx + 1}. ${comment.text}${priority ? ' ' + priority : ''}\n`;
+      output += `   🕐 ${time}\n`;
+    });
+  }
+
+  return output;
+}
