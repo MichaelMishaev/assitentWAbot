@@ -75,27 +75,6 @@ jobs:
     needs: test
 
     steps:
-      - name: 🔔 Notify deployment start
-        if: secrets.DISCORD_WEBHOOK_URL != ''
-        run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "embeds": [{
-                   "title": "🚀 Deployment Started",
-                   "description": "Deploying to production server...",
-                   "color": 3447003,
-                   "fields": [
-                     {"name": "Repository", "value": "${{ github.repository }}", "inline": true},
-                     {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
-                     {"name": "Commit", "value": "[`${{ github.sha }}`.substr(0,7)](${{ github.event.head_commit.url }})", "inline": true},
-                     {"name": "Author", "value": "${{ github.event.head_commit.author.name }}", "inline": true},
-                     {"name": "Message", "value": "${{ github.event.head_commit.message }}", "inline": false}
-                   ],
-                   "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
-                 }]
-               }' \
-               ${{ secrets.DISCORD_WEBHOOK_URL }}
-
       - name: 🚀 Deploy to server
         id: deploy
         uses: appleboy/ssh-action@v1.0.3
@@ -115,54 +94,12 @@ jobs:
           echo "Server: ${{ secrets.SSH_HOST }}"
           echo "Time: $(date)"
 
-      - name: 🔔 Notify deployment success
-        if: success() && secrets.DISCORD_WEBHOOK_URL != ''
-        run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "embeds": [{
-                   "title": "✅ Deployment Successful",
-                   "description": "Application deployed successfully to production!",
-                   "color": 3066993,
-                   "fields": [
-                     {"name": "Repository", "value": "${{ github.repository }}", "inline": true},
-                     {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
-                     {"name": "Commit", "value": "`${{ github.sha }}`", "inline": true},
-                     {"name": "Server", "value": "${{ secrets.SSH_HOST }}", "inline": true},
-                     {"name": "Duration", "value": "~${{ job.status }}", "inline": true}
-                   ],
-                   "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
-                 }]
-               }' \
-               ${{ secrets.DISCORD_WEBHOOK_URL }}
-
       - name: ❌ Deployment failed notification
         if: failure()
         run: |
           echo "⚠️ Deployment failed!"
           echo "Check the logs above for details"
           exit 1
-
-      - name: 🔔 Notify deployment failure
-        if: failure() && secrets.DISCORD_WEBHOOK_URL != ''
-        run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "embeds": [{
-                   "title": "❌ Deployment Failed",
-                   "description": "Deployment to production failed! Check the logs.",
-                   "color": 15158332,
-                   "fields": [
-                     {"name": "Repository", "value": "${{ github.repository }}", "inline": true},
-                     {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
-                     {"name": "Commit", "value": "`${{ github.sha }}`", "inline": true},
-                     {"name": "Author", "value": "${{ github.event.head_commit.author.name }}", "inline": true},
-                     {"name": "Action", "value": "[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})", "inline": false}
-                   ],
-                   "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
-                 }]
-               }' \
-               ${{ secrets.DISCORD_WEBHOOK_URL }}
 
   health-check:
     name: Health Check
@@ -192,40 +129,3 @@ jobs:
               exit 1
             fi
 
-      - name: 🔔 Notify health check success
-        if: success() && secrets.DISCORD_WEBHOOK_URL != ''
-        run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "embeds": [{
-                   "title": "🏥 Health Check Passed",
-                   "description": "Application is healthy and running!",
-                   "color": 5763719,
-                   "fields": [
-                     {"name": "Server", "value": "${{ secrets.SSH_HOST }}", "inline": true},
-                     {"name": "Status", "value": "✅ Online", "inline": true},
-                     {"name": "Deployment", "value": "Complete", "inline": true}
-                   ],
-                   "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
-                 }]
-               }' \
-               ${{ secrets.DISCORD_WEBHOOK_URL }}
-
-      - name: 🔔 Notify health check failure
-        if: failure() && secrets.DISCORD_WEBHOOK_URL != ''
-        run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "embeds": [{
-                   "title": "⚠️ Health Check Failed",
-                   "description": "Application deployed but health check failed!",
-                   "color": 15105570,
-                   "fields": [
-                     {"name": "Server", "value": "${{ secrets.SSH_HOST }}", "inline": true},
-                     {"name": "Status", "value": "❌ Offline/Error", "inline": true},
-                     {"name": "Action", "value": "[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})", "inline": false}
-                   ],
-                   "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
-                 }]
-               }' \
-               ${{ secrets.DISCORD_WEBHOOK_URL }}
