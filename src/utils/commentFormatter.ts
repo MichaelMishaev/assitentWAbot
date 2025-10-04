@@ -264,19 +264,13 @@ export function formatEventInList(
     output += `\n   📍 ${event.location}`;
   }
 
-  // Add comments inline (compact)
+  // Add all comments inline
   if (event.notes && event.notes.length > 0) {
-    const firstComment = event.notes[0];
-    const priority = getPriorityIndicator(firstComment.priority);
-    const preview = firstComment.text.length > 30
-      ? firstComment.text.substring(0, 30) + '...'
-      : firstComment.text;
-    output += `\n   💬 ${event.notes.length} הערות: "${preview}"${priority ? ' ' + priority : ''}`;
-
-    // Add hint for viewing all comments
-    if (event.notes.length > 1) {
-      output += `\n   💡 לצפייה בכל ההערות: "הצג הערות ${event.title}"`;
-    }
+    output += `\n   💬 ${event.notes.length} הערות:`;
+    event.notes.forEach((comment, idx) => {
+      const priority = getPriorityIndicator(comment.priority);
+      output += `\n      ${idx + 1}. ${comment.text}${priority ? ' ' + priority : ''}`;
+    });
   }
 
   return output;
