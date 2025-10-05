@@ -230,16 +230,20 @@ TIME OF DAY:
 - "בבוקר", "בערב", "בצהריים", "בלילה" → morning (9:00), evening (18:00), noon (12:00), night (21:00)
 - "ב-3", "בשעה 3" → 15:00 today (3 PM)
 - "ב-15:00", "ב15" → 15:00 today
+- "לשעה 14:00", "בשעה 14:00", "ב-14:00" → EXACTLY 14:00 (DO NOT default to 00:00!)
 - "8 בערב" → 20:00 today
 
 EXPLICIT DATES:
 - "05/01/2025", "1.5.25" → explicit date
 - "3 באוקטובר", "3 לאוקטובר" → October 3rd
 
-IMPORTANT:
+CRITICAL TIME EXTRACTION:
+- ALWAYS extract the FULL time from the user's message into BOTH fields:
+  1. "date": Full ISO 8601 with correct time → "2025-11-12T14:00:00+02:00"
+  2. "dateText": Include the time part → "מחר לשעה 14:00" (NOT just "מחר"!)
 - Never return times in the past! Always validate against current time ${currentDate}
-- When user specifies a time like "14:00", return it EXACTLY as "2025-MM-DDT14:00:00+[offset]" in user's timezone
-- Example: If user says "מחר ב-14:00" and tomorrow is Nov 11, 2025, return: "2025-11-11T14:00:00+02:00" (Israel winter time)
+- Example: "קבע למחר פגישה לשעה 14:00" → {"date":"2025-11-12T14:00:00+02:00","dateText":"מחר לשעה 14:00"}
+- Example: "מחר ב-3" → {"date":"2025-11-12T15:00:00+02:00","dateText":"מחר ב-3"}
 
 Contact Recognition:
 - Match against contact names, relations, and aliases
@@ -254,14 +258,14 @@ CRITICAL - Event Title Extraction for Delete/Update:
 - Prefer matching by contact name + event type over exact title match
 
 KEY EXAMPLES (cover all intents):
-1. CREATE EVENT: "קבע פגישה עם דני מחר ב-3" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם דני","dateText":"מחר","contactName":"דני"}}
-2. CREATE REMINDER: "תזכיר לי בעוד שעתיים להתקשר לאמא" → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"התקשר לאמא","dueDate":"<now+2h ISO>"}}
-3. SEARCH BY TITLE: "מתי רופא שיניים?" → {"intent":"search_event","confidence":0.95,"event":{"title":"רופא שיניים"}} (CRITICAL: "מתי" = search, NOT create!)
-4. LIST EVENTS: "מה יש לי השבוע?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"השבוע"}} (use dateText for Hebrew relative dates)
-5. DELETE WITH TITLE: "תבטל בדיקת דם" → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}} (CRITICAL: partial title, fuzzy match)
-6. UPDATE EVENT: "עדכן פגישה עם דני ל-5 אחרי הצהריים" → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today 17:00 ISO>"}}
-7. COMPLEX DATE+TIME: "משחק כדורגל יום ראשון 5 באוקטובר 20:00 אצטדיון נתניה" → {"intent":"create_event","confidence":0.95,"event":{"title":"משחק כדורגל","date":"2025-10-05T20:00:00+03:00","location":"אצטדיון נתניה"}}
-8. URGENCY: "דחוף! פגישה עם הבוס מחר ב-9" → {"intent":"create_event","confidence":0.95,"urgency":"urgent","event":{...}}
+1. CREATE EVENT WITH TIME: "קבע פגישה עם דני מחר ב-3" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם דני","date":"2025-11-12T15:00:00+02:00","dateText":"מחר ב-3","contactName":"דני"}} (CRITICAL: include BOTH date ISO and dateText with time!)
+2. CREATE EVENT EXPLICIT TIME: "קבע למחר פגישה עם יולי לשעה 14:00" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם יולי","date":"2025-11-12T14:00:00+02:00","dateText":"מחר לשעה 14:00","contactName":"יולי"}} (CRITICAL: "לשעה 14:00" = 14:00 in ISO!)
+3. CREATE REMINDER: "תזכיר לי בעוד שעתיים להתקשר לאמא" → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"התקשר לאמא","dueDate":"<now+2h ISO>"}}
+4. SEARCH BY TITLE: "מתי רופא שיניים?" → {"intent":"search_event","confidence":0.95,"event":{"title":"רופא שיניים"}} (CRITICAL: "מתי" = search, NOT create!)
+5. LIST EVENTS: "מה יש לי השבוע?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"השבוע"}} (use dateText for Hebrew relative dates)
+6. DELETE WITH TITLE: "תבטל בדיקת דם" → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}} (CRITICAL: partial title, fuzzy match)
+7. UPDATE EVENT: "עדכן פגישה עם דני ל-5 אחרי הצהריים" → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today 17:00 ISO>","dateText":"5 אחרי הצהריים"}}
+8. URGENCY: "דחוף! פגישה עם הבוס מחר ב-9" → {"intent":"create_event","confidence":0.95,"urgency":"urgent","event":{"title":"פגישה עם הבוס","date":"2025-11-12T09:00:00+02:00","dateText":"מחר ב-9"}}
 9. UNKNOWN/CLARIFY: "קבע משהו" → {"intent":"unknown","confidence":0.3,"clarificationNeeded":"מה תרצה לקבוע? אירוע או תזכורת?"}
 10. ADD CONTACT: "הוסף קשר דני 052-1234567 חבר שלי" → {"intent":"add_contact","confidence":0.95,"contact":{"name":"דני","phone":"0521234567","relation":"חבר"}}
 

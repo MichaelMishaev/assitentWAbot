@@ -313,13 +313,15 @@ export class EventService {
   async getAllEvents(
     userId: string,
     limit: number = 50,
-    offset: number = 0
+    offset: number = 0,
+    orderByRecent: boolean = false
   ): Promise<Event[]> {
     try {
+      const orderBy = orderByRecent ? 'DESC' : 'ASC';
       const query = `
         SELECT * FROM events
         WHERE user_id = $1
-        ORDER BY start_ts_utc ASC
+        ORDER BY start_ts_utc ${orderBy}
         LIMIT $2 OFFSET $3
       `;
 
@@ -365,10 +367,10 @@ export class EventService {
         WHERE user_id = $1
           AND (
             -- New event starts during existing event
-            (start_ts_utc <= $2 AND (end_ts_utc IS NULL OR end_ts_utc > $2))
+            (start_ts_utc <= $2 AND COALESCE(end_ts_utc, start_ts_utc + interval '1 hour') > $2)
             OR
             -- New event ends during existing event
-            (start_ts_utc < $3 AND (end_ts_utc IS NULL OR end_ts_utc >= $3))
+            (start_ts_utc < $3 AND COALESCE(end_ts_utc, start_ts_utc + interval '1 hour') >= $3)
             OR
             -- New event completely contains existing event
             ($2 <= start_ts_utc AND $3 >= COALESCE(end_ts_utc, start_ts_utc + interval '1 hour'))

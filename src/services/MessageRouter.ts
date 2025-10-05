@@ -2628,8 +2628,9 @@ export class MessageRouter {
           dateDescription = `ב-${DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy')}`;
         }
       } else if (titleFilter) {
-        // CRITICAL FIX: User only specified title, no date - search all upcoming events by title
-        events = await this.eventService.getUpcomingEvents(userId, 50);
+        // CRITICAL FIX: User only specified title, no date - search recent events (past and future) by title
+        // Get 100 most recent events (DESC order) to include both past and upcoming events
+        events = await this.eventService.getAllEvents(userId, 100, 0, true);
         dateDescription = '';
       }
 
