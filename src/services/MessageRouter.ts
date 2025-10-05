@@ -1523,10 +1523,8 @@ export class MessageRouter {
           await this.eventService.deleteEvent(eventId, userId);
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
-          // Show deleted event with red X mark
-          const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-          await this.sendMessage(phone, `❌ האירוע נמחק בהצלחה\n\n📌 ${event.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}\n\n✅ נמחק מהיומן`);
-          await this.showMainMenu(phone);
+          // React with ❌ on user's "כן" message (no text confirmation!)
+          await this.reactToLastMessage(userId, '❌');
         } catch (error) {
           logger.error('Failed to delete event', { userId, eventId, error });
           await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת האירוע.');
@@ -1568,10 +1566,8 @@ export class MessageRouter {
       await this.eventService.deleteEvent(eventToDelete.id, userId);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
-      // Show deleted event with red X mark
-      const dt = DateTime.fromJSDate(eventToDelete.startTsUtc).setZone('Asia/Jerusalem');
-      await this.sendMessage(phone, `❌ האירוע נמחק בהצלחה\n\n📌 ${eventToDelete.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}\n\n✅ נמחק מהיומן`);
-      await this.showMainMenu(phone);
+      // React with ❌ on user's selection message (no text confirmation!)
+      await this.reactToLastMessage(userId, '❌');
     } catch (error) {
       logger.error('Failed to delete event', { userId, eventId: eventToDelete.id, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת האירוע.');
