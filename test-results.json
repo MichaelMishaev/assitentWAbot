@@ -1,0 +1,345 @@
+[
+  {
+    "scenario": "S1.1 Create meeting tomorrow",
+    "message": "קבע פגישה עם דני מחר ב-3",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S1.2 Create event with full date",
+    "message": "קבע ברית ב-12/11/2025 ב-18:00",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S1.3 Create event with location",
+    "message": "משחק כדורגל יום ראשון בשעה 8 אצטדיון נתניה",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S2.1 Create overlapping event",
+    "message": "קבע רופא שיניים מחר ב-3",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S3.1 Search with exact title",
+    "message": "מתי רופא שיניים?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S3.2 Search with partial title",
+    "message": "מתי רופא?",
+    "intent": "search_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S3.3 Search with typo",
+    "message": "מתי פגישא?",
+    "intent": "search_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S4.1 Create event with partial info",
+    "message": "קבע פגישה עם אמא",
+    "intent": "create_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S4.2 Provide date in next message",
+    "message": "מחר",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S4.3 Provide time in third message",
+    "message": "10 בבוקר",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S4.4 Filler message 0",
+    "message": "מה יש לי ביום 1?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.5 Filler message 1",
+    "message": "מה יש לי ביום 2?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.6 Filler message 2",
+    "message": "מה יש לי ביום 3?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.7 Filler message 3",
+    "message": "מה יש לי ביום 4?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.8 Filler message 4",
+    "message": "מה יש לי ביום 5?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.9 Filler message 5",
+    "message": "מה יש לי ביום 6?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.10 Filler message 6",
+    "message": "מה יש לי ביום 7?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.11 Filler message 7",
+    "message": "מה יש לי ביום 8?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.12 Filler message 8",
+    "message": "מה יש לי ביום 9?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.13 Filler message 9",
+    "message": "מה יש לי ביום 10?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.14 Filler message 10",
+    "message": "מה יש לי ביום 11?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.15 Filler message 11",
+    "message": "מה יש לי ביום 12?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": false,
+    "error": "Expected list_events, got search_event"
+  },
+  {
+    "scenario": "S4.16 Reference after 15 messages",
+    "message": "עדכן את הפגישה עם אמא ל-11",
+    "intent": "update_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S5.1 Vague request",
+    "message": "קבע משהו",
+    "intent": "unknown",
+    "confidence": 0.3,
+    "success": true
+  },
+  {
+    "scenario": "S5.2 Just time",
+    "message": "14:00",
+    "intent": "unknown",
+    "confidence": 0.2,
+    "success": true
+  },
+  {
+    "scenario": "S5.3 Empty/short",
+    "message": "מה",
+    "intent": "unknown",
+    "confidence": 0.2,
+    "success": true
+  },
+  {
+    "scenario": "S6.1 Typo in date",
+    "message": "קבע פגישה מחהר ב-3",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S6.2 Typo in action",
+    "message": "תבטא את הפגישה",
+    "intent": "delete_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S7.1 Explicit date+time",
+    "message": "פגישה 16/10/2025 14:00",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S7.2 Day name + time",
+    "message": "פגישה יום רביעי ב-3 אחרי הצהריים",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S7.3 Relative time",
+    "message": "תזכיר לי בעוד שעתיים",
+    "intent": "create_reminder",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S7.4 Hebrew month",
+    "message": "פגישה 3 באוקטובר בערב",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S8.1 English create",
+    "message": "schedule meeting tomorrow at 3pm",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S8.2 English list",
+    "message": "what do I have tomorrow?",
+    "intent": "list_events",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S8.3 Mixed language",
+    "message": "delete the meeting עם דני",
+    "intent": "delete_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S9.1 Delete by title",
+    "message": "תבטל את הפגישה עם דני",
+    "intent": "delete_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S9.2 Delete with partial title",
+    "message": "מחק את רופא",
+    "intent": "delete_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S10.1 Search by title",
+    "message": "מתי יש לי רופא?",
+    "intent": "search_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S10.2 List all",
+    "message": "מה יש לי השבוע?",
+    "intent": "list_events",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S10.3 Generic question",
+    "message": "מה הבא?",
+    "intent": "unknown",
+    "confidence": 0.3,
+    "success": false,
+    "error": "Expected list_events, got unknown"
+  },
+  {
+    "scenario": "S11.1 Update time",
+    "message": "עדכן את הפגישה עם דני ל-5 אחרי הצהריים",
+    "intent": "update_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S11.2 Reschedule to different day",
+    "message": "דחה את רופא שיניים למחרתיים",
+    "intent": "update_event",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S12.1 Relative time reminder",
+    "message": "תזכיר לי להתקשר לאמא בעוד שעה",
+    "intent": "create_reminder",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S12.2 Specific time reminder",
+    "message": "תזכיר לי לקנות חלב מחר בבוקר",
+    "intent": "create_reminder",
+    "confidence": 0.9,
+    "success": true
+  },
+  {
+    "scenario": "S13.1 Past date",
+    "message": "קבע פגישה אתמול",
+    "intent": "unknown",
+    "confidence": 0.3,
+    "success": false,
+    "error": "Expected create_event, got unknown"
+  },
+  {
+    "scenario": "S13.2 Very long title",
+    "message": "קבע פגישה חשובה מאוד עם המנהל הכללי של החברה לגבי הפרויקט החדש שצריך להתחיל בחודש הבא",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  },
+  {
+    "scenario": "S13.3 Special characters",
+    "message": "קבע 🎉 יום הולדת 🎂 מחר ב-8",
+    "intent": "create_event",
+    "confidence": 0.95,
+    "success": true
+  }
+]

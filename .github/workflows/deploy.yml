@@ -94,6 +94,31 @@ jobs:
           echo "Server: ${{ secrets.SSH_HOST }}"
           echo "Time: $(date)"
 
+      - name: ❌ Send WhatsApp notification (Deploy Failed)
+        if: failure()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd /root/wAssitenceBot
+            COMMIT_HASH="${{ github.sha }}"
+            COMMIT_SHORT="${COMMIT_HASH:0:7}"
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+
+            MESSAGE="❌ *DEPLOYMENT FAILED!*
+
+            🚨 Deploy script failed to execute
+            📝 Commit: $COMMIT_MSG ($COMMIT_SHORT)
+
+            🔍 Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ⚠️ Bot may still be running with old code"
+
+            node scripts/send-deployment-notification.js "failure" "$COMMIT_SHORT" "$MESSAGE" || echo "Failed to send WhatsApp notification"
+
       - name: ❌ Deployment failed notification
         if: failure()
         run: |
