@@ -62,6 +62,19 @@ export interface Reminder {
   updatedAt: Date;
 }
 
+export interface Task {
+  id: string;
+  userId: string;
+  title: string;
+  description?: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  dueTsUtc?: Date;
+  completedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Session {
   userId: string;
   state: ConversationState;
@@ -109,7 +122,17 @@ export enum ConversationState {
   DRAFT_MESSAGE_RECIPIENT = 'DRAFT_MESSAGE_RECIPIENT',
   DRAFT_MESSAGE_CONTENT = 'DRAFT_MESSAGE_CONTENT',
   DRAFT_MESSAGE_CONFIRM = 'DRAFT_MESSAGE_CONFIRM',
+  DRAFT_MESSAGE_STYLE = 'DRAFT_MESSAGE_STYLE',
   TASKS_MENU = 'TASKS_MENU',
+  ADDING_TASK_TITLE = 'ADDING_TASK_TITLE',
+  ADDING_TASK_DESCRIPTION = 'ADDING_TASK_DESCRIPTION',
+  ADDING_TASK_PRIORITY = 'ADDING_TASK_PRIORITY',
+  ADDING_TASK_DUE_DATE = 'ADDING_TASK_DUE_DATE',
+  ADDING_TASK_CONFIRM = 'ADDING_TASK_CONFIRM',
+  LISTING_TASKS = 'LISTING_TASKS',
+  MARKING_TASK_DONE = 'MARKING_TASK_DONE',
+  DELETING_TASK = 'DELETING_TASK',
+  DELETING_TASK_CONFIRM = 'DELETING_TASK_CONFIRM',
 }
 
 export interface AuthState {

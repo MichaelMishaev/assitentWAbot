@@ -2818,8 +2818,8 @@ export class MessageRouter {
       // So we should search by title ONLY, not by date!
       if (hasUpdateValue && hasSearchTerm) {
         // User said "update EVENT_TITLE to NEW_VALUE"
-        // Search by title only (45% threshold for Hebrew)
-        events = await this.eventService.getUpcomingEvents(userId, 50);
+        // Search by title in recent events (past + future, DESC order)
+        events = await this.eventService.getAllEvents(userId, 100, 0, true);
         events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
       } else if (event.date || event.dateText) {
         // User said "update event on DATE" - date is search term
@@ -2837,8 +2837,8 @@ export class MessageRouter {
           events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
         }
       } else {
-        // Search all upcoming events
-        events = await this.eventService.getUpcomingEvents(userId, 50);
+        // Search all recent events (past + future, DESC order)
+        events = await this.eventService.getAllEvents(userId, 100, 0, true);
 
         // Filter by title if provided (45% threshold for Hebrew flexibility)
         if (event.title && events.length > 0) {
