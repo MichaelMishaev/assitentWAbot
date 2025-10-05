@@ -15,7 +15,14 @@ import makeWASocket, {
   ConnectionState as BaileysConnectionState,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
-import logger from '../utils/logger.js';
+import logger, {
+  logWhatsAppConnection,
+  logWhatsAppQRCode,
+  logWhatsAppDisconnect,
+  logWhatsAppReconnect,
+  logWhatsAppMessageReceived,
+  logWhatsAppMessageSent
+} from '../utils/logger.js';
 import {
   IMessageProvider,
   IncomingMessage,
@@ -109,9 +116,13 @@ export class BaileysProvider implements IMessageProvider {
         await QRCode.toFile(qrCodePath, qr);
         logger.info(`QR code also saved to: ${qrCodePath}`);
 
+        // Log QR code event for monitoring
+        logWhatsAppQRCode(qrCodePath);
+
         this.updateConnectionState({ status: 'qr', qrCode: qr });
       } catch (error) {
         logger.error('Failed to generate QR code file:', error);
+        logWhatsAppQRCode('QR code generation failed');
         this.updateConnectionState({ status: 'qr', qrCode: qr });
       }
     }
@@ -119,11 +130,13 @@ export class BaileysProvider implements IMessageProvider {
     // Handle connection state changes
     if (connection) {
       logger.info(`Connection status: ${connection}`);
+      logWhatsAppConnection(connection);
 
       if (connection === 'open') {
         logger.info('✅ WhatsApp connection established');
         // Reset auth failure counter on successful connection
         this.authFailureCount = 0;
+        logWhatsAppConnection('connected', { authFailures: 0 });
         this.updateConnectionState({ status: 'connected' });
       } else if (connection === 'close') {
         await this.handleDisconnect(lastDisconnect);
@@ -137,6 +150,7 @@ export class BaileysProvider implements IMessageProvider {
     const errorMessage = lastDisconnect?.error?.message || '';
 
     logger.warn(`Connection closed. Status code: ${statusCode}, Error: ${errorMessage}`);
+    logWhatsAppDisconnect(errorMessage, statusCode);
 
     // Check if this is a real logout vs connection error
     // Real logout: status 401 with explicit logout
@@ -219,12 +233,14 @@ export class BaileysProvider implements IMessageProvider {
     }
 
     logger.info('Reconnecting in 5 seconds...');
+    logWhatsAppReconnect();
     await new Promise(resolve => setTimeout(resolve, 5000));
 
     try {
       await this.initialize();
     } catch (error) {
       logger.error('Reconnection failed:', error);
+      logWhatsAppDisconnect('Reconnection failed', 0);
       // Will retry on next disconnect
     }
   }

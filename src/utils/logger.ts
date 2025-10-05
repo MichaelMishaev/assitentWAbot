@@ -74,16 +74,16 @@ const logger = winston.createLogger({
         detailedFormat
       ),
     }),
-    // All logs file (with detailed format)
+    // All logs file (with detailed format) - 10 days retention
     new winston.transports.File({
       filename: path.join(logsDir, 'all.log'),
       format: winston.format.combine(
         winston.format.json()
       ),
       maxsize: 10485760, // 10MB
-      maxFiles: 5,
+      maxFiles: 10, // 10 days of logs
     }),
-    // Error logs file
+    // Error logs file - 10 days retention
     new winston.transports.File({
       filename: path.join(logsDir, 'error.log'),
       level: 'error',
@@ -91,9 +91,9 @@ const logger = winston.createLogger({
         winston.format.json()
       ),
       maxsize: 10485760, // 10MB
-      maxFiles: 5,
+      maxFiles: 10, // 10 days
     }),
-    // Operations log (user actions)
+    // Operations log (user actions) - 10 days retention
     new winston.transports.File({
       filename: path.join(logsDir, 'operations.log'),
       level: 'info',
@@ -101,7 +101,17 @@ const logger = winston.createLogger({
         winston.format.json()
       ),
       maxsize: 10485760, // 10MB
-      maxFiles: 10,
+      maxFiles: 10, // 10 days
+    }),
+    // WhatsApp connection log - Track QR codes, disconnections, etc
+    new winston.transports.File({
+      filename: path.join(logsDir, 'whatsapp-connection.log'),
+      level: 'info',
+      format: winston.format.combine(
+        winston.format.json()
+      ),
+      maxsize: 5242880, // 5MB
+      maxFiles: 10, // 10 days
     }),
   ],
 });
@@ -225,6 +235,72 @@ export const logAPICall = (operation: string, endpoint: string, status?: number,
       endpoint,
       status,
       duration: duration ? `${duration}ms` : undefined
+    }
+  });
+};
+
+// WhatsApp connection logging
+export const logWhatsAppConnection = (status: string, details?: any) => {
+  logger.info(`WhatsApp connection: ${status}`, {
+    operation: 'WHATSAPP_CONNECTION',
+    data: {
+      status,
+      ...details
+    }
+  });
+};
+
+export const logWhatsAppQRCode = (qrSaved: string) => {
+  logger.warn('⚠️ WhatsApp QR code required - Bot needs scanning!', {
+    operation: 'WHATSAPP_QR_REQUIRED',
+    data: {
+      qrCodePath: qrSaved,
+      action: 'SCAN_REQUIRED',
+      timestamp: new Date().toISOString()
+    }
+  });
+};
+
+export const logWhatsAppDisconnect = (reason: string, statusCode?: number) => {
+  logger.warn(`WhatsApp disconnected: ${reason}`, {
+    operation: 'WHATSAPP_DISCONNECT',
+    data: {
+      reason,
+      statusCode,
+      timestamp: new Date().toISOString()
+    }
+  });
+};
+
+export const logWhatsAppReconnect = () => {
+  logger.info('WhatsApp reconnecting...', {
+    operation: 'WHATSAPP_RECONNECT',
+    data: {
+      timestamp: new Date().toISOString()
+    }
+  });
+};
+
+export const logWhatsAppMessageReceived = (from: string, messageId: string, textLength: number) => {
+  logger.info('WhatsApp message received', {
+    operation: 'WHATSAPP_MESSAGE_IN',
+    data: {
+      from: from.substring(0, 6) + '****',
+      messageId,
+      textLength,
+      timestamp: new Date().toISOString()
+    }
+  });
+};
+
+export const logWhatsAppMessageSent = (to: string, messageId: string, textLength: number) => {
+  logger.info('WhatsApp message sent', {
+    operation: 'WHATSAPP_MESSAGE_OUT',
+    data: {
+      to: to.substring(0, 6) + '****',
+      messageId,
+      textLength,
+      timestamp: new Date().toISOString()
     }
   });
 };
