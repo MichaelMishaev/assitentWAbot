@@ -10,12 +10,18 @@ export interface MessageContent {
   // Future: support for media, location, etc.
 }
 
+export interface QuotedMessageInfo {
+  messageId: string;      // ID of the quoted/replied-to message
+  participant?: string;   // Who sent the quoted message (for group chats)
+}
+
 export interface IncomingMessage {
   from: string;           // Phone number in international format (e.g., "972501234567")
   messageId: string;      // Unique message ID
   timestamp: number;      // Unix timestamp
   content: MessageContent;
   isFromMe: boolean;      // True if sent by the bot
+  quotedMessage?: QuotedMessageInfo;  // Info about quoted/replied-to message (if any)
 }
 
 export interface MessageHandler {

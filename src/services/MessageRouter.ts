@@ -4,6 +4,7 @@ import { EventService } from './EventService.js';
 import { ReminderService } from './ReminderService.js';
 import { ContactService } from './ContactService.js';
 import { SettingsService } from './SettingsService.js';
+import { TaskService } from './TaskService.js';
 import { IMessageProvider } from '../providers/IMessageProvider.js';
 import { ConversationState, AuthState } from '../types/index.js';
 import { redis } from '../config/redis.js';
@@ -124,15 +125,16 @@ export class MessageRouter {
     private reminderService: ReminderService,
     private contactService: ContactService,
     private settingsService: SettingsService,
+    private taskService: TaskService,
     private messageProvider: IMessageProvider
   ) {}
 
   /**
    * Main routing function
    */
-  async routeMessage(from: string, text: string, messageId?: string): Promise<void> {
+  async routeMessage(from: string, text: string, messageId?: string, quotedMessage?: { messageId: string; participant?: string }): Promise<void> {
     try {
-      logger.info('Routing message', { from, text, messageId });
+      logger.info('Routing message', { from, text, messageId, quotedMessage });
 
       // CRITICAL: Message deduplication - prevent processing same message twice
       // WhatsApp can send duplicates during network issues or reconnections
@@ -159,18 +161,51 @@ export class MessageRouter {
         logger.debug('Marked message as processing', { messageId });
       }
 
+      // Retrieve user once and reuse throughout
+      let user = await this.authService.getUserByPhone(from);
+
       // Store messageId for potential reactions
-      if (messageId) {
-        const user = await this.authService.getUserByPhone(from);
-        if (user) {
-          const session = await this.stateManager.getState(user.id);
-          if (session) {
-            await this.stateManager.setState(user.id, session.state, {
-              ...session.context,
-              lastMessageId: messageId,
-              lastMessageFrom: from
-            });
+      if (messageId && user) {
+        const session = await this.stateManager.getState(user.id);
+        if (session) {
+          await this.stateManager.setState(user.id, session.state, {
+            ...session.context,
+            lastMessageId: messageId,
+            lastMessageFrom: from
+          });
+        }
+      }
+
+      // PHASE 1: Handle reply-to-message quick actions
+      // If user replied to a bot message with event info, try quick action first
+      if (quotedMessage && user) {
+        const handled = await this.handleQuickAction(from, user.id, text, quotedMessage.messageId);
+        if (handled) {
+          // Mark as successfully processed
+          if (messageId) {
+            await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+            await redis.del(`msg:processing:${messageId}`);
           }
+          return;
+        }
+        // If not handled, continue with normal flow below
+      }
+
+      // PHASE 2.3: Handle pending delete confirmation
+      if (user) {
+        const deleteConfirmRaw = await redis.get(`temp:delete_confirm:${user.id}`);
+        if (deleteConfirmRaw) {
+          const handled = await this.handleDeleteConfirmation(from, user.id, text, deleteConfirmRaw);
+          if (handled) {
+            // Mark as successfully processed
+            if (messageId) {
+              await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+              await redis.del(`msg:processing:${messageId}`);
+            }
+            return;
+          }
+          // If not handled (user said something else), clear confirmation and continue
+          await redis.del(`temp:delete_confirm:${user.id}`);
         }
       }
 
@@ -195,8 +230,6 @@ export class MessageRouter {
         }
         return;
       }
-
-      const user = await this.authService.getUserByPhone(from);
 
       if (!user) {
         await this.startRegistration(from);
@@ -336,6 +369,10 @@ export class MessageRouter {
         await this.handleEventConfirm(phone, userId, text);
         break;
 
+      case ConversationState.ADDING_EVENT_CONFLICT_CONFIRM:
+        await this.handleEventConflictConfirm(phone, userId, text);
+        break;
+
       // ===== REMINDER CREATION FLOW =====
       case ConversationState.ADDING_REMINDER_TITLE:
         await this.handleReminderTitle(phone, userId, text);
@@ -458,6 +495,51 @@ export class MessageRouter {
         await this.handleDraftMessageConfirm(phone, userId, text);
         break;
 
+      case ConversationState.DRAFT_MESSAGE_STYLE:
+        await this.handleDraftMessageStyle(phone, userId, text);
+        break;
+
+      // ===== TASKS =====
+      case ConversationState.TASKS_MENU:
+        await this.handleTasksMenu(phone, userId, text);
+        break;
+
+      case ConversationState.ADDING_TASK_TITLE:
+        await this.handleAddingTaskTitle(phone, userId, text);
+        break;
+
+      case ConversationState.ADDING_TASK_DESCRIPTION:
+        await this.handleAddingTaskDescription(phone, userId, text);
+        break;
+
+      case ConversationState.ADDING_TASK_PRIORITY:
+        await this.handleAddingTaskPriority(phone, userId, text);
+        break;
+
+      case ConversationState.ADDING_TASK_DUE_DATE:
+        await this.handleAddingTaskDueDate(phone, userId, text);
+        break;
+
+      case ConversationState.ADDING_TASK_CONFIRM:
+        await this.handleAddingTaskConfirm(phone, userId, text);
+        break;
+
+      case ConversationState.LISTING_TASKS:
+        await this.handleListingTasks(phone, userId, text);
+        break;
+
+      case ConversationState.MARKING_TASK_DONE:
+        await this.handleMarkingTaskDone(phone, userId, text);
+        break;
+
+      case ConversationState.DELETING_TASK:
+        await this.handleDeletingTask(phone, userId, text);
+        break;
+
+      case ConversationState.DELETING_TASK_CONFIRM:
+        await this.handleDeletingTaskConfirm(phone, userId, text);
+        break;
+
       default:
         logger.warn('Unknown state', { userId, state });
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
@@ -564,7 +646,32 @@ export class MessageRouter {
       finalDate = dt.set({ hour: hours, minute: minutes }).toJSDate();
     }
 
-    // Create event immediately (no confirmation needed)
+    // Check for conflicts BEFORE creating event
+    const conflicts = await this.eventService.checkOverlappingEvents(userId, finalDate);
+
+    if (conflicts.length > 0) {
+      // Show conflict warning
+      const confirmDt = DateTime.fromJSDate(finalDate).setZone('Asia/Jerusalem');
+      let warningMsg = `⚠️ התנגשות זמנים!\n\n`;
+      warningMsg += `האירוע החדש:\n📌 ${title}\n🕐 ${confirmDt.toFormat('dd/MM/yyyy HH:mm')}\n\n`;
+      warningMsg += `מתנגש עם:\n`;
+
+      conflicts.forEach((conflict, index) => {
+        const conflictDt = DateTime.fromJSDate(conflict.startTsUtc).setZone('Asia/Jerusalem');
+        warningMsg += `${index + 1}. ${conflict.title} - ${conflictDt.toFormat('dd/MM HH:mm')}\n`;
+      });
+
+      warningMsg += `\nהאם ליצור את האירוע בכל זאת? (כן/לא)`;
+
+      await this.sendMessage(phone, warningMsg);
+      await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_CONFLICT_CONFIRM, {
+        title,
+        startTsUtc: finalDate.toISOString()
+      });
+      return;
+    }
+
+    // No conflicts - create event immediately
     try {
       await this.eventService.createEvent({
         userId,
@@ -586,6 +693,58 @@ export class MessageRouter {
 
     } catch (error) {
       logger.error('Failed to create event', { userId, error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    }
+  }
+
+  private async handleEventConflictConfirm(phone: string, userId: string, text: string): Promise<void> {
+    const choice = text.trim().toLowerCase();
+
+    if (choice === 'לא' || choice === 'no') {
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, '❌ האירוע בוטל.');
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    if (choice !== 'כן' && choice !== 'yes') {
+      await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
+      return;
+    }
+
+    const session = await this.stateManager.getState(userId);
+    const { title, startTsUtc } = session?.context || {};
+
+    if (!title || !startTsUtc) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    try {
+      await this.eventService.createEvent({
+        userId,
+        title,
+        startTsUtc: new Date(startTsUtc),
+        location: undefined,
+        notes: undefined
+      });
+
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+
+      // React to user's original message with thumbs up
+      await this.reactToLastMessage(userId, '👍');
+
+      // Send success message
+      const confirmDt = DateTime.fromJSDate(new Date(startTsUtc)).setZone('Asia/Jerusalem');
+      await this.sendMessage(phone, `✅ ${title} - ${confirmDt.toFormat('dd/MM/yyyy HH:mm')}\n\n(נוצר למרות התנגשות)`);
+      await this.showMainMenu(phone);
+
+    } catch (error) {
+      logger.error('Failed to create event after conflict confirmation', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.showMainMenu(phone);
@@ -970,6 +1129,351 @@ export class MessageRouter {
     // For now, we just confirm it was drafted
     await this.sendMessage(phone, `✅ ההודעה נשמרה כטיוטה!\n\n(תכונת שליחה אוטומטית תהיה זמינה בגרסה הבאה)\n\n📝 טיוטה:\nאל: ${recipient}\nתוכן: ${content}`);
 
+    await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+    await this.showMainMenu(phone);
+  }
+
+  // ========== TASK HANDLERS ==========
+
+  private async handleTasksMenu(phone: string, userId: string, text: string): Promise<void> {
+    const choice = text.trim();
+
+    switch (choice) {
+      case '1': // List active tasks
+        const tasks = await this.taskService.getAllTasks(userId, false);
+        if (tasks.length === 0) {
+          await this.sendMessage(phone, '✅ אין משימות פעילות!\n\nשלח /תפריט לחזרה לתפריט ראשי');
+          await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        } else {
+          const { renderTaskList } = await import('../utils/taskFormatter.js');
+          await this.sendMessage(phone, renderTaskList(tasks, 'פעילות'));
+          await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        }
+        break;
+
+      case '2': // Add new task
+        await this.stateManager.setState(userId, ConversationState.ADDING_TASK_TITLE);
+        await this.sendMessage(phone, '➕ הוספת משימה חדשה\n\nמה כותרת המשימה?\n\n(או שלח /ביטול לביטול)');
+        break;
+
+      case '3': // Mark task as done
+        const activeTasks = await this.taskService.getAllTasks(userId, false);
+        if (activeTasks.length === 0) {
+          await this.sendMessage(phone, 'אין משימות פעילות לסימון.\n\nשלח /תפריט לחזרה לתפריט ראשי');
+        } else {
+          const { renderTaskList } = await import('../utils/taskFormatter.js');
+          await this.sendMessage(phone, renderTaskList(activeTasks, 'סמן כבוצעה') + '\n\nהזן מספר משימה:');
+          await this.stateManager.setState(userId, ConversationState.MARKING_TASK_DONE, { tasks: activeTasks });
+        }
+        break;
+
+      case '4': // Delete task
+        const allTasks = await this.taskService.getAllTasks(userId, false);
+        if (allTasks.length === 0) {
+          await this.sendMessage(phone, 'אין משימות למחיקה.\n\nשלח /תפריט לחזרה לתפריט ראשי');
+        } else {
+          const { renderTaskList } = await import('../utils/taskFormatter.js');
+          await this.sendMessage(phone, renderTaskList(allTasks, 'מחיקה') + '\n\nהזן מספר משימה למחיקה:');
+          await this.stateManager.setState(userId, ConversationState.DELETING_TASK, { tasks: allTasks });
+        }
+        break;
+
+      case '5': // Statistics
+        const stats = await this.taskService.getTaskStats(userId);
+        const statsMsg = `📊 סטטיסטיקות משימות\n\n` +
+          `סה"כ: ${stats.total}\n` +
+          `⏳ ממתינות: ${stats.pending}\n` +
+          `🔄 בביצוע: ${stats.inProgress}\n` +
+          `✅ הושלמו: ${stats.completed}\n` +
+          `⚠️ באיחור: ${stats.overdue}\n\n` +
+          `שלח /תפריט לחזרה לתפריט ראשי`;
+        await this.sendMessage(phone, statsMsg);
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        break;
+
+      case '6': // Back to main menu
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+        break;
+
+      default:
+        await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר מספר בין 1-6.');
+    }
+  }
+
+  private async handleAddingTaskTitle(phone: string, userId: string, text: string): Promise<void> {
+    const title = text.trim();
+
+    if (title.length < 2) {
+      await this.sendMessage(phone, 'כותרת המשימה קצרה מדי. אנא הזן כותרת בת 2 תווים לפחות.');
+      return;
+    }
+
+    if (title.length > 200) {
+      await this.sendMessage(phone, 'כותרת המשימה ארוכה מדי. אנא הזן כותרת קצרה יותר.');
+      return;
+    }
+
+    await this.stateManager.setState(userId, ConversationState.ADDING_TASK_DESCRIPTION, { title });
+    await this.sendMessage(phone, `מעולה! ✅\n\nהאם תרצה להוסיף תיאור למשימה "${title}"?\n\n(כתוב תיאור או שלח "דלג")`);
+  }
+
+  private async handleAddingTaskDescription(phone: string, userId: string, text: string): Promise<void> {
+    const session = await this.stateManager.getState(userId);
+    const { title } = session?.context || {};
+
+    if (!title) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    const description = text.trim().toLowerCase() === 'דלג' ? null : text.trim();
+
+    const { renderPriorityMenu } = await import('../utils/menuRenderer.js');
+    await this.sendMessage(phone, renderPriorityMenu());
+    await this.stateManager.setState(userId, ConversationState.ADDING_TASK_PRIORITY, {
+      title,
+      description
+    });
+  }
+
+  private async handleAddingTaskPriority(phone: string, userId: string, text: string): Promise<void> {
+    const session = await this.stateManager.getState(userId);
+    const { title, description } = session?.context || {};
+
+    if (!title) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    let priority: 'low' | 'normal' | 'high' | 'urgent' = 'normal';
+    const choice = text.trim();
+
+    switch (choice) {
+      case '1':
+        priority = 'urgent';
+        break;
+      case '2':
+        priority = 'high';
+        break;
+      case '3':
+      case '5':
+        priority = 'normal';
+        break;
+      case '4':
+        priority = 'low';
+        break;
+      default:
+        await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר מספר בין 1-5.');
+        return;
+    }
+
+    await this.sendMessage(phone, 'האם יש תאריך יעד למשימה?\n\nדוגמאות:\n• היום\n• מחר\n• 25/12/2025\n• דלג (ללא תאריך)\n\n(או שלח /ביטול לביטול)');
+    await this.stateManager.setState(userId, ConversationState.ADDING_TASK_DUE_DATE, {
+      title,
+      description,
+      priority
+    });
+  }
+
+  private async handleAddingTaskDueDate(phone: string, userId: string, text: string): Promise<void> {
+    const session = await this.stateManager.getState(userId);
+    const { title, description, priority } = session?.context || {};
+
+    if (!title) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    let dueDate: Date | null = null;
+
+    if (text.trim().toLowerCase() !== 'דלג') {
+      const result = parseHebrewDate(text.trim());
+      if (!result.success) {
+        await this.sendMessage(phone, `❌ ${result.error}\n\nנסה שוב או שלח "דלג"`);
+        return;
+      }
+      dueDate = result.date || null;
+    }
+
+    const priorityEmojis: Record<string, string> = { urgent: '🔴', high: '🟠', normal: '🟡', low: '🟢' };
+    const priorityEmoji = priorityEmojis[priority as string] || '🟡';
+    const dueDateStr = dueDate ? DateTime.fromJSDate(dueDate).setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy') : 'ללא תאריך יעד';
+
+    const confirmMsg = `✅ סיכום משימה:\n\n` +
+      `📌 כותרת: ${title}\n` +
+      `📝 תיאור: ${description || 'ללא תיאור'}\n` +
+      `${priorityEmoji} עדיפות: ${priority}\n` +
+      `📅 תאריך יעד: ${dueDateStr}\n\n` +
+      `האם ליצור את המשימה? (כן/לא)`;
+
+    await this.sendMessage(phone, confirmMsg);
+    await this.stateManager.setState(userId, ConversationState.ADDING_TASK_CONFIRM, {
+      title,
+      description,
+      priority,
+      dueDate: dueDate?.toISOString()
+    });
+  }
+
+  private async handleAddingTaskConfirm(phone: string, userId: string, text: string): Promise<void> {
+    const choice = text.trim().toLowerCase();
+
+    if (choice === 'לא' || choice === 'no') {
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, '❌ המשימה בוטלה.');
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    if (choice !== 'כן' && choice !== 'yes') {
+      await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
+      return;
+    }
+
+    const session = await this.stateManager.getState(userId);
+    const { title, description, priority, dueDate } = session?.context || {};
+
+    if (!title) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    try {
+      const task = await this.taskService.createTask({
+        userId,
+        title,
+        description,
+        priority,
+        dueTsUtc: dueDate ? new Date(dueDate) : undefined
+      });
+
+      await this.sendMessage(phone, `✅ המשימה נוצרה בהצלחה!\n\n📌 ${task.title}`);
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    } catch (error) {
+      logger.error('Failed to create task', { error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת המשימה. אנא נסה שוב.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    }
+  }
+
+  private async handleListingTasks(phone: string, userId: string, text: string): Promise<void> {
+    // This is handled in the tasks menu
+    await this.handleTasksMenu(phone, userId, '1');
+  }
+
+  private async handleMarkingTaskDone(phone: string, userId: string, text: string): Promise<void> {
+    const session = await this.stateManager.getState(userId);
+    const { tasks } = session?.context || {};
+
+    if (!tasks || !Array.isArray(tasks)) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    const taskNumber = parseInt(text.trim());
+
+    if (isNaN(taskNumber) || taskNumber < 1 || taskNumber > tasks.length) {
+      await this.sendMessage(phone, `אנא הזן מספר בין 1 ל-${tasks.length}`);
+      return;
+    }
+
+    const task = tasks[taskNumber - 1];
+
+    try {
+      await this.taskService.markTaskAsCompleted(task.id, userId);
+      await this.sendMessage(phone, `✅ המשימה "${task.title}" סומנה כבוצעה!`);
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    } catch (error) {
+      logger.error('Failed to mark task as done', { error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה. אנא נסה שוב.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    }
+  }
+
+  private async handleDeletingTask(phone: string, userId: string, text: string): Promise<void> {
+    const session = await this.stateManager.getState(userId);
+    const { tasks } = session?.context || {};
+
+    if (!tasks || !Array.isArray(tasks)) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    const taskNumber = parseInt(text.trim());
+
+    if (isNaN(taskNumber) || taskNumber < 1 || taskNumber > tasks.length) {
+      await this.sendMessage(phone, `אנא הזן מספר בין 1 ל-${tasks.length}`);
+      return;
+    }
+
+    const task = tasks[taskNumber - 1];
+
+    await this.sendMessage(phone, `⚠️ האם אתה בטוח שברצונך למחוק את המשימה:\n\n"${task.title}"\n\n(כן/לא)`);
+    await this.stateManager.setState(userId, ConversationState.DELETING_TASK_CONFIRM, { taskId: task.id, taskTitle: task.title });
+  }
+
+  private async handleDeletingTaskConfirm(phone: string, userId: string, text: string): Promise<void> {
+    const choice = text.trim().toLowerCase();
+
+    if (choice === 'לא' || choice === 'no') {
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, '❌ המחיקה בוטלה.');
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    if (choice !== 'כן' && choice !== 'yes') {
+      await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
+      return;
+    }
+
+    const session = await this.stateManager.getState(userId);
+    const { taskId, taskTitle } = session?.context || {};
+
+    if (!taskId) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    try {
+      const deleted = await this.taskService.deleteTask(taskId, userId);
+      if (deleted) {
+        await this.sendMessage(phone, `✅ המשימה "${taskTitle}" נמחקה בהצלחה!`);
+      } else {
+        await this.sendMessage(phone, '❌ המשימה לא נמצאה.');
+      }
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    } catch (error) {
+      logger.error('Failed to delete task', { error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת המשימה. אנא נסה שוב.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    }
+  }
+
+  private async handleDraftMessageStyle(phone: string, userId: string, text: string): Promise<void> {
+    // Placeholder for style selection - will be implemented with OpenAI integration
+    await this.sendMessage(phone, 'תכונת בחירת סגנון תתווסף בקרוב.');
     await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
     await this.showMainMenu(phone);
   }
@@ -2221,8 +2725,10 @@ export class MessageRouter {
           await this.sendMessage(phone, '⏰ הוספת תזכורת חדשה\n\nמה כותרת התזכורת?\n\n(או שלח /ביטול לביטול)');
           break;
 
-        case '4': // Tasks (stub)
-          await this.sendMessage(phone, '✅ משימות\n\n🔜 בקרוב!\n\nתכונת ניהול משימות תהיה זמינה בגרסה הבאה.\n\nשלח /תפריט לחזרה לתפריט ראשי');
+        case '4': // Tasks
+          const { renderTasksMenu } = await import('../utils/menuRenderer.js');
+          await this.sendMessage(phone, renderTasksMenu());
+          await this.stateManager.setState(userId, ConversationState.TASKS_MENU);
           break;
 
         case '5': // Contacts menu
@@ -2322,7 +2828,47 @@ export class MessageRouter {
       // Add current user message to history
       await this.stateManager.addToHistory(userId, 'user', text);
 
-      const intent = await nlp.parseIntent(text, contacts, user?.timezone || 'Asia/Jerusalem', conversationHistory);
+      // Phase 2.2: Check for event context from reply-to-message quick action fallback
+      let contextEnhancedText = text;
+      const eventContextRaw = await redis.get(`temp:event_context:${userId}`);
+      if (eventContextRaw) {
+        // Clear context after retrieval (one-time use)
+        await redis.del(`temp:event_context:${userId}`);
+
+        try {
+          // Parse event ID(s)
+          let eventIds: string[];
+          try {
+            const parsed = JSON.parse(eventContextRaw);
+            eventIds = Array.isArray(parsed) ? parsed : [eventContextRaw];
+          } catch {
+            eventIds = [eventContextRaw];
+          }
+
+          // Retrieve event titles
+          const eventTitles: string[] = [];
+          for (const eventId of eventIds.slice(0, 5)) { // Max 5 events for context
+            const event = await this.eventService.getEventById(eventId, userId);
+            if (event) {
+              eventTitles.push(event.title);
+            }
+          }
+
+          // Inject event context into user text for NLP
+          if (eventTitles.length === 1) {
+            contextEnhancedText = `${text} (בהקשר לאירוע: ${eventTitles[0]})`;
+          } else if (eventTitles.length > 1) {
+            contextEnhancedText = `${text} (בהקשר לאירועים: ${eventTitles.join(', ')})`;
+          }
+
+          logger.info('Injected event context into NLP', { userId, originalText: text, enhancedText: contextEnhancedText });
+        } catch (error) {
+          logger.error('Failed to inject event context', { userId, error });
+          // Continue with original text if context injection fails
+        }
+      }
+
+      const intent = await nlp.parseIntent(contextEnhancedText, contacts, user?.timezone || 'Asia/Jerusalem', conversationHistory);
 
       // Intent-specific confidence thresholds
       const isSearchIntent = intent.intent === 'search_event' || intent.intent === 'list_events';
@@ -2683,7 +3229,14 @@ export class MessageRouter {
         message += formatEventInList(event, index + 1, 'Asia/Jerusalem', showFullDate, events) + `\n\n`;
       });
 
-      await this.sendMessage(phone, message);
+      const sentMessageId = await this.sendMessage(phone, message);
+
+      // Phase 1: Store event mapping for reply-to actions
+      const eventIds = events.map(e => e.id);
+      await this.storeMessageEventMapping(sentMessageId, eventIds.length === 1 ? eventIds[0] : eventIds);
+
+      // Phase 2.4: Show hint for first-time users
+      await this.sendQuickActionHint(phone, userId);
     } else {
       // Show all upcoming events (no filters)
       const events = await this.eventService.getUpcomingEvents(userId, 10);
@@ -2698,7 +3251,14 @@ export class MessageRouter {
         message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events) + `\n\n`;
       });
 
-      await this.sendMessage(phone, message);
+      const sentMessageId = await this.sendMessage(phone, message);
+
+      // Phase 1: Store event mapping for reply-to actions
+      const eventIds = events.map(e => e.id);
+      await this.storeMessageEventMapping(sentMessageId, eventIds.length === 1 ? eventIds[0] : eventIds);
+
+      // Phase 2.4: Show hint for first-time users
+      await this.sendQuickActionHint(phone, userId);
     }
   }
 
@@ -3021,10 +3581,10 @@ export class MessageRouter {
     await this.sendMessage(phone, 'התנתקת בהצלחה. להתראות! 👋');
   }
 
-  private async sendMessage(to: string, message: string): Promise<void> {
+  private async sendMessage(to: string, message: string): Promise<string> {
     try {
-      await this.messageProvider.sendMessage(to, message);
-      logger.debug('Message sent', { to, messageLength: message.length });
+      const messageId = await this.messageProvider.sendMessage(to, message);
+      logger.debug('Message sent', { to, messageId, messageLength: message.length });
 
       // Track assistant message in conversation history
       try {
@@ -3036,6 +3596,8 @@ export class MessageRouter {
         // Don't fail message sending if history tracking fails
         logger.warn('Failed to track message in history', { to, error: historyError });
       }
+
+      return messageId;
     } catch (error) {
       logger.error('Failed to send message', { to, error });
       throw error;
@@ -3331,6 +3893,391 @@ export class MessageRouter {
       await this.sendMessage(phone, '❌ שגיאה במחיקת הערה. נסה שוב מאוחר יותר.');
     }
   }
+
+  // ========== REPLY-TO-MESSAGE HELPERS (Phase 1.2) ==========
+
+  /**
+   * Store mapping between sent message ID and event ID(s)
+   * Allows users to reply to event messages for quick actions
+   * TTL: 24 hours (same-day interactions only)
+   */
+  private async storeMessageEventMapping(messageId: string, eventIds: string | string[]): Promise<void> {
+    try {
+      const key = `msg:event:${messageId}`;
+      const value = Array.isArray(eventIds) ? JSON.stringify(eventIds) : eventIds;
+      await redis.setex(key, 86400, value); // 24h TTL
+      logger.debug('Stored message-event mapping', { messageId, eventIds });
+    } catch (error) {
+      logger.error('Failed to store message-event mapping', { messageId, eventIds, error });
+    }
+  }
+
+  /**
+   * Retrieve event ID(s) from quoted message ID
+   * Returns single eventId (string) or array of eventIds
+   */
+  private async getEventFromQuotedMessage(quotedMessageId: string): Promise<string | string[] | null> {
+    try {
+      const key = `msg:event:${quotedMessageId}`;
+      const value = await redis.get(key);
+
+      if (!value) {
+        logger.debug('No event mapping found for quoted message', { quotedMessageId });
+        return null;
+      }
+
+      // Try parsing as JSON array first
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : value;
+      } catch {
+        // Not JSON, return as single event ID
+        return value;
+      }
+    } catch (error) {
+      logger.error('Failed to get event from quoted message', { quotedMessageId, error });
+      return null;
+    }
+  }
+
+  /**
+   * Phase 2.4: Send helpful hints for first-time users
+   * Shows quick action tips for the first 3 uses
+   */
+  private async sendQuickActionHint(phone: string, userId: string): Promise<void> {
+    try {
+      const countKey = `quick_action_count:${userId}`;
+      const count = await redis.get(countKey);
+      const currentCount = count ? parseInt(count, 10) : 0;
+
+      // Show hints only for first 3 uses
+      if (currentCount < 3) {
+        let hint = '\n\n💡 טיפ: ';
+
+        if (currentCount === 0) {
+          hint += 'עכשיו אפשר לענות להודעות שלי!\n• "מחק" למחיקה\n• "20:00" לעדכון שעה\n• או כל בקשה אחרת';
+        } else if (currentCount === 1) {
+          hint += 'אם יש כמה אירועים, הוסף מספר:\n• "מחק 1" - מחק אירוע ראשון\n• "עדכן 2 ל15:00" - שנה שעה של אירוע 2';
+        } else if (currentCount === 2) {
+          hint += 'תמיד אפשר לענות להודעות שלי במקום להתחיל מחדש!';
+        }
+
+        await this.sendMessage(phone, hint);
+
+        // Increment counter
+        await redis.setex(countKey, 2592000, (currentCount + 1).toString()); // 30-day TTL
+      }
+    } catch (error) {
+      logger.error('Failed to send quick action hint', { userId, error });
+      // Continue even if hint fails
+    }
+  }
+
+  /**
+   * Handle quick actions when user replies to event message
+   * Phase 1: Basic keywords (delete, update time)
+   * Phase 2: Multi-event support, context-aware NLP
+   */
+  private async handleQuickAction(phone: string, userId: string, text: string, quotedMessageId: string): Promise<boolean> {
+    const eventData = await this.getEventFromQuotedMessage(quotedMessageId);
+
+    if (!eventData) {
+      // Message too old (>24h) or not an event message
+      return false;
+    }
+
+    // Phase 3.3: Analytics - track quick action detection
+    logger.info('[ANALYTICS] Quick action detected', {
+      analytics: 'quick_action_detected',
+      userId,
+      eventCount: Array.isArray(eventData) ? eventData.length : 1,
+      textLength: text.length
+    });
+
+    // Normalize text for keyword matching (handle voice-to-text variations)
+    const normalized = text.trim().toLowerCase()
+      .replace(/מצק|מחה/g, 'מחק')      // Voice variations of "delete"
+      .replace(/איקס|אקס/g, 'x')        // Hebrew pronunciation of "X"
+      .replace(/פ״מ|פ"מ|pm/gi, 'אחרי הצהריים');
+
+    // Phase 1.3: Keyword patterns
+    const deleteKeywords = ['מחק', 'מחה', 'x', 'delete', 'מצק'];
+    const updateKeywords = ['עדכן', 'שנה', 'דחה', 'update'];
+
+    // Check if it's a delete action
+    const isDelete = deleteKeywords.some(keyword => normalized.includes(keyword));
+
+    // Check if it's a time update (matches HH:MM or H:MM patterns)
+    const timeMatch = text.match(/\b(\d{1,2}):(\d{2})\b/) ||
+                      text.match(/\b(\d{1,2})\s*(בערב|בבוקר|אחרי הצהריים)\b/);
+
+    const isTimeUpdate = timeMatch || updateKeywords.some(keyword => normalized.includes(keyword));
+
+    // Handle single event quick actions
+    if (typeof eventData === 'string') {
+      // Single event - can process directly
+
+      if (isDelete) {
+        // Phase 3.3: Analytics - track delete action
+        logger.info('[ANALYTICS] Quick delete initiated', {
+          analytics: 'quick_delete',
+          userId,
+          eventCount: 1,
+          keyword: deleteKeywords.find(k => normalized.includes(k))
+        });
+        return await this.handleQuickDelete(phone, userId, eventData);
+      }
+
+      if (isTimeUpdate && timeMatch) {
+        // Phase 3.3: Analytics - track time update action
+        logger.info('[ANALYTICS] Quick time update initiated', {
+          analytics: 'quick_time_update',
+          userId,
+          eventCount: 1,
+          timePattern: timeMatch[0]
+        });
+        return await this.handleQuickTimeUpdate(phone, userId, eventData, text);
+      }
+
+      // Phase 3.1: Provide helpful suggestions if keyword detected but incomplete
+      if (isTimeUpdate && !timeMatch) {
+        await this.sendMessage(phone, '⏰ זיהיתי בקשה לשינוי שעה.\n\nדוגמאות:\n• "20:00"\n• "8 בערב"\n• "עדכן ל15:30"');
+        return true; // Handled with suggestion
+      }
+
+      if (isDelete || isTimeUpdate) {
+        logger.info('Quick action keyword detected but handler not ready', { isDelete, isTimeUpdate });
+      }
+    } else if (Array.isArray(eventData)) {
+      // Phase 2.1: Multiple events - need number selection
+      logger.info('Multiple events in reply', { eventCount: eventData.length });
+
+      // Extract event number from text (e.g., "מחק 1", "עדכן 2 ל20:00")
+      const numberMatch = text.match(/\b(\d+)\b/);
+
+      if (!numberMatch) {
+        // No number specified - ask user to specify which event
+        await this.sendMessage(phone, `⚠️ יש ${eventData.length} אירועים. אנא ציין מספר (למשל: "מחק 1" או "עדכן 2 ל20:00")`);
+        return true; // Handled
+      }
+
+      const eventNumber = parseInt(numberMatch[1], 10);
+
+      // Validate event number is within bounds (1-indexed for user, 0-indexed internally)
+      if (eventNumber < 1 || eventNumber > eventData.length) {
+        // Phase 3.2: Improved error message with context
+        await this.sendMessage(phone, `❌ מספר האירוע חייב להיות בין 1 ל-${eventData.length}\n\nנסה שוב עם המספר הנכון`);
+        return true; // Handled
+      }
+
+      // Get the selected event ID (convert from 1-indexed to 0-indexed)
+      const selectedEventId = eventData[eventNumber - 1];
+
+      // Process the action on the selected event
+      if (isDelete) {
+        // Phase 3.3: Analytics - track multi-event delete
+        logger.info('[ANALYTICS] Quick delete multi-event', {
+          analytics: 'quick_delete_multi',
+          userId,
+          eventCount: eventData.length,
+          selectedIndex: eventNumber,
+          keyword: deleteKeywords.find(k => normalized.includes(k))
+        });
+        return await this.handleQuickDelete(phone, userId, selectedEventId);
+      }
+
+      if (isTimeUpdate && timeMatch) {
+        // Phase 3.3: Analytics - track multi-event time update
+        logger.info('[ANALYTICS] Quick time update multi-event', {
+          analytics: 'quick_time_update_multi',
+          userId,
+          eventCount: eventData.length,
+          selectedIndex: eventNumber,
+          timePattern: timeMatch[0]
+        });
+        return await this.handleQuickTimeUpdate(phone, userId, selectedEventId, text);
+      }
+
+      // Phase 3.1: Provide helpful suggestions if keyword detected but incomplete
+      if (isTimeUpdate && !timeMatch) {
+        await this.sendMessage(phone, `⏰ זיהיתי בקשה לשינוי שעה לאירוע ${eventNumber}.\n\nדוגמאות:\n• "עדכן ${eventNumber} ל20:00"\n• "${eventNumber} 8 בערב"\n• "${eventNumber} 15:30"`);
+        return true; // Handled with suggestion
+      }
+
+      // If keyword detected but no action matched, let NLP handle it
+      if (isDelete || isTimeUpdate) {
+        logger.info('Multi-event quick action keyword detected but no match', { eventNumber, isDelete, isTimeUpdate });
+      }
+    }
+
+    // Phase 2.2: Not handled by quick action - store event context for NLP fallback
+    // This allows NLP to understand user is referring to specific event(s)
+    if (typeof eventData === 'string') {
+      // Store single event ID
+      await redis.setex(`temp:event_context:${userId}`, 60, eventData); // 60s TTL
+    } else if (Array.isArray(eventData) && eventData.length > 0) {
+      // Store multiple event IDs as JSON
+      await redis.setex(`temp:event_context:${userId}`, 60, JSON.stringify(eventData)); // 60s TTL
+    }
+
+    // Phase 3.3: Analytics - track fallback to NLP
+    logger.info('[ANALYTICS] Quick action fallback to NLP', {
+      analytics: 'quick_action_fallback',
+      userId,
+      eventCount: Array.isArray(eventData) ? eventData.length : 1,
+      reason: 'no_keyword_match'
+    });
+
+    // Not handled - continue with normal NLP flow (will use event context)
+    return false;
+  }
+
+  /**
+   * Quick delete action when replying to single event
+   * Phase 2.3: Ask for confirmation before deleting (safety for voice users)
+   */
+  private async handleQuickDelete(phone: string, userId: string, eventId: string): Promise<boolean> {
+    try {
+      const event = await this.eventService.getEventById(eventId, userId);
+      if (!event) {
+        // Phase 3.2: Improved error message - event may have been deleted or expired
+        await this.sendMessage(phone, '❌ האירוע לא נמצא (אולי כבר נמחק?).\n\nשלח /תפריט לתפריט ראשי');
+        return true; // Handled (even if failed)
+      }
+
+      // Phase 2.3: Store pending delete and ask for confirmation
+      const confirmData = JSON.stringify({ eventId, eventTitle: event.title, phone });
+      await redis.setex(`temp:delete_confirm:${userId}`, 60, confirmData); // 60s TTL
+
+      const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
+      await this.sendMessage(phone, `🗑️ למחוק את "${event.title}" (${dt.toFormat('dd/MM HH:mm')})?
+אישור: כן/לא
+ביטול: לא/cancel`);
+
+      logger.info('Quick delete confirmation requested', { userId, eventId, eventTitle: event.title });
+      return true; // Successfully handled (awaiting confirmation)
+    } catch (error) {
+      logger.error('Quick delete confirmation failed', { userId, eventId, error });
+      // Phase 3.2: Improved error message with action hint
+      await this.sendMessage(phone, '❌ שגיאה במחיקת האירוע.\n\nנסה שוב או שלח /תפריט');
+      return true; // Handled (even if failed)
+    }
+  }
+
+  /**
+   * Quick time update when replying to single event
+   */
+  private async handleQuickTimeUpdate(phone: string, userId: string, eventId: string, text: string): Promise<boolean> {
+    try {
+      const event = await this.eventService.getEventById(eventId, userId);
+      if (!event) {
+        // Phase 3.2: Improved error message
+        await this.sendMessage(phone, '❌ האירוע לא נמצא (אולי כבר נמחק?).\n\nשלח /תפריט לתפריט ראשי');
+        return true; // Handled
+      }
+
+      // Use NLP to parse the new time from user's text
+      const { NLPService } = await import('./NLPService.js');
+      const nlp = new NLPService();
+      const contacts = await this.contactService.getAllContacts(userId);
+      const timezone = 'Asia/Jerusalem'; // Default timezone
+
+      const intent = await nlp.parseIntent(
+        `עדכן את ${event.title} ${text}`, // Inject event title for context
+        contacts,
+        timezone,
+        []
+      );
+
+      if (intent.intent === 'update_event' && intent.event?.date) {
+        // Parse the new date/time
+        const dateQuery = parseDateFromNLP(intent.event, 'quickTimeUpdate');
+
+        if (dateQuery.date) {
+          await this.eventService.updateEvent(eventId, userId, {
+            startTsUtc: dateQuery.date
+          });
+
+          // React with ✅
+          await this.reactToLastMessage(userId, '✅');
+
+          logger.info('Quick time update completed', { userId, eventId, newTime: dateQuery.date });
+          return true; // Successfully handled
+        }
+      }
+
+      // If NLP couldn't parse time, let normal flow handle it
+      return false;
+
+    } catch (error) {
+      logger.error('Quick time update failed', { userId, eventId, error });
+      return false; // Let normal flow handle error
+    }
+  }
+
+  /**
+   * Handle delete confirmation response
+   * Phase 2.3: User is responding to delete confirmation prompt
+   */
+  private async handleDeleteConfirmation(phone: string, userId: string, text: string, deleteConfirmRaw: string): Promise<boolean> {
+    try {
+      const confirmData = JSON.parse(deleteConfirmRaw);
+      const { eventId, eventTitle } = confirmData;
+
+      const normalized = text.trim().toLowerCase();
+
+      // Check for confirmation
+      if (normalized === 'כן' || normalized === 'yes' || normalized === 'אישור') {
+        // Clear confirmation flag
+        await redis.del(`temp:delete_confirm:${userId}`);
+
+        // Delete the event
+        await this.eventService.deleteEvent(eventId, userId);
+
+        // React with ❌ (no text confirmation - per user request)
+        await this.reactToLastMessage(userId, '❌');
+
+        // Phase 3.3: Analytics - track delete confirmation
+        logger.info('[ANALYTICS] Quick delete confirmed', {
+          analytics: 'delete_confirmed',
+          userId,
+          eventId,
+          eventTitle
+        });
+
+        return true; // Successfully handled
+      }
+
+      // Check for cancellation
+      if (normalized === 'לא' || normalized === 'no' || normalized === 'cancel' || normalized === 'ביטול') {
+        // Clear confirmation flag
+        await redis.del(`temp:delete_confirm:${userId}`);
+
+        await this.sendMessage(phone, '✅ המחיקה בוטלה.');
+
+        // Phase 3.3: Analytics - track delete cancellation
+        logger.info('[ANALYTICS] Quick delete cancelled', {
+          analytics: 'delete_cancelled',
+          userId,
+          eventId,
+          eventTitle
+        });
+
+        return true; // Successfully handled
+      }
+
+      // If user said something else, prompt again
+      await this.sendMessage(phone, 'אנא שלח "כן" לאישור מחיקה או "לא" לביטול');
+      return true; // Handled (waiting for proper response)
+
+    } catch (error) {
+      logger.error('Failed to handle delete confirmation', { userId, error });
+      // Clear confirmation on error
+      await redis.del(`temp:delete_confirm:${userId}`);
+      await this.sendMessage(phone, '❌ שגיאה. נסה שוב.');
+      return true; // Handled (even if failed)
+    }
+  }
 }
 
 // Export factory function
@@ -3340,6 +4287,7 @@ import eventService from './EventService.js';
 import reminderService from './ReminderService.js';
 import contactService from './ContactService.js';
 import settingsService from './SettingsService.js';
+import taskService from './TaskService.js';
 
 export const createMessageRouter = (messageProvider: IMessageProvider): MessageRouter => {
   return new MessageRouter(
@@ -3349,6 +4297,7 @@ export const createMessageRouter = (messageProvider: IMessageProvider): MessageR
     reminderService,
     contactService,
     settingsService,
+    taskService,
     messageProvider
   );
 };

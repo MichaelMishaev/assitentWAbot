@@ -13,7 +13,7 @@ export function renderMainMenu(): string {
 1) 📅 האירועים שלי
 2) ➕ הוסף אירוע
 3) ⏰ הוסף תזכורת
-4) ✅ משימות (בקרוב)
+4) ✅ משימות
 5) 👨‍👩‍👧 אנשי קשר
 6) ⚙️ הגדרות
 7) 📝 ניסוח הודעה
@@ -192,4 +192,37 @@ export function renderProcessing(): string {
  */
 export function renderCancellation(): string {
   return `🔙 הפעולה בוטלה. חזרה לתפריט הראשי.`;
+}
+
+/**
+ * Renders the tasks menu
+ * @returns Formatted tasks menu string
+ */
+export function renderTasksMenu(): string {
+  return `✅ משימות
+
+1) 📋 הצג משימות פעילות
+2) ➕ הוסף משימה
+3) ✔️ סמן משימה כבוצעה
+4) ❌ מחק משימה
+5) 📊 סטטיסטיקות
+6) ↩️ חזרה לתפריט ראשי
+
+בחר מספר (1-6)`;
+}
+
+/**
+ * Renders priority selection menu
+ * @returns Formatted priority menu string
+ */
+export function renderPriorityMenu(): string {
+  return `🎯 בחר עדיפות:
+
+1) 🔴 דחוף
+2) 🟠 גבוה
+3) 🟡 רגיל
+4) 🟢 נמוך
+5) ⏭️ דלג (רגיל)
+
+בחר מספר (1-5)`;
 }

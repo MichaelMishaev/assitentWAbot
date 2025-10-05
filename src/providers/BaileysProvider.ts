@@ -269,10 +269,21 @@ export class BaileysProvider implements IMessageProvider {
 
       // Extract text content (handle different message types)
       let text = '';
+      let quotedMessage: any = undefined;
+
       if (msg.message.conversation) {
         text = msg.message.conversation;
       } else if (msg.message.extendedTextMessage?.text) {
         text = msg.message.extendedTextMessage.text;
+
+        // Extract quoted message info if this is a reply
+        const contextInfo = msg.message.extendedTextMessage.contextInfo;
+        if (contextInfo?.stanzaId) {
+          quotedMessage = {
+            messageId: contextInfo.stanzaId,
+            participant: contextInfo.participant
+          };
+        }
       }
 
       // Skip if no text content
@@ -290,6 +301,7 @@ export class BaileysProvider implements IMessageProvider {
         timestamp,
         content: { text },
         isFromMe,
+        quotedMessage
       };
 
       logger.info(`📩 Received message from ${cleanPhone}: "${text}"`);

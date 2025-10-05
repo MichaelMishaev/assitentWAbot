@@ -385,3 +385,7 @@ export class TaskService {
     };
   }
 }
+
+// Default export
+const taskService = new TaskService();
+export default taskService;

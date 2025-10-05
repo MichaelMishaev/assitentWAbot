@@ -91,11 +91,15 @@ async function handleIncomingMessage(message: IncomingMessage) {
       return;
     }
 
-    const { from, content } = message;
+    const { from, content, quotedMessage } = message;
     const text = content.text.trim();
     const messageId = message.messageId;
 
-    logger.info(`Processing message from ${from}: "${text}" (id: ${messageId})`);
+    if (quotedMessage) {
+      logger.info(`Processing reply from ${from}: "${text}" (id: ${messageId}, quoted: ${quotedMessage.messageId})`);
+    } else {
+      logger.info(`Processing message from ${from}: "${text}" (id: ${messageId})`);
+    }
 
     // Route message through MessageRouter
     if (!messageRouter) {
@@ -103,7 +107,7 @@ async function handleIncomingMessage(message: IncomingMessage) {
       return;
     }
 
-    await messageRouter.routeMessage(from, text, messageId);
+    await messageRouter.routeMessage(from, text, messageId, quotedMessage);
 
   } catch (error) {
     logger.error('Error handling incoming message:', error);
