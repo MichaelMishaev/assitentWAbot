@@ -134,6 +134,31 @@ export class MessageRouter {
     try {
       logger.info('Routing message', { from, text, messageId });
 
+      // CRITICAL: Message deduplication - prevent processing same message twice
+      // WhatsApp can send duplicates during network issues or reconnections
+      if (messageId) {
+        const dedupeKey = `msg:processed:${messageId}`;
+        const processingKey = `msg:processing:${messageId}`;
+
+        // Check if already processed
+        const alreadyProcessed = await redis.get(dedupeKey);
+        if (alreadyProcessed) {
+          logger.info('Skipping duplicate message', { messageId, from, text: text.substring(0, 50) });
+          return;
+        }
+
+        // Check if currently processing (prevent race conditions)
+        const currentlyProcessing = await redis.get(processingKey);
+        if (currentlyProcessing) {
+          logger.info('Message already being processed', { messageId, from });
+          return;
+        }
+
+        // Mark as processing (30 min expiry for safety)
+        await redis.setex(processingKey, 1800, Date.now().toString());
+        logger.debug('Marked message as processing', { messageId });
+      }
+
       // Store messageId for potential reactions
       if (messageId) {
         const user = await this.authService.getUserByPhone(from);
@@ -151,6 +176,11 @@ export class MessageRouter {
 
       if (this.isCommand(text)) {
         await this.handleCommand(from, text);
+        // Mark as successfully processed
+        if (messageId) {
+          await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString()); // 24h
+          await redis.del(`msg:processing:${messageId}`);
+        }
         return;
       }
 
@@ -158,6 +188,11 @@ export class MessageRouter {
 
       if (authState && !authState.authenticated) {
         await this.handleAuthFlow(from, text, authState);
+        // Mark as processed
+        if (messageId) {
+          await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+          await redis.del(`msg:processing:${messageId}`);
+        }
         return;
       }
 
@@ -165,11 +200,21 @@ export class MessageRouter {
 
       if (!user) {
         await this.startRegistration(from);
+        // Mark as processed
+        if (messageId) {
+          await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+          await redis.del(`msg:processing:${messageId}`);
+        }
         return;
       }
 
       if (!authState || !authState.authenticated) {
         await this.startLogin(from);
+        // Mark as processed
+        if (messageId) {
+          await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+          await redis.del(`msg:processing:${messageId}`);
+        }
         return;
       }
 
@@ -184,8 +229,22 @@ export class MessageRouter {
 
       await this.handleStateMessage(from, authState.userId!, state, text);
 
+      // Mark message as successfully processed (after all handlers complete)
+      if (messageId) {
+        await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString()); // 24h retention
+        await redis.del(`msg:processing:${messageId}`);
+        logger.debug('Marked message as processed', { messageId });
+      }
+
     } catch (error) {
       logger.error('Error routing message', { from, error });
+
+      // Clear processing flag on error so user can retry
+      if (messageId) {
+        await redis.del(`msg:processing:${messageId}`);
+        logger.debug('Cleared processing flag due to error', { messageId });
+      }
+
       await this.sendMessage(from, 'אירעה שגיאה. אנא נסה שוב או שלח /עזרה לעזרה.');
     }
   }
@@ -606,7 +665,10 @@ export class MessageRouter {
       });
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.sendMessage(phone, `🎉 האירוע "${title}" נוצר בהצלחה!`);
+
+      // React with checkmark instead of sending text message
+      await this.reactToLastMessage(userId, '✅');
+
       await this.showMainMenu(phone);
 
     } catch (error) {
@@ -769,6 +831,9 @@ export class MessageRouter {
       await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
       return;
     }
+
+    // React with checkmark for confirmation
+    await this.reactToLastMessage(userId, '✅');
 
     const session = await this.stateManager.getState(userId);
     const { title, dueDate, dueTsUtc, rrule } = session?.context || {};
@@ -995,7 +1060,7 @@ export class MessageRouter {
 
       let message = `${header}\n\n`;
       events.forEach((event, index) => {
-        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false) + `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events) + `\n\n`;
       });
 
       await this.sendMessage(phone, message);
@@ -1039,7 +1104,7 @@ export class MessageRouter {
 
       const displayEvents = events.slice(0, 20); // Show max 20 results
       displayEvents.forEach((event, index) => {
-        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true) + `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true, events) + `\n\n`;
       });
 
       if (events.length > 20) {
@@ -1362,7 +1427,7 @@ export class MessageRouter {
       } else {
         let message = `${header}\n\nבחר מספר אירוע למחיקה:\n\n`;
         events.forEach((event, index) => {
-          message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true) + `\n\n`;
+          message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true, events) + `\n\n`;
         });
 
         message += 'שלח מספר האירוע או /ביטול';
@@ -1406,7 +1471,7 @@ export class MessageRouter {
 
       const displayEvents = events.slice(0, 15); // Show max 15 results
       displayEvents.forEach((event, index) => {
-        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true) + `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', true, events) + `\n\n`;
       });
 
       if (events.length > 15) {
@@ -1443,7 +1508,9 @@ export class MessageRouter {
           const event = await this.eventService.getEventById(eventId, userId);
           await this.eventService.deleteEvent(eventId, userId);
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-          await this.sendMessage(phone, `🗑️ האירוע "${event?.title}" נמחק בהצלחה!`);
+
+          // React with checkmark instead of text
+          await this.reactToLastMessage(userId, '✅');
           await this.showMainMenu(phone);
         } catch (error) {
           logger.error('Failed to delete event', { userId, eventId, error });
@@ -1614,6 +1681,9 @@ export class MessageRouter {
       return;
     }
 
+    // React with checkmark for confirmation
+    await this.reactToLastMessage(userId, '✅');
+
     const session = await this.stateManager.getState(userId);
     const reminder = session?.context?.reminder;
 
@@ -1756,6 +1826,9 @@ export class MessageRouter {
       await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
       return;
     }
+
+    // React with checkmark for confirmation
+    await this.reactToLastMessage(userId, '✅');
 
     const session = await this.stateManager.getState(userId);
     const { name, relation, aliases } = session?.context || {};
@@ -2237,15 +2310,19 @@ export class MessageRouter {
 
       const intent = await nlp.parseIntent(text, contacts, user?.timezone || 'Asia/Jerusalem', conversationHistory);
 
-      // If confidence is too low, ask for clarification
-      if (intent.confidence < 0.6 || intent.intent === 'unknown') {
-        await this.sendMessage(phone, intent.clarificationNeeded || 'לא הבנתי. אנא נסה שוב או שלח /תפריט לתפריט ראשי');
-        return;
-      }
+      // Intent-specific confidence thresholds
+      const isSearchIntent = intent.intent === 'search_event' || intent.intent === 'list_events';
+      const isCreateIntent = intent.intent === 'create_event' || intent.intent === 'create_reminder';
+      const isDestructiveIntent = intent.intent === 'delete_event' || intent.intent === 'delete_reminder';
 
-      // Additional validation for create_event - require high confidence
-      if (intent.intent === 'create_event' && intent.confidence < 0.75) {
-        await this.sendMessage(phone, 'לא בטוח שהבנתי. אנא נסח מחדש או שלח /תפריט לתפריט ראשי');
+      // Lower threshold for search/list (0.5) - non-destructive operations
+      // Higher threshold for create (0.7) - user can confirm
+      // Highest threshold for delete (0.6) - destructive but confirmable
+      const requiredConfidence = isSearchIntent ? 0.5 : (isCreateIntent ? 0.7 : 0.6);
+
+      // If confidence is too low, ask for clarification
+      if (intent.confidence < requiredConfidence || intent.intent === 'unknown') {
+        await this.sendMessage(phone, intent.clarificationNeeded || 'לא הבנתי. אנא נסה שוב או שלח /תפריט לתפריט ראשי');
         return;
       }
 
@@ -2410,6 +2487,15 @@ export class MessageRouter {
       // React to user's original message with thumbs up
       await this.reactToLastMessage(userId, '👍');
 
+      // IMPORTANT: Check for time conflicts and warn user
+      const hasConflict = (newEvent as any).hasTimeConflict;
+      const conflictingEvents = (newEvent as any).conflictingEvents || [];
+
+      if (hasConflict && conflictingEvents.length > 0) {
+        const conflictTitles = conflictingEvents.map((e: any) => e.title).join(', ');
+        await this.sendMessage(phone, `⚠️ אזהרה: יש לך אירוע נוסף באותה שעה!\n📌 ${conflictTitles}\n\nשני האירועים נשמרו.`);
+      }
+
       // Send success message
       const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
       const successMessage = `✅ ${event.title} - ${displayDate}${event.location ? `\n📍 ${event.location}` : ''}${event.contactName ? `\n👤 ${event.contactName}` : ''}`;
@@ -2548,8 +2634,9 @@ export class MessageRouter {
       }
 
       // Filter by title if provided using fuzzy matching
+      // Lowered to 0.45 for better Hebrew matching (morphology variations)
       if (titleFilter && events.length > 0) {
-        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.6);
+        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.45);
       }
 
       // Log for debugging
@@ -2578,7 +2665,7 @@ export class MessageRouter {
       events.forEach((event, index) => {
         // For week/month ranges or title searches, show full date. For single date, show shorter format.
         const showFullDate = (dateDescription.includes('בשבוע') || dateDescription.includes('בחודש') || titleFilter);
-        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', showFullDate) + `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', showFullDate, events) + `\n\n`;
       });
 
       await this.sendMessage(phone, message);
@@ -2593,7 +2680,7 @@ export class MessageRouter {
 
       let message = '📅 האירועים הקרובים שלך:\n\n';
       events.forEach((event, index) => {
-        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false) + `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events) + `\n\n`;
       });
 
       await this.sendMessage(phone, message);
@@ -2649,9 +2736,9 @@ export class MessageRouter {
         events = await this.eventService.getUpcomingEvents(userId, 50);
       }
 
-      // Filter by title if provided using fuzzy matching (60% threshold for flexibility)
+      // Filter by title if provided using fuzzy matching (45% threshold for Hebrew flexibility)
       if (event.title && events.length > 0) {
-        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.6);
+        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
       }
 
       if (events.length === 0) {
@@ -2676,7 +2763,7 @@ export class MessageRouter {
       // Multiple events found - show list
       let message = `📅 נמצאו ${events.length} אירועים:\n\n`;
       events.slice(0, 10).forEach((event, index) => {
-        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false) + `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events) + `\n\n`;
       });
       message += 'בחר מספר אירוע למחיקה או שלח /ביטול';
 
@@ -2716,9 +2803,9 @@ export class MessageRouter {
       // So we should search by title ONLY, not by date!
       if (hasUpdateValue && hasSearchTerm) {
         // User said "update EVENT_TITLE to NEW_VALUE"
-        // Search by title only
+        // Search by title only (45% threshold for Hebrew)
         events = await this.eventService.getUpcomingEvents(userId, 50);
-        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.6);
+        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
       } else if (event.date || event.dateText) {
         // User said "update event on DATE" - date is search term
         const dateQuery = parseDateFromNLP(event, 'handleNLPUpdateEvent');
@@ -2730,17 +2817,17 @@ export class MessageRouter {
 
         events = await this.eventService.getEventsByDate(userId, dateQuery.date!);
 
-        // Filter by title if provided (60% threshold for flexibility)
+        // Filter by title if provided (45% threshold for Hebrew flexibility)
         if (event.title && events.length > 0) {
-          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.6);
+          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
         }
       } else {
         // Search all upcoming events
         events = await this.eventService.getUpcomingEvents(userId, 50);
 
-        // Filter by title if provided (60% threshold for flexibility)
+        // Filter by title if provided (45% threshold for Hebrew flexibility)
         if (event.title && events.length > 0) {
-          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.6);
+          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
         }
       }
 

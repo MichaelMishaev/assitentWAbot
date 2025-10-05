@@ -253,131 +253,17 @@ CRITICAL - Event Title Extraction for Delete/Update:
 - ALWAYS extract key nouns/names, not just full phrase
 - Prefer matching by contact name + event type over exact title match
 
-Examples:
-1. "קבע פגישה עם דני מחר ב-3"
-   → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם דני","date":"<tomorrow at 15:00 ISO>","contactName":"דני"}}
-
-2. "תזכיר לי להתקשר לאמא ביום רביעי בבוקר"
-   → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"התקשר לאמא","dueDate":"<next Wed 9:00 ISO>"}}
-
-3. "מה יש לי מחר?"
-   → {"intent":"search_event","confidence":0.95,"event":{"date":"<tomorrow ISO>"}}
-
-4. "מה האירוע הקרוב?" or "מה הבא?"
-   → {"intent":"list_events","confidence":0.95}
-   IMPORTANT: NO DATE field for upcoming/next queries!
-
-5. "תמחוק את הפגישה עם אשתי מחר" or "בטל אירוע"
-   → {"intent":"delete_event","confidence":0.9,"event":{"title":"פגישה עם אשתי","date":"<tomorrow ISO>"}}
-   IMPORTANT: Extract event title and optionally date to identify which event to delete
-
-6. "שלח לדני שאני אאחר"
-   → {"intent":"send_message","confidence":0.85,"message":{"recipient":"דני","content":"אני אאחר"}}
-
-7. "דחוף! פגישה עם הבוס מחר ב-9"
-   → {"intent":"create_event","confidence":0.95,"urgency":"urgent","event":{"title":"פגישה עם הבוס","date":"<tomorrow at 9:00 ISO>"}}
-
-8. "עדכן את הפגישה עם דני ל-5 אחרי הצהריים"
-   → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today at 17:00 ISO>","contactName":"דני"}}
-
-9. "דחה את האירוע מחר למחרתיים"
-   → {"intent":"update_event","confidence":0.9,"event":{"date":"<day after tomorrow ISO>"}}
-
-10. "הראה לי מה יש השבוע"
-   → {"intent":"list_events","confidence":0.95,"event":{"date":"<this week ISO range>"}}
-
-11. "סיימתי את המשימה"
-   → {"intent":"complete_task","confidence":0.9}
-
-12. "תזכיר לי בעוד שעתיים להתקשר לאמא"
-   → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"התקשר לאמא","dueDate":"<current time + 2 hours ISO>"}}
-
-13. "קבע משהו"
-   → {"intent":"unknown","confidence":0.3,"clarificationNeeded":"מה תרצה לקבוע? אירוע או תזכורת?"}
-
-14. "לא משנה, תשכח"
-   → {"intent":"unknown","confidence":0.2,"clarificationNeeded":"בסדר, אם תצטרך עזרה שלח /תפריט"}
-
-15. "כמה אירועים יש לי היום?"
-   → {"intent":"list_events","confidence":0.95,"event":{"date":"<today ISO>"}}
-
-16. "משחק כדורגל נתניה סכנין יום ראשון 5 באוקטובר 20:00 אצטדיון נתניה"
-   → {"intent":"create_event","confidence":0.95,"event":{"title":"משחק כדורגל נתניה סכנין","date":"2025-10-05T20:00:00+03:00","location":"אצטדיון נתניה"}}
-   IMPORTANT: Parse full date+time strings! "יום ראשון 5 באוקטובר 20:00" = Sunday October 5th at 20:00
-
-17. "מתי הבר מצווה של טל?" or "מתי הפגישה עם דני?"
-   → {"intent":"search_event","confidence":0.95,"event":{"title":"בר מצווה של טל"}}
-   IMPORTANT: "מתי" (when) = search intent, NOT create! Extract event title for search.
-
-18. "תבטל בדיקת דם" (to cancel: blood test)
-   → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}}
-   IMPORTANT: "בדיקת דם" should fuzzy match "בדיקת דם עם ריאל" - don't require exact match!
-
-16. "מה האירועים שיש לי?" or "יש לי אירועים?"
-   → {"intent":"list_events","confidence":0.95}
-
-17. "תבטל את הפגישה עם אשתי" or "בטל פגישה"
-   → {"intent":"delete_event","confidence":0.9,"event":{"title":"פגישה עם אשתי"}}
-   IMPORTANT: Extract title for flexible matching
-
-18. "מה קורה השבוע?" (slang: what's happening this week)
-   → {"intent":"list_events","confidence":0.85,"event":{"date":"<this week ISO>"}}
-
-19. "תזרוק את האירוע מחר" (slang: throw away the event)
-   → {"intent":"delete_event","confidence":0.9,"event":{"date":"<tomorrow ISO>"}}
-
-20. "סבבה, תראה לי מה יש" (slang: cool, show me what's there)
-   → {"intent":"list_events","confidence":0.85}
-
-21. "what do I have this week?" or "what's on this week?"
-   → {"intent":"list_events","confidence":0.95,"event":{"date":"<this week ISO range>"}}
-
-22. "show me my schedule" or "my events"
-   → {"intent":"list_events","confidence":0.9}
-
-23. "מה יש לי השבוע?" or "מה יש לי בשבוע?" (what do I have this week? - ALL HEBREW VARIATIONS)
-   → {"intent":"list_events","confidence":0.95,"event":{"date":"<this week ISO range>"}}
-
-24. "תראה לי מה יש השבוע" or "הראה לי מה יש בשבוע" (show me what I have this week)
-   → {"intent":"list_events","confidence":0.95,"event":{"date":"<this week ISO>"}}
-
-25. "מה מתוכנן השבוע?" or "מה בתכנית השבוע?" (what's planned/scheduled this week?)
-   → {"intent":"list_events","confidence":0.9,"event":{"date":"<this week ISO>"}}
-
-26. "איזה אירועים יש לי השבוע?" or "כמה אירועים יש לי השבוע?" (which/how many events this week?)
-   → {"intent":"list_events","confidence":0.95,"event":{"date":"<this week ISO>"}}
-
-27. "יש לי משהו השבוע?" or "יש לי אירועים בשבוע?" (do I have something/events this week?)
-   → {"intent":"list_events","confidence":0.9,"event":{"date":"<this week ISO>"}}
-
-28. "מה על הפרק השבוע?" or "מה מסתדר השבוע?" (what's on agenda/arranged this week? - formal)
-   → {"intent":"list_events","confidence":0.85,"event":{"date":"<this week ISO>"}}
-
-29. "מה יש לי שבוע הבא?" or "מה יש לי בשבוע הבא?" or "מה יש לי לשבוע הקרוב?" (ALL VARIATIONS)
-   → {"intent":"list_events","confidence":0.95,"event":{"dateText":"שבוע הבא"}}
-
-30. "תראה לי מה יש שבוע הבא" or "הראה לי מה קורה בשבוע הבא"
-   → {"intent":"list_events","confidence":0.95,"event":{"dateText":"שבוע הבא"}}
-
-31. "מה מתוכנן שבוע הבא?" or "מה בתכנית לשבוע הבא?"
-   → {"intent":"list_events","confidence":0.9,"event":{"dateText":"שבוע הבא"}}
-
-32. "מה יש לי השבוע?" or "מה קורה השבוע?"
-   → {"intent":"list_events","confidence":0.95,"event":{"dateText":"השבוע"}}
-
-7. "מה?" / "לא ברור"
-   → {"intent":"unknown","confidence":0.1,"clarificationNeeded":"שלח /תפריט לתפריט ראשי"}
-
-8. "תזכיר לי בעוד 2 דקות לשלושת נעים"
-   → {"intent":"create_reminder","confidence":0.85,"reminder":{"title":"לשלושת נעים","dueDate":"<current time + 2 minutes ISO>"}}
-
-9. "הוסף איש קשר לנה 0544550575"
-   → {"intent":"add_contact","confidence":0.9,"contact":{"name":"לנה","phone":"0544550575"}}
-
-10. "צור איש קשר דני 052-1234567 חבר שלי"
-   → {"intent":"add_contact","confidence":0.95,"contact":{"name":"דני","phone":"0521234567","relation":"חבר"}}
-
-NOTE: For "בעוד X דקות/שעות" always calculate from current time (${currentDate}), NOT from midnight!
+KEY EXAMPLES (cover all intents):
+1. CREATE EVENT: "קבע פגישה עם דני מחר ב-3" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם דני","dateText":"מחר","contactName":"דני"}}
+2. CREATE REMINDER: "תזכיר לי בעוד שעתיים להתקשר לאמא" → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"התקשר לאמא","dueDate":"<now+2h ISO>"}}
+3. SEARCH BY TITLE: "מתי רופא שיניים?" → {"intent":"search_event","confidence":0.95,"event":{"title":"רופא שיניים"}} (CRITICAL: "מתי" = search, NOT create!)
+4. LIST EVENTS: "מה יש לי השבוע?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"השבוע"}} (use dateText for Hebrew relative dates)
+5. DELETE WITH TITLE: "תבטל בדיקת דם" → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}} (CRITICAL: partial title, fuzzy match)
+6. UPDATE EVENT: "עדכן פגישה עם דני ל-5 אחרי הצהריים" → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today 17:00 ISO>"}}
+7. COMPLEX DATE+TIME: "משחק כדורגל יום ראשון 5 באוקטובר 20:00 אצטדיון נתניה" → {"intent":"create_event","confidence":0.95,"event":{"title":"משחק כדורגל","date":"2025-10-05T20:00:00+03:00","location":"אצטדיון נתניה"}}
+8. URGENCY: "דחוף! פגישה עם הבוס מחר ב-9" → {"intent":"create_event","confidence":0.95,"urgency":"urgent","event":{...}}
+9. UNKNOWN/CLARIFY: "קבע משהו" → {"intent":"unknown","confidence":0.3,"clarificationNeeded":"מה תרצה לקבוע? אירוע או תזכורת?"}
+10. ADD CONTACT: "הוסף קשר דני 052-1234567 חבר שלי" → {"intent":"add_contact","confidence":0.95,"contact":{"name":"דני","phone":"0521234567","relation":"חבר"}}
 
 CONVERSATION CONTEXT:
 - If conversation history is provided, use it to understand references like "this", "that", "it"

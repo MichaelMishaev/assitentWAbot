@@ -54,6 +54,15 @@ export class EventService {
         throw new Error('Event title is required');
       }
 
+      // IMPORTANT: Check for overlapping events (warning only, not blocking)
+      const overlapping = await this.checkOverlappingEvents(input.userId, input.startTsUtc, input.endTsUtc);
+      if (overlapping.length > 0) {
+        logger.warn('Creating event with time conflict', {
+          newEvent: { title: input.title, startTsUtc: input.startTsUtc },
+          overlapping: overlapping.map(e => ({ id: e.id, title: e.title, startTsUtc: e.startTsUtc }))
+        });
+      }
+
       const query = `
         INSERT INTO events (user_id, title, start_ts_utc, end_ts_utc, rrule, location, notes, source, confidence)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -75,7 +84,17 @@ export class EventService {
       const result = await this.dbPool.query(query, values);
       const event = this.mapRowToEvent(result.rows[0]);
 
-      logger.info('Event created', { eventId: event.id, userId: input.userId });
+      logger.info('Event created', {
+        eventId: event.id,
+        userId: input.userId,
+        hasOverlap: overlapping.length > 0,
+        overlapCount: overlapping.length
+      });
+
+      // Return event with overlap metadata
+      (event as any).hasTimeConflict = overlapping.length > 0;
+      (event as any).conflictingEvents = overlapping;
+
       return event;
     } catch (error) {
       logger.error('Failed to create event', { input, error });
@@ -329,6 +348,39 @@ export class EventService {
     } catch (error) {
       logger.error('Failed to search events', { userId, searchTerm, error });
       throw error;
+    }
+  }
+
+  /**
+   * Check for overlapping events at the same time
+   * Used to warn user about scheduling conflicts
+   */
+  async checkOverlappingEvents(userId: string, startTime: Date, endTime?: Date | null): Promise<Event[]> {
+    try {
+      // Use end time if provided, otherwise assume 1-hour duration
+      const effectiveEndTime = endTime || new Date(startTime.getTime() + 60 * 60 * 1000);
+
+      const query = `
+        SELECT * FROM events
+        WHERE user_id = $1
+          AND (
+            -- New event starts during existing event
+            (start_ts_utc <= $2 AND (end_ts_utc IS NULL OR end_ts_utc > $2))
+            OR
+            -- New event ends during existing event
+            (start_ts_utc < $3 AND (end_ts_utc IS NULL OR end_ts_utc >= $3))
+            OR
+            -- New event completely contains existing event
+            ($2 <= start_ts_utc AND $3 >= COALESCE(end_ts_utc, start_ts_utc + interval '1 hour'))
+          )
+        ORDER BY start_ts_utc ASC
+      `;
+
+      const result = await this.dbPool.query(query, [userId, startTime, effectiveEndTime]);
+      return result.rows.map(row => this.mapRowToEvent(row));
+    } catch (error) {
+      logger.error('Failed to check overlapping events', { userId, startTime, endTime, error });
+      return []; // Return empty array on error, don't block event creation
     }
   }
 

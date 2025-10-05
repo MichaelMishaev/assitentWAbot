@@ -252,13 +252,41 @@ export function formatEventInList(
   event: Event,
   index: number,
   timezone: string = 'Asia/Jerusalem',
-  showFullDate: boolean = false
+  showFullDate: boolean = false,
+  allEvents?: Event[] // Optional: used to detect parallel events
 ): string {
   const dt = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
   const dateFormat = showFullDate ? 'dd/MM/yyyy HH:mm' : 'dd/MM HH:mm';
 
-  let output = `${index}. ${event.title}\n`;
-  output += `   📅 ${dt.toFormat(dateFormat)}`;
+  // Check for parallel events at the same time
+  let hasParallel = false;
+  let parallelTitles: string[] = [];
+
+  if (allEvents && allEvents.length > 0) {
+    const eventStart = event.startTsUtc.getTime();
+    const eventEnd = event.endTsUtc ? event.endTsUtc.getTime() : eventStart + 60 * 60 * 1000; // 1 hour default
+
+    parallelTitles = allEvents
+      .filter(e => {
+        if (e.id === event.id) return false; // Skip self
+        const eStart = e.startTsUtc.getTime();
+        const eEnd = e.endTsUtc ? e.endTsUtc.getTime() : eStart + 60 * 60 * 1000;
+        // Check overlap
+        return (eStart < eventEnd && eEnd > eventStart);
+      })
+      .map(e => e.title);
+
+    hasParallel = parallelTitles.length > 0;
+  }
+
+  let output = `${index}. ${event.title}`;
+
+  // Add parallel event indicator
+  if (hasParallel) {
+    output += ` ⚠️ (במקביל: ${parallelTitles.join(', ')})`;
+  }
+
+  output += `\n   📅 ${dt.toFormat(dateFormat)}`;
 
   if (event.location) {
     output += `\n   📍 ${event.location}`;

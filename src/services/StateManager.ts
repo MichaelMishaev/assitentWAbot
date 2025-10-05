@@ -258,8 +258,9 @@ export class StateManager {
         timestamp: new Date()
       });
 
-      // Keep only last 10 messages
-      const trimmedHistory = history.slice(-10);
+      // Keep only last 20 messages (increased from 10 for better context retention)
+      // Research shows 15-20 messages optimal for multi-turn conversations
+      const trimmedHistory = history.slice(-20);
 
       // Update session with new history
       const key = this.getSessionKey(userId);
