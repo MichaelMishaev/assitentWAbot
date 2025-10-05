@@ -4008,8 +4008,10 @@ export class MessageRouter {
     const isDelete = deleteKeywords.some(keyword => normalized.includes(keyword));
 
     // Check if it's a time update (matches HH:MM or H:MM patterns)
-    const timeMatch = text.match(/\b(\d{1,2}):(\d{2})\b/) ||
-                      text.match(/\b(\d{1,2})\s*(בערב|בבוקר|אחרי הצהריים)\b/);
+    const timeMatch = text.match(/\b(\d{1,2}):(\d{2})\b/) ||                           // 18:00, 8:30
+                      text.match(/\b(\d{1,2})\s*(בערב|בבוקר|אחרי הצהריים)\b/) ||      // 8 בערב
+                      text.match(/לשעה\s*(\d{1,2})(?::(\d{2}))?/) ||                   // לשעה 18, לשעה 18:00
+                      text.match(/ב-?(\d{1,2})(?::(\d{2}))?/);
 
     const isTimeUpdate = timeMatch || updateKeywords.some(keyword => normalized.includes(keyword));
 
