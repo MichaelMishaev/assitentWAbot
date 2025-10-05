@@ -1233,7 +1233,7 @@ export class MessageRouter {
     }
 
     switch (choice) {
-      case '1': // Edit event
+      case '1': { // Edit event
         const dt = DateTime.fromJSDate(selectedEvent.startTsUtc).setZone('Asia/Jerusalem');
         const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
 
@@ -1242,11 +1242,18 @@ export class MessageRouter {
         await this.sendMessage(phone, editMenu);
         await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, { selectedEvent });
         break;
+      }
 
-      case '2': // Delete event
-        await this.sendMessage(phone, `🗑️ למחוק את האירוע "${selectedEvent.title}"?\n\n1️⃣ כן, מחק\n2️⃣ לא, בטל\n\nבחר מספר`);
-        await this.stateManager.setState(userId, ConversationState.DELETING_EVENT_CONFIRM, { events: [selectedEvent] });
+      case '2': { // Delete event
+        const dt = DateTime.fromJSDate(selectedEvent.startTsUtc).setZone('Asia/Jerusalem');
+        const formattedDateTime = dt.toFormat('dd/MM/yyyy HH:mm');
+        await this.sendMessage(phone, `❌ למחוק את האירוע הבא? 🗑️\n\n📌 ${selectedEvent.title}\n📅 ${formattedDateTime}\n\nהאם למחוק? (כן/לא)`);
+        await this.stateManager.setState(userId, ConversationState.DELETING_EVENT_CONFIRM, {
+          eventId: selectedEvent.id,
+          events: [selectedEvent]
+        });
         break;
+      }
 
       case '3': // Back to main menu
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
@@ -1506,11 +1513,19 @@ export class MessageRouter {
       if (yesWords.some(word => normalizedText.includes(word))) {
         try {
           const event = await this.eventService.getEventById(eventId, userId);
+          if (!event) {
+            await this.sendMessage(phone, '❌ אירוע לא נמצא.');
+            await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+            await this.showMainMenu(phone);
+            return;
+          }
+
           await this.eventService.deleteEvent(eventId, userId);
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
-          // React with checkmark instead of text
-          await this.reactToLastMessage(userId, '✅');
+          // Show deleted event with red X mark
+          const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
+          await this.sendMessage(phone, `❌ האירוע נמחק בהצלחה\n\n📌 ${event.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}\n\n✅ נמחק מהיומן`);
           await this.showMainMenu(phone);
         } catch (error) {
           logger.error('Failed to delete event', { userId, eventId, error });
@@ -1552,7 +1567,10 @@ export class MessageRouter {
     try {
       await this.eventService.deleteEvent(eventToDelete.id, userId);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.sendMessage(phone, `🗑️ האירוע "${eventToDelete.title}" נמחק בהצלחה!`);
+
+      // Show deleted event with red X mark
+      const dt = DateTime.fromJSDate(eventToDelete.startTsUtc).setZone('Asia/Jerusalem');
+      await this.sendMessage(phone, `❌ האירוע נמחק בהצלחה\n\n📌 ${eventToDelete.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}\n\n✅ נמחק מהיומן`);
       await this.showMainMenu(phone);
     } catch (error) {
       logger.error('Failed to delete event', { userId, eventId: eventToDelete.id, error });
@@ -2748,10 +2766,10 @@ export class MessageRouter {
       }
 
       if (events.length === 1) {
-        // Only one event found - show confirmation
+        // Only one event found - show confirmation with red X icon
         const event = events[0];
         const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
-        const confirmMessage = `🗑️ למחוק את האירוע הבא?\n\n📌 ${event.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}\n\nהאם למחוק? (כן/לא)`;
+        const confirmMessage = `❌ למחוק את האירוע הבא? 🗑️\n\n📌 ${event.title}\n📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}\n${event.location ? `📍 ${event.location}\n` : ''}\nהאם למחוק? (כן/לא)`;
 
         await this.sendMessage(phone, confirmMessage);
         await this.stateManager.setState(userId, ConversationState.DELETING_EVENT_CONFIRM, {
