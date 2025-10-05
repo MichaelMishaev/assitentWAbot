@@ -46,6 +46,7 @@ logs/
 
 # Documentation with secrets
 DEPLOYMENT_CHECKLIST.md
+docs/digicatOcean/connect.md
 
 # Testing
 coverage/
