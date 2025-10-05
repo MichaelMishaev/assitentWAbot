@@ -129,3 +129,33 @@ jobs:
               exit 1
             fi
 
+      - name: 📱 Send WhatsApp notification (Success)
+        if: success()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd /root/wAssitenceBot
+            COMMIT_HASH="${{ github.sha }}"
+            COMMIT_SHORT="${COMMIT_HASH:0:7}"
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            node scripts/send-deployment-notification.js "success" "$COMMIT_SHORT" "✅ Tests passed, deployment successful, health check OK. Commit: $COMMIT_MSG" || true
+
+      - name: 📱 Send WhatsApp notification (Failure)
+        if: failure()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd /root/wAssitenceBot
+            COMMIT_HASH="${{ github.sha }}"
+            COMMIT_SHORT="${COMMIT_HASH:0:7}"
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            node scripts/send-deployment-notification.js "failure" "$COMMIT_SHORT" "❌ Health check failed! Check GitHub Actions logs. Commit: $COMMIT_MSG" || true
+
