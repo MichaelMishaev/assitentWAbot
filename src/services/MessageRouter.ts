@@ -4370,10 +4370,11 @@ export class MessageRouter {
     const isDelete = deleteKeywords.some(keyword => normalized.includes(keyword));
 
     // Check if it's a time update (matches HH:MM or H:MM patterns)
-    const timeMatch = text.match(/\b(\d{1,2}):(\d{2})\b/) ||                           // 18:00, 8:30
+    // Added support for single-digit minutes like "20:0" (interprets as "20:00")
+    const timeMatch = text.match(/\b(\d{1,2}):(\d{1,2})\b/) ||                         // 18:00, 8:30, 20:0 (typo)
                       text.match(/\b(\d{1,2})\s*(בערב|בבוקר|אחרי הצהריים)\b/) ||      // 8 בערב
-                      text.match(/לשעה\s*(\d{1,2})(?::(\d{2}))?/) ||                   // לשעה 18, לשעה 18:00
-                      text.match(/ב-?(\d{1,2})(?::(\d{2}))?/);
+                      text.match(/לשעה\s*(\d{1,2})(?::(\d{1,2}))?/) ||                 // לשעה 18, לשעה 18:00, לשעה 20:0
+                      text.match(/ב-?(\d{1,2})(?::(\d{1,2}))?/);
 
     const isTimeUpdate = timeMatch || updateKeywords.some(keyword => normalized.includes(keyword));
 
@@ -4540,6 +4541,13 @@ export class MessageRouter {
         return true; // Handled
       }
 
+      // Normalize time format: "20:0" → "20:00", "8:5" → "08:05"
+      let normalizedText = text.replace(/\b(\d{1,2}):(\d{1})\b/g, (match, h, m) => {
+        const hour = h.padStart(2, '0');
+        const minute = m.padStart(2, '0');
+        return `${hour}:${minute}`;
+      });
+
       // Use NLP to parse the new time from user's text
       const { NLPService } = await import('./NLPService.js');
       const nlp = new NLPService();
@@ -4547,7 +4555,7 @@ export class MessageRouter {
       const timezone = 'Asia/Jerusalem'; // Default timezone
 
       const intent = await nlp.parseIntent(
-        `עדכן את ${event.title} ${text}`, // Inject event title for context
+        `עדכן את ${event.title} ${normalizedText}`, // Inject event title with normalized time
         contacts,
         timezone,
         []
