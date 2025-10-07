@@ -180,7 +180,7 @@ import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';
  */
 export class MessageRouter {
   private readonly AUTH_STATE_PREFIX = 'auth:state:';
-  private readonly AUTH_STATE_TTL = 15 * 60; // 15 minutes in seconds
+  private readonly AUTH_STATE_TTL = 48 * 60 * 60; // 48 hours in seconds (172,800)
 
   constructor(
     private stateManager: StateManager,
