@@ -575,39 +575,6 @@ export class MessageRouter {
         await this.handleReminderCancellationConfirm(phone, userId, text);
         break;
 
-      // ===== CONTACT MANAGEMENT =====
-      case ConversationState.ADDING_CONTACT:
-        await this.handleContactMenu(phone, userId, text);
-        break;
-
-      case ConversationState.ADDING_CONTACT_NAME:
-        await this.handleContactName(phone, userId, text);
-        break;
-
-      case ConversationState.ADDING_CONTACT_PHONE:
-        await this.handleContactPhone(phone, userId, text);
-        break;
-
-      case ConversationState.ADDING_CONTACT_RELATION:
-        await this.handleContactRelation(phone, userId, text);
-        break;
-
-      case ConversationState.ADDING_CONTACT_ALIASES:
-        await this.handleContactAliases(phone, userId, text);
-        break;
-
-      case ConversationState.ADDING_CONTACT_CONFIRM:
-        await this.handleContactConfirm(phone, userId, text);
-        break;
-
-      case ConversationState.LISTING_CONTACTS:
-        await this.handleContactListing(phone, userId, text);
-        break;
-
-      case ConversationState.DELETING_CONTACT:
-        await this.handleContactDeletion(phone, userId, text);
-        break;
-
       // ===== SETTINGS =====
       case ConversationState.SETTINGS_MENU:
         await this.handleSettings(phone, userId, text);
@@ -623,23 +590,6 @@ export class MessageRouter {
 
       case ConversationState.SETTINGS_MENU_DISPLAY:
         await this.handleSettingsMenuDisplay(phone, userId, text);
-        break;
-
-      // ===== DRAFT MESSAGES =====
-      case ConversationState.DRAFT_MESSAGE_RECIPIENT:
-        await this.handleDraftMessageRecipient(phone, userId, text);
-        break;
-
-      case ConversationState.DRAFT_MESSAGE_CONTENT:
-        await this.handleDraftMessageContent(phone, userId, text);
-        break;
-
-      case ConversationState.DRAFT_MESSAGE_CONFIRM:
-        await this.handleDraftMessageConfirm(phone, userId, text);
-        break;
-
-      case ConversationState.DRAFT_MESSAGE_STYLE:
-        await this.handleDraftMessageStyle(phone, userId, text);
         break;
 
       // ===== TASKS =====
@@ -1183,145 +1133,6 @@ export class MessageRouter {
     }
   }
 
-  // ========== DRAFT MESSAGE HANDLERS ==========
-
-  private async handleDraftMessageRecipient(phone: string, userId: string, text: string): Promise<void> {
-    let recipientName = text.trim();
-
-    // Extract recipient from natural language patterns
-    // "שלח הודעה ללנה" → "לנה"
-    // "שלח הודעה לאשתי" → "אשתי"
-    // "לנה" → "לנה"
-    const naturalLanguagePatterns = [
-      /(?:שלח|כתוב|שלחי|כתבי)\s+הודעה\s+ל([א-ת]+)/,  // "שלח הודעה ללנה"
-      /(?:הודעה|מסר)\s+ל([א-ת]+)/,                       // "הודעה ללנה"
-      /^ל([א-ת]+)$/,                                      // "ללנה"
-    ];
-
-    for (const pattern of naturalLanguagePatterns) {
-      const match = recipientName.match(pattern);
-      if (match && match[1]) {
-        recipientName = match[1];
-        break;
-      }
-    }
-
-    if (recipientName.length < 2) {
-      await this.sendMessage(phone, 'שם קצר מדי. אנא הזן שם איש קשר:');
-      return;
-    }
-
-    // Detect confusion - user repeating intent keywords instead of providing recipient
-    const confusionKeywords = ['פגישה', 'תזכורת', 'meeting', 'reminder'];
-    if (confusionKeywords.some(keyword => recipientName.toLowerCase().includes(keyword))) {
-      await this.sendMessage(phone, 'אני צריך שם של איש קשר.\n\nדוגמאות: דני, אמא, יוסי\n\n(או שלח /ביטול לביטול)');
-      return;
-    }
-
-    // Search for contact
-    const contacts = await this.contactService.searchContacts(userId, recipientName);
-
-    if (contacts.length === 0) {
-      await this.sendMessage(phone, `לא נמצא איש קשר בשם "${recipientName}".\n\nהאם להמשיך בכל זאת? (כן/לא)`);
-      await this.stateManager.setState(userId, ConversationState.DRAFT_MESSAGE_CONTENT, {
-        recipient: recipientName,
-        unknownContact: true
-      });
-      return;
-    }
-
-    const contact = contacts[0];
-    await this.sendMessage(phone, `👤 נמצא: ${contact.name}\n\nמה תוכן ההודעה?\n\n(או שלח /ביטול)`);
-    await this.stateManager.setState(userId, ConversationState.DRAFT_MESSAGE_CONTENT, {
-      recipient: contact.name,
-      contactId: contact.id
-    });
-  }
-
-  private async handleDraftMessageContent(phone: string, userId: string, text: string): Promise<void> {
-    const session = await this.stateManager.getState(userId);
-    const { recipient, unknownContact } = session?.context || {};
-
-    if (!recipient) {
-      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
-      return;
-    }
-
-    // Handle "unknownContact" confirmation with yes/no
-    // User was asked "contact not found, continue anyway?"
-    if (unknownContact) {
-      const choice = fuzzyMatchYesNo(text);
-
-      if (choice === 'no') {
-        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.sendMessage(phone, 'ביטלתי את ניסוח ההודעה.');
-        await this.showMainMenu(phone);
-        return;
-      }
-
-      if (choice === 'yes') {
-        // User confirmed - now ask for message content
-        await this.sendMessage(phone, `מה תוכן ההודעה ל-${recipient}?\n\n(או שלח /ביטול)`);
-        // Update context - remove unknownContact flag, keep recipient
-        await this.stateManager.setState(userId, ConversationState.DRAFT_MESSAGE_CONTENT, {
-          recipient
-        });
-        return;
-      }
-
-      // Not a clear yes/no - treat as message content and proceed
-    }
-
-    const content = text.trim();
-
-    if (content.length < 5) {
-      await this.sendMessage(phone, 'הודעה קצרה מדי. אנא הזן תוכן מפורט יותר:');
-      return;
-    }
-
-    const confirmMessage = `📝 טיוטת הודעה:\n\n👤 אל: ${recipient}\n💬 תוכן: ${content}\n\nהאם לשלוח? (כן/לא)`;
-
-    await this.sendMessage(phone, confirmMessage);
-    await this.stateManager.setState(userId, ConversationState.DRAFT_MESSAGE_CONFIRM, {
-      recipient,
-      content
-    });
-  }
-
-  private async handleDraftMessageConfirm(phone: string, userId: string, text: string): Promise<void> {
-    const choice = text.trim().toLowerCase();
-
-    if (choice === 'לא' || choice === 'no') {
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.sendMessage(phone, '❌ ההודעה בוטלה.');
-      await this.showMainMenu(phone);
-      return;
-    }
-
-    if (choice !== 'כן' && choice !== 'yes') {
-      await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
-      return;
-    }
-
-    const session = await this.stateManager.getState(userId);
-    const { recipient, content } = session?.context || {};
-
-    if (!recipient || !content) {
-      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
-      return;
-    }
-
-    // In a real implementation, this would send the message to the contact
-    // For now, we just confirm it was drafted
-    await this.sendMessage(phone, `✅ ההודעה נשמרה כטיוטה!\n\n(תכונת שליחה אוטומטית תהיה זמינה בגרסה הבאה)\n\n📝 טיוטה:\nאל: ${recipient}\nתוכן: ${content}`);
-
-    await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-    await this.showMainMenu(phone);
-  }
 
   // ========== TASK HANDLERS ==========
 
@@ -1659,13 +1470,6 @@ export class MessageRouter {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.showMainMenu(phone);
     }
-  }
-
-  private async handleDraftMessageStyle(phone: string, userId: string, text: string): Promise<void> {
-    // Placeholder for style selection - will be implemented with OpenAI integration
-    await this.sendMessage(phone, 'תכונת בחירת סגנון תתווסף בקרוב.');
-    await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-    await this.showMainMenu(phone);
   }
 
   // ========== EVENT LISTING - FULL IMPLEMENTATION ==========
@@ -2557,207 +2361,6 @@ export class MessageRouter {
     }
   }
 
-  // ========== CONTACT HANDLERS ==========
-
-  private async handleContactMenu(phone: string, userId: string, text: string): Promise<void> {
-    const choice = text.trim();
-
-    switch (choice) {
-      case '1': // Add contact
-        await this.stateManager.setState(userId, ConversationState.ADDING_CONTACT_NAME);
-        await this.sendMessage(phone, '➕ הוספת איש קשר\n\nמה שם איש הקשר?\n\n(או שלח /ביטול)');
-        break;
-
-      case '2': // View contacts
-        await this.stateManager.setState(userId, ConversationState.LISTING_CONTACTS);
-        await this.handleContactListing(phone, userId, '1');
-        break;
-
-      case '3': // Delete contact
-        await this.stateManager.setState(userId, ConversationState.DELETING_CONTACT);
-        await this.sendMessage(phone, '🗑️ מחיקת איש קשר\n\nהמשך בקרוב...');
-        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
-        break;
-
-      case '4': // Back
-        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
-        break;
-
-      default:
-        await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר 1-4.');
-    }
-  }
-
-  private async handleContactName(phone: string, userId: string, text: string): Promise<void> {
-    const name = text.trim();
-
-    if (name.length < 2) {
-      await this.sendMessage(phone, 'השם קצר מדי. אנא הזן שם בן 2 תווים לפחות.');
-      return;
-    }
-
-    await this.stateManager.setState(userId, ConversationState.ADDING_CONTACT_RELATION, { name });
-    await this.sendMessage(phone, `מצוין!\n\nמה הקשר עם ${name}?\n\nדוגמאות: חבר, משפחה, עבודה\n\n(או שלח "דלג")`);
-  }
-
-  private async handleContactPhone(phone: string, userId: string, text: string): Promise<void> {
-    // Not used - removed phone field
-  }
-
-  private async handleContactRelation(phone: string, userId: string, text: string): Promise<void> {
-    const session = await this.stateManager.getState(userId);
-    const { name } = session?.context || {};
-
-    if (!name) {
-      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
-      return;
-    }
-
-    const relation = text.trim().toLowerCase() === 'דלג' ? undefined : text.trim();
-
-    await this.stateManager.setState(userId, ConversationState.ADDING_CONTACT_ALIASES, {
-      name,
-      relation
-    });
-    await this.sendMessage(phone, `כינויים (aliases)?\n\nדוגמה: אבא, אימא, דוד יוסי\n\nהפרד בפסיקים או שלח "דלג"`);
-  }
-
-  private async handleContactAliases(phone: string, userId: string, text: string): Promise<void> {
-    const session = await this.stateManager.getState(userId);
-    const { name, relation } = session?.context || {};
-
-    if (!name) {
-      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
-      return;
-    }
-
-    const aliasesStr = text.trim().toLowerCase();
-    const aliases = aliasesStr === 'דלג' ? [] : aliasesStr.split(',').map(a => a.trim()).filter(a => a.length > 0);
-
-    await this.stateManager.setState(userId, ConversationState.ADDING_CONTACT_CONFIRM, {
-      name,
-      relation,
-      aliases
-    });
-
-    let summary = `✅ סיכום איש הקשר:\n\n`;
-    summary += `👤 שם: ${name}\n`;
-    if (relation) summary += `🔗 קשר: ${relation}\n`;
-    if (aliases.length > 0) summary += `🏷️ כינויים: ${aliases.join(', ')}\n`;
-    summary += `\nהאם הכל נכון?\n\n✅ שלח "כן" לאישור\n❌ שלח "לא" לביטול`;
-
-    await this.sendMessage(phone, summary);
-  }
-
-  private async handleContactConfirm(phone: string, userId: string, text: string): Promise<void> {
-    const choice = fuzzyMatchYesNo(text);
-
-    if (choice === 'no') {
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.sendMessage(phone, '❌ איש הקשר בוטל.');
-      await this.showMainMenu(phone);
-      return;
-    }
-
-    if (choice !== 'yes') {
-      await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
-      return;
-    }
-
-    // React with checkmark for confirmation
-    await this.reactToLastMessage(userId, '✅');
-
-    const session = await this.stateManager.getState(userId);
-    const { name, relation, aliases, retryCount } = session?.context || {};
-
-    if (!name) {
-      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
-      return;
-    }
-
-    try {
-      await this.contactService.createContact({
-        userId,
-        name,
-        relation,
-        aliases: aliases || []
-      });
-
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.sendMessage(phone, `🎉 איש הקשר "${name}" נוסף בהצלחה!`);
-      await this.showMainMenu(phone);
-
-    } catch (error) {
-      logger.error('Failed to create contact', { userId, error });
-
-      // Error recovery - offer retry
-      const currentRetryCount = retryCount || 0;
-
-      if (currentRetryCount < 2) {
-        // Offer retry (max 2 attempts)
-        await this.sendMessage(phone, `❌ אירעה שגיאה ביצירת איש הקשר.\n\n🔄 האם לנסות שוב? (כן/לא)`);
-        await this.stateManager.setState(userId, ConversationState.ADDING_CONTACT_CONFIRM, {
-          name,
-          relation,
-          aliases,
-          retryCount: currentRetryCount + 1
-        });
-      } else {
-        // Max retries reached
-        await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת איש הקשר.\n\nמשהו השתבש. נסה שוב מאוחר יותר או שלח /עזרה לתמיכה.');
-        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
-      }
-    }
-  }
-
-  private async handleContactListing(phone: string, userId: string, text: string): Promise<void> {
-    try {
-      const contacts = await this.contactService.getAllContacts(userId);
-
-      if (contacts.length === 0) {
-        await this.sendMessage(phone, '📭 אין אנשי קשר.');
-        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
-        return;
-      }
-
-      let message = '👥 אנשי הקשר שלי\n\n';
-      contacts.forEach((contact, index) => {
-        message += `${index + 1}. ${contact.name}`;
-        if (contact.relation) message += `\n   🔗 ${contact.relation}`;
-        if (contact.aliases && contact.aliases.length > 0) {
-          message += `\n   🏷️ ${contact.aliases.join(', ')}`;
-        }
-        message += `\n\n`;
-      });
-
-      await this.sendMessage(phone, message);
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
-
-    } catch (error) {
-      logger.error('Failed to list contacts', { userId, error });
-      await this.sendMessage(phone, '❌ אירעה שגיאה בטעינת אנשי הקשר.');
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
-    }
-  }
-
-  private async handleContactDeletion(phone: string, userId: string, text: string): Promise<void> {
-    await this.sendMessage(phone, 'מחיקת איש קשר תתווסף בקרוב.');
-    await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-    await this.showMainMenu(phone);
-  }
-
   // ========== SETTINGS HANDLERS ==========
 
   private async handleSettings(phone: string, userId: string, text: string): Promise<void> {
@@ -2933,14 +2536,6 @@ export class MessageRouter {
     }
   }
 
-  // ========== DRAFT MESSAGE HANDLER ==========
-
-  private async handleDraftMessage(phone: string, userId: string, text: string): Promise<void> {
-    await this.sendMessage(phone, 'ניסוח הודעות יתווסף בגרסה הבאה.');
-    await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-    await this.showMainMenu(phone);
-  }
-
   // ========== AUTH HANDLERS (unchanged from original) ==========
 
   private async handleAuthFlow(
@@ -3106,8 +2701,8 @@ export class MessageRouter {
   ): Promise<void> {
     const choice = text.trim();
 
-    // Check if it's a menu number first (1-8)
-    if (/^[1-8]$/.test(choice)) {
+    // Check if it's a menu number first (1-6)
+    if (/^[1-6]$/.test(choice)) {
       switch (choice) {
         case '1': // View events
           await this.sendMessage(phone, '📅 איזה אירועים להציג?\n\n1️⃣ היום\n2️⃣ מחר\n3️⃣ השבוע\n4️⃣ הכל (הבאים)\n5️⃣ חיפוש אירוע\n6️⃣ חזרה לתפריט\n\nבחר מספר');
@@ -3130,22 +2725,12 @@ export class MessageRouter {
           await this.stateManager.setState(userId, ConversationState.TASKS_MENU);
           break;
 
-        case '5': // Contacts menu
-          await this.sendMessage(phone, '👥 אנשי קשר / משפחה\n\n1️⃣ הוספת איש קשר\n2️⃣ צפייה באנשי קשר\n3️⃣ מחיקת איש קשר\n4️⃣ חזרה לתפריט\n\nבחר מספר');
-          await this.stateManager.setState(userId, ConversationState.ADDING_CONTACT);
-          break;
-
-        case '6': // Settings menu
+        case '5': // Settings menu
           await this.sendMessage(phone, '⚙️ הגדרות\n\n1️⃣ שינוי שפה\n2️⃣ שינוי אזור זמן\n3️⃣ תצוגת תפריט\n4️⃣ חזרה לתפריט\n\nבחר מספר');
           await this.stateManager.setState(userId, ConversationState.SETTINGS_MENU);
           break;
 
-        case '7': // Draft message
-          await this.stateManager.setState(userId, ConversationState.DRAFT_MESSAGE_RECIPIENT);
-          await this.sendMessage(phone, '📝 ניסוח הודעה\n\nלמי לשלוח את ההודעה? (הזן שם איש קשר)\n\n(או שלח /ביטול לביטול)');
-          break;
-
-        case '8': // Help
+        case '6': // Help
           await this.showHelp(phone);
           break;
       }
@@ -3195,13 +2780,12 @@ export class MessageRouter {
 2️⃣ הוסף אירוע ➕
 3️⃣ הוסף תזכורת ⏰
 4️⃣ משימות ✅
-5️⃣ אנשי קשר / משפחה 👨‍👩‍👧
-6️⃣ הגדרות ⚙️
-7️⃣ ניסוח הודעה 📝
-8️⃣ עזרה ❓
+5️⃣ הגדרות ⚙️
+6️⃣ עזרה ❓
 
-בחר מספר (1-8) או שלח פקודה:
+בחר מספר (1-6) או שלח פקודה:
 /תפריט - חזרה לתפריט
+/ביטול - ביטול פעולה
 /עזרה - עזרה`;
 
     await this.sendMessage(phone, menu);
@@ -3403,7 +2987,7 @@ export class MessageRouter {
           break;
 
         case 'add_contact':
-          await this.handleNLPAddContact(phone, userId, intent);
+          await this.sendMessage(phone, '👥 תכונת ניהול אנשי קשר הוסרה.\n\nשלח /תפריט לחזרה לתפריט ראשי');
           break;
 
         case 'send_message':
@@ -3744,33 +3328,6 @@ export class MessageRouter {
       // Phase 2.4: Show hint for first-time users
       await this.sendQuickActionHint(phone, userId);
     }
-  }
-
-  private async handleNLPAddContact(phone: string, userId: string, intent: any): Promise<void> {
-    const { contact } = intent;
-
-    if (!contact?.name || !contact?.phone) {
-      await this.sendMessage(phone, 'לא זיהיתי את כל הפרטים. אנא ציין שם ומספר טלפון.\n\nדוגמה: הוסף איש קשר דני 052-1234567');
-      return;
-    }
-
-    // Normalize phone number (remove spaces, dashes)
-    const normalizedPhone = contact.phone.replace(/[\s-]/g, '');
-
-    const confirmMessage = `👤 זיהיתי איש קשר חדש:
-
-📛 ${contact.name}
-📞 ${normalizedPhone}${contact.relation ? `\n👥 ${contact.relation}` : ''}
-
-האם להוסיף את איש הקשר? (כן/לא)`;
-
-    await this.sendMessage(phone, confirmMessage);
-    await this.stateManager.setState(userId, ConversationState.ADDING_CONTACT_CONFIRM, {
-      name: contact.name,
-      phone: normalizedPhone,
-      relation: contact.relation || null,
-      fromNLP: true
-    });
   }
 
   private async handleNLPDeleteEvent(phone: string, userId: string, intent: any): Promise<void> {

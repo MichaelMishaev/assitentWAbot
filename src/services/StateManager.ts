@@ -30,9 +30,7 @@ export class StateManager {
     [ConversationState.ADDING_REMINDER_CONFIRM]: 10 * 60 * 1000,
     [ConversationState.LISTING_EVENTS]: 5 * 60 * 1000,
     [ConversationState.DELETING_EVENT]: 5 * 60 * 1000,
-    [ConversationState.ADDING_CONTACT]: 5 * 60 * 1000,
     [ConversationState.SETTINGS_MENU]: 10 * 60 * 1000,
-    [ConversationState.DRAFT_MESSAGE]: 10 * 60 * 1000,
   };
 
   /**
