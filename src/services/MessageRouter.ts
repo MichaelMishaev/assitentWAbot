@@ -1817,7 +1817,9 @@ export class MessageRouter {
           });
 
           if (updated) {
-            await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n${formatEventWithComments(updated)}`);
+            const sentMessageId = await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n${formatEventWithComments(updated)}`);
+            // Store message-event mapping for reply-to quick actions
+            await this.storeMessageEventMapping(sentMessageId, updated.id);
             await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
             await this.showMainMenu(phone);
           } else {
@@ -3400,7 +3402,10 @@ export class MessageRouter {
       const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
       const successMessage = `✅ ${event.title} - ${displayDate}${event.location ? `\n📍 ${event.location}` : ''}${event.contactName ? `\n👤 ${event.contactName}` : ''}`;
 
-      await this.sendMessage(phone, successMessage);
+      const sentMessageId = await this.sendMessage(phone, successMessage);
+
+      // Store message-event mapping for reply-to quick actions
+      await this.storeMessageEventMapping(sentMessageId, newEvent.id);
 
     } catch (error) {
       logger.error('Failed to create NLP event', { userId, error });
@@ -3799,7 +3804,9 @@ export class MessageRouter {
           const updated = await this.eventService.updateEvent(eventToUpdate.id, userId, updateData);
 
           if (updated) {
-            await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n${formatEventWithComments(updated)}`);
+            const sentMessageId = await this.sendMessage(phone, `✅ האירוע עודכן בהצלחה!\n\n${formatEventWithComments(updated)}`);
+            // Store message-event mapping for reply-to quick actions
+            await this.storeMessageEventMapping(sentMessageId, updated.id);
           } else {
             await this.sendMessage(phone, '❌ לא הצלחתי לעדכן את האירוע. נסה שוב.');
           }
