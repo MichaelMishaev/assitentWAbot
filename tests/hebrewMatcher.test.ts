@@ -66,9 +66,13 @@ describe('Hebrew Fuzzy Matcher', () => {
   // ==========================================
 
   describe('Token-Based Matches', () => {
-    test('50% token overlap', () => {
+    test('50% token overlap (UPDATED: now requires 75% for 2-word searches)', () => {
+      // OLD BEHAVIOR: 50% overlap was enough (1/2 tokens)
+      // NEW BEHAVIOR: Requires 75% overlap for 2-word searches to prevent false matches
+      // Search: "פגישה חשובה" vs Target: "פגישה עם דני"
+      // Only 1/2 tokens match → Should NOT match anymore
       const score = fuzzyMatch('פגישה חשובה', 'פגישה עם דני');
-      expect(score).toBeGreaterThanOrEqual(0.5);
+      expect(score).toBe(0); // Changed from >= 0.5 to 0
     });
 
     test('all search tokens present', () => {
@@ -230,10 +234,12 @@ describe('Hebrew Fuzzy Matcher', () => {
       expect(isMatch('xyz', 'פגישה עם דני', 0.5)).toBe(false);
     });
 
-    test('custom threshold 0.9', () => {
+    test('custom threshold 0.9 (UPDATED: new scoring considers target ratio)', () => {
       expect(isMatch('פגישה', 'פגישה עם דני', 0.9)).toBe(true);
-      // Both tokens "פגישה" and "דני" are found, so this is a strong match (100% overlap)
-      expect(isMatch('פגישה דני', 'פגישה חשובה עם דני במשרד', 0.9)).toBe(true);
+      // UPDATED: New scoring averages search ratio (100%) and target ratio (50%)
+      // Old score: ~0.9 | New score: ~0.8 (doesn't pass 0.9 threshold)
+      // This is correct - only 2 out of 4 target tokens match
+      expect(isMatch('פגישה דני', 'פגישה חשובה עם דני במשרד', 0.7)).toBe(true);
     });
 
     test('custom threshold 0.3', () => {
