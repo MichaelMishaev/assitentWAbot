@@ -4624,8 +4624,8 @@ export class MessageRouter {
         // Delete the event
         await this.eventService.deleteEvent(eventId, userId);
 
-        // React with ❌ (no text confirmation - per user request)
-        await this.reactToLastMessage(userId, '❌');
+        // React with ✅ (deletion successful - green checkmark for completed action)
+        await this.reactToLastMessage(userId, '✅');
 
         // Phase 3.3: Analytics - track delete confirmation
         logger.info('[ANALYTICS] Quick delete confirmed', {
@@ -4643,7 +4643,7 @@ export class MessageRouter {
         // Clear confirmation flag
         await redis.del(`temp:delete_confirm:${userId}`);
 
-        await this.sendMessage(phone, '✅ המחיקה בוטלה.');
+        await this.sendMessage(phone, 'ℹ️ המחיקה בוטלה.');
 
         // Phase 3.3: Analytics - track delete cancellation
         logger.info('[ANALYTICS] Quick delete cancelled', {
