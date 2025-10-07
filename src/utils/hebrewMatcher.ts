@@ -87,12 +87,25 @@ export function fuzzyMatch(searchText: string, targetText: string): number {
     }
   }
 
-  // Calculate match ratio
-  const matchRatio = matchingTokens / searchTokens.length;
+  // Calculate match ratio based on both search and target tokens
+  const searchRatio = matchingTokens / searchTokens.length;
+  const targetRatio = matchingTokens / targetTokens.length;
 
-  // Require at least 50% token overlap
-  if (matchRatio >= 0.5) {
-    return 0.5 + (matchRatio * 0.4); // Score between 0.5-0.9
+  // For multi-word searches, require stricter matching
+  // Single word: 100% match required
+  // Two words: at least 75% of search tokens must match
+  // Three+ words: at least 66% of search tokens must match
+  let requiredRatio = 1.0; // Default: require 100% match
+  if (searchTokens.length === 2) {
+    requiredRatio = 0.75; // For "תור ציפורניים", need both words
+  } else if (searchTokens.length >= 3) {
+    requiredRatio = 0.67; // For longer searches, allow 2/3 match
+  }
+
+  if (searchRatio >= requiredRatio) {
+    // Average of search and target ratios for better scoring
+    const avgRatio = (searchRatio + targetRatio) / 2;
+    return 0.5 + (avgRatio * 0.4); // Score between 0.5-0.9
   }
 
   return 0;
