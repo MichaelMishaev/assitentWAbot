@@ -297,7 +297,8 @@ export function formatEventInList(
     output += `\n   💬 ${event.notes.length} הערות:`;
     event.notes.forEach((comment, idx) => {
       const priority = getPriorityIndicator(comment.priority);
-      output += `\n      ${idx + 1}. ${comment.text}${priority ? ' ' + priority : ''}`;
+      // Use proper numbering for RTL (Right-To-Left) Hebrew display
+      output += `\n      ${idx + 1}.\u200E ${comment.text}${priority ? ' ' + priority : ''}`;
     });
   }
 
@@ -326,7 +327,8 @@ export function formatEventWithComments(
     event.notes.forEach((comment, idx) => {
       const priority = getPriorityIndicator(comment.priority);
       const time = formatCommentTimestamp(comment.timestamp, timezone);
-      output += `${idx + 1}. ${comment.text}${priority ? ' ' + priority : ''}\n`;
+      // Use proper numbering for RTL (Right-To-Left) Hebrew display
+      output += `${idx + 1}.\u200E ${comment.text}${priority ? ' ' + priority : ''}\n`;
       output += `   🕐 ${time}\n`;
     });
   }
