@@ -175,6 +175,56 @@ import { scheduleReminder } from '../queues/ReminderQueue.js';
 import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';
 
 /**
+ * Detect if user is expressing frustration or confusion
+ */
+function detectFrustration(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  const frustrationKeywords = [
+    'לא מבין',
+    'לא מבינה',
+    'לא הבנתי',
+    'עזרה',
+    'תעזור',
+    'מה זה',
+    'מה אני צריך',
+    'לא יודע',
+    'לא יודעת',
+    'תסביר',
+    'מבולבל',
+    'מתאבד',  // extreme frustration
+    'אני מת',
+    'די',
+    'לא רוצה',
+    'זה מבאס'
+  ];
+
+  return frustrationKeywords.some(keyword => normalized.includes(keyword));
+}
+
+/**
+ * Get or increment failure counter for current conversation state
+ */
+async function getFailureCount(userId: string, state: ConversationState): Promise<number> {
+  const key = `failure_count:${userId}:${state}`;
+  const count = await redis.get(key);
+  const currentCount = count ? parseInt(count) : 0;
+  const newCount = currentCount + 1;
+
+  // Set with 5 minute expiry
+  await redis.setex(key, 300, newCount.toString());
+
+  return newCount;
+}
+
+/**
+ * Reset failure counter
+ */
+async function resetFailureCount(userId: string, state: ConversationState): Promise<void> {
+  const key = `failure_count:${userId}:${state}`;
+  await redis.del(key);
+}
+
+/**
  * MessageRouter - COMPLETE IMPLEMENTATION
  * All handlers fully implemented with service integration
  */
@@ -1848,7 +1898,7 @@ export class MessageRouter {
       const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
       const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
 
-      const editMenu = `✏️ עריכת אירוע: ${event.title}\n\nמה לערוך?\n\n1️⃣ שם (${event.title})\n2️⃣ תאריך ושעה (${formatted})\n3️⃣ מיקום (${event.location || 'לא הוגדר'})\n4️⃣ חזרה\n\nבחר מספר (1-4)`;
+      const editMenu = `✏️ עריכת אירוע: ${event.title}\n\nמה לערוך?\n\n1️⃣ שם (${event.title})\n2️⃣ תאריך ושעה (${formatted})\n3️⃣ מיקום (${event.location || 'לא הוגדר'})\n4️⃣ חזרה\n\nבחר מספר (1-4)\nאו שלח /ביטול לחזור`;
 
       await this.sendMessage(phone, editMenu);
       await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, { selectedEvent: event });
@@ -1883,7 +1933,7 @@ export class MessageRouter {
         const dt = DateTime.fromJSDate(selectedEvent.startTsUtc).setZone('Asia/Jerusalem');
         const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
 
-        const editMenu = `✏️ עריכת אירוע: ${selectedEvent.title}\n\nמה לערוך?\n\n1️⃣ שם (${selectedEvent.title})\n2️⃣ תאריך ושעה (${formatted})\n3️⃣ מיקום (${selectedEvent.location || 'לא הוגדר'})\n4️⃣ חזרה\n\nבחר מספר (1-4)`;
+        const editMenu = `✏️ עריכת אירוע: ${selectedEvent.title}\n\nמה לערוך?\n\n1️⃣ שם (${selectedEvent.title})\n2️⃣ תאריך ושעה (${formatted})\n3️⃣ מיקום (${selectedEvent.location || 'לא הוגדר'})\n4️⃣ חזרה\n\nבחר מספר (1-4)\nאו שלח /ביטול לחזור`;
 
         await this.sendMessage(phone, editMenu);
         await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, { selectedEvent });
@@ -1924,8 +1974,34 @@ export class MessageRouter {
       return;
     }
 
+    // Check for cancel command first - immediate escape
+    if (choice === '/ביטול' || choice.toLowerCase() === 'ביטול' || choice.toLowerCase() === 'cancel') {
+      await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
+      await this.sendMessage(phone, 'ℹ️ פעולת העריכה בוטלה.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    // Detect frustration and provide help
+    if (detectFrustration(text)) {
+      await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
+      const dt = DateTime.fromJSDate(selectedEvent.startTsUtc).setZone('Asia/Jerusalem');
+      const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
+      await this.sendMessage(phone,
+        `💡 אני כאן לעזור!\n\nכדי לערוך את האירוע, בחר מספר:\n\n` +
+        `1️⃣ לשנות את השם (${selectedEvent.title})\n` +
+        `2️⃣ לשנות תאריך ושעה (${formatted})\n` +
+        `3️⃣ לשנות מיקום (${selectedEvent.location || 'לא הוגדר'})\n` +
+        `4️⃣ לחזור לתפריט\n\n` +
+        `או שלח /ביטול לביטול`
+      );
+      return;
+    }
+
     switch (choice) {
       case '1': // Edit title
+        await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
         await this.sendMessage(phone, `✏️ הזן שם חדש לאירוע:\n\n(או שלח /ביטול)`);
         await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, {
           selectedEvent,
@@ -1934,6 +2010,7 @@ export class MessageRouter {
         break;
 
       case '2': // Edit date/time
+        await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
         await this.sendMessage(phone, `✏️ הזן תאריך ושעה חדשים:\n\nדוגמה: "מחר 14:00" או "05/01/2025 10:30"\n\n(או שלח /ביטול)`);
         await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, {
           selectedEvent,
@@ -1942,6 +2019,7 @@ export class MessageRouter {
         break;
 
       case '3': // Edit location
+        await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
         await this.sendMessage(phone, `✏️ הזן מיקום חדש:\n\n(או שלח /ביטול)`);
         await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, {
           selectedEvent,
@@ -1950,6 +2028,7 @@ export class MessageRouter {
         break;
 
       case '4': // Back
+        await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
         await this.showMainMenu(phone);
         break;
@@ -1959,7 +2038,64 @@ export class MessageRouter {
         const editField = session?.context?.editField;
 
         if (!editField) {
-          await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר מספר בין 1-4.');
+          // Not in edit mode - try NLP fallback for natural language
+          const normalized = text.toLowerCase();
+
+          // Try to detect intent from natural language
+          if (normalized.includes('שם') || normalized.includes('כותרת') || normalized.includes('תואר')) {
+            await this.sendMessage(phone, `✏️ הזן שם חדש לאירוע:\n\n(או שלח /ביטול)`);
+            await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, {
+              selectedEvent,
+              editField: 'title'
+            });
+            return;
+          }
+
+          if (normalized.includes('תאריך') || normalized.includes('שעה') || normalized.includes('זמן')) {
+            await this.sendMessage(phone, `✏️ הזן תאריך ושעה חדשים:\n\nדוגמה: "מחר 14:00" או "05/01/2025 10:30"\n\n(או שלח /ביטול)`);
+            await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, {
+              selectedEvent,
+              editField: 'datetime'
+            });
+            return;
+          }
+
+          if (normalized.includes('מיקום') || normalized.includes('מקום') || normalized.includes('כתובת')) {
+            await this.sendMessage(phone, `✏️ הזן מיקום חדש:\n\n(או שלח /ביטול)`);
+            await this.stateManager.setState(userId, ConversationState.EDITING_EVENT_FIELD, {
+              selectedEvent,
+              editField: 'location'
+            });
+            return;
+          }
+
+          // No match - count failure and show helpful error
+          const failureCount = await getFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
+
+          if (failureCount >= 3) {
+            // Auto-exit after 3 failures
+            await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
+            await this.sendMessage(phone,
+              '😕 נראה שיש בעיה בהבנה.\n\n' +
+              'חוזר לתפריט הראשי...'
+            );
+            await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+            await this.showMainMenu(phone);
+            return;
+          }
+
+          // Show improved error with menu
+          const dt = DateTime.fromJSDate(selectedEvent.startTsUtc).setZone('Asia/Jerusalem');
+          const formatted = dt.toFormat('dd/MM/yyyy HH:mm');
+          await this.sendMessage(phone,
+            `❌ בחירה לא תקינה.\n\n` +
+            `אנא בחר מספר:\n\n` +
+            `1️⃣ שם (${selectedEvent.title})\n` +
+            `2️⃣ תאריך ושעה (${formatted})\n` +
+            `3️⃣ מיקום (${selectedEvent.location || 'לא הוגדר'})\n` +
+            `4️⃣ חזרה\n\n` +
+            `או שלח /ביטול`
+          );
           return;
         }
 
@@ -1967,22 +2103,25 @@ export class MessageRouter {
           switch (editField) {
             case 'title':
               await this.eventService.updateEvent(selectedEvent.id, userId, { title: text });
+              await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
               await this.sendMessage(phone, `✅ שם האירוע עודכן ל: "${text}"`);
               break;
 
             case 'datetime':
               const parseResult = parseHebrewDate(text);
               if (!parseResult.success || !parseResult.date) {
-                await this.sendMessage(phone, '❌ פורמט תאריך לא תקין. נסה שוב:\n\nדוגמה: "מחר 14:00" או "05/01/2025 10:30"');
+                await this.sendMessage(phone, '❌ פורמט תאריך לא תקין. נסה שוב:\n\nדוגמה: "מחר 14:00" או "05/01/2025 10:30"\n\n(או שלח /ביטול)');
                 return;
               }
               await this.eventService.updateEvent(selectedEvent.id, userId, { startTsUtc: parseResult.date });
+              await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
               const newDt = DateTime.fromJSDate(parseResult.date).setZone('Asia/Jerusalem');
               await this.sendMessage(phone, `✅ תאריך ושעה עודכנו ל: ${newDt.toFormat('dd/MM/yyyy HH:mm')}`);
               break;
 
             case 'location':
               await this.eventService.updateEvent(selectedEvent.id, userId, { location: text });
+              await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
               await this.sendMessage(phone, `✅ מיקום עודכן ל: "${text}"`);
               break;
           }
