@@ -8,11 +8,33 @@ export interface User {
   name: string;
   locale: string;
   timezone: string;
-  prefsJsonb: Record<string, any>;
+  prefsJsonb: UserPreferences;
   calendarProvider: 'LOCAL' | 'GOOGLE';
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type MenuDisplayMode = 'always' | 'adaptive' | 'errors_only' | 'never';
+
+export interface UserPreferences {
+  menuDisplayMode?: MenuDisplayMode;
+  [key: string]: any;
+}
+
+export interface UserProficiencyMetrics {
+  totalMessages: number;
+  nlpSuccessCount: number;
+  nlpFailureCount: number;
+  menuRequestCount: number;
+  lastMenuRequestTime: Date | null;
+  commandUsageCount: number;
+  errorCount: number;
+  sessionCount: number;
+  firstMessageAt: Date;
+  lastUpdated: Date;
+}
+
+export type ProficiencyLevel = 'novice' | 'intermediate' | 'expert';
 
 export interface Contact {
   id: string;
@@ -105,6 +127,7 @@ export enum ConversationState {
   DELETING_EVENT = 'DELETING_EVENT',
   DELETING_EVENT_SEARCH = 'DELETING_EVENT_SEARCH',
   DELETING_EVENT_CONFIRM = 'DELETING_EVENT_CONFIRM',
+  DELETING_ALL_EVENTS_CONFIRM = 'DELETING_ALL_EVENTS_CONFIRM',
   LISTING_REMINDERS = 'LISTING_REMINDERS',
   CANCELLING_REMINDER = 'CANCELLING_REMINDER',
   CANCELLING_REMINDER_CONFIRM = 'CANCELLING_REMINDER_CONFIRM',
@@ -119,6 +142,7 @@ export enum ConversationState {
   SETTINGS_MENU = 'SETTINGS_MENU',
   SETTINGS_LANGUAGE = 'SETTINGS_LANGUAGE',
   SETTINGS_TIMEZONE = 'SETTINGS_TIMEZONE',
+  SETTINGS_MENU_DISPLAY = 'SETTINGS_MENU_DISPLAY',
   DRAFT_MESSAGE = 'DRAFT_MESSAGE',
   DRAFT_MESSAGE_RECIPIENT = 'DRAFT_MESSAGE_RECIPIENT',
   DRAFT_MESSAGE_CONTENT = 'DRAFT_MESSAGE_CONTENT',

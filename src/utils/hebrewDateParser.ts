@@ -50,9 +50,29 @@ export function parseHebrewDate(
     'בחודש הבא': () => now.plus({ months: 1 }).startOf('month'),
   };
 
+  // Extract time from input (HH:MM or "בשעה HH:MM" or "ב-HH:MM")
+  let extractedTime: { hour: number; minute: number } | null = null;
+  let dateInput = trimmedInput;
+
+  // Match time patterns: "14:00", "בשעה 14:00", "ב-14:00", ", בשעה 14:00"
+  const timeMatch = trimmedInput.match(/(?:,?\s*(?:בשעה|ב-?)\s*)?(\d{1,2}):(\d{2})/);
+  if (timeMatch) {
+    const hour = parseInt(timeMatch[1], 10);
+    const minute = parseInt(timeMatch[2], 10);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      extractedTime = { hour, minute };
+      // Remove time from input for date parsing
+      dateInput = trimmedInput.replace(/(?:,?\s*(?:בשעה|ב-?)\s*)?\d{1,2}:\d{2}/, '').trim();
+    }
+  }
+
   // Check for direct keyword match
-  if (keywords[trimmedInput]) {
-    const date = keywords[trimmedInput]();
+  if (keywords[dateInput]) {
+    let date = keywords[dateInput]();
+    // Apply extracted time if available
+    if (extractedTime) {
+      date = date.set({ hour: extractedTime.hour, minute: extractedTime.minute });
+    }
     return {
       success: true,
       date: date.toJSDate(),
@@ -71,10 +91,14 @@ export function parseHebrewDate(
   };
 
   // Check for day name with "יום" prefix
-  const dayWithPrefix = trimmedInput.replace(/^יום\s+/, '');
+  const dayWithPrefix = dateInput.replace(/^יום\s+/, '');
   if (hebrewDays.hasOwnProperty(dayWithPrefix)) {
     const targetDay = hebrewDays[dayWithPrefix];
-    const date = getNextWeekday(now, targetDay);
+    let date = getNextWeekday(now, targetDay);
+    // Apply extracted time if available
+    if (extractedTime) {
+      date = date.set({ hour: extractedTime.hour, minute: extractedTime.minute });
+    }
     return {
       success: true,
       date: date.toJSDate(),
@@ -82,17 +106,21 @@ export function parseHebrewDate(
   }
 
   // Check for day name without "יום" prefix
-  if (hebrewDays.hasOwnProperty(trimmedInput)) {
-    const targetDay = hebrewDays[trimmedInput];
-    const date = getNextWeekday(now, targetDay);
+  if (hebrewDays.hasOwnProperty(dateInput)) {
+    const targetDay = hebrewDays[dateInput];
+    let date = getNextWeekday(now, targetDay);
+    // Apply extracted time if available
+    if (extractedTime) {
+      date = date.set({ hour: extractedTime.hour, minute: extractedTime.minute });
+    }
     return {
       success: true,
       date: date.toJSDate(),
     };
   }
 
-  // Parse DD/MM/YYYY or DD/MM format
-  const dateFormatMatch = trimmedInput.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
+  // Parse DD/MM/YYYY or DD/MM or DD.MM.YYYY or DD.MM format (supports both "/" and ".")
+  const dateFormatMatch = dateInput.match(/^(\d{1,2})[\/\.](\d{1,2})(?:[\/\.](\d{4}))?$/);
   if (dateFormatMatch) {
     const day = parseInt(dateFormatMatch[1], 10);
     const month = parseInt(dateFormatMatch[2], 10);
@@ -116,10 +144,15 @@ export function parseHebrewDate(
     }
 
     // Create date and check if it's valid
-    const parsedDate = DateTime.fromObject(
+    let parsedDate = DateTime.fromObject(
       { year, month, day },
       { zone: timezone }
     ).startOf('day');
+
+    // Apply extracted time if available
+    if (extractedTime) {
+      parsedDate = parsedDate.set({ hour: extractedTime.hour, minute: extractedTime.minute });
+    }
 
     if (!parsedDate.isValid) {
       return {
@@ -129,8 +162,9 @@ export function parseHebrewDate(
       };
     }
 
-    // Check if date is in the past
-    if (parsedDate < now) {
+    // Check if date is in the past (only if no time specified, or if both date and time are in the past)
+    const comparison = extractedTime ? parsedDate : parsedDate.startOf('day');
+    if (comparison < now.startOf(extractedTime ? 'minute' : 'day')) {
       return {
         success: false,
         date: null,
@@ -148,7 +182,7 @@ export function parseHebrewDate(
   return {
     success: false,
     date: null,
-    error: 'קלט לא מזוהה. נסה: היום, מחר, יום ראשון, או DD/MM/YYYY',
+    error: 'קלט לא מזוהה. נסה: היום, מחר 14:00, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00',
   };
 }
 

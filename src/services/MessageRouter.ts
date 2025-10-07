@@ -5,8 +5,9 @@ import { ReminderService } from './ReminderService.js';
 import { ContactService } from './ContactService.js';
 import { SettingsService } from './SettingsService.js';
 import { TaskService } from './TaskService.js';
+import { proficiencyTracker } from './ProficiencyTracker.js';
 import { IMessageProvider } from '../providers/IMessageProvider.js';
-import { ConversationState, AuthState } from '../types/index.js';
+import { ConversationState, AuthState, MenuDisplayMode } from '../types/index.js';
 import { redis } from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
@@ -34,6 +35,69 @@ interface DateQuery {
   isMonthRange: boolean;
   rangeStart?: Date;
   rangeEnd?: Date;
+}
+
+/**
+ * Fuzzy match for yes/no confirmations with typo tolerance
+ * Handles common typos like "כו" → "כן", "ka" → "לא"
+ */
+function fuzzyMatchYesNo(text: string): 'yes' | 'no' | null {
+  const normalized = text.trim().toLowerCase();
+
+  // Exact matches
+  const yesExact = ['כן', 'yes', 'y', '1', 'אישור', 'מחק', 'בטוח'];
+  const noExact = ['לא', 'no', 'n', '2', 'ביטול', 'בטל', 'לא מחק'];
+
+  if (yesExact.some(word => normalized === word || normalized.includes(word))) {
+    return 'yes';
+  }
+  if (noExact.some(word => normalized === word || normalized.includes(word))) {
+    return 'no';
+  }
+
+  // Typo tolerance - Levenshtein distance <= 1 for short words
+  // "כו" is 1 char away from "כן", "ka" is 1 char from "לא"
+  if (normalized.length >= 2 && normalized.length <= 3) {
+    // Check Hebrew "כן" variants
+    if (levenshteinDistance(normalized, 'כן') <= 1) return 'yes';
+    if (levenshteinDistance(normalized, 'yes') <= 1) return 'yes';
+    // Check Hebrew "לא" variants
+    if (levenshteinDistance(normalized, 'לא') <= 1) return 'no';
+    if (levenshteinDistance(normalized, 'no') <= 1) return 'no';
+  }
+
+  return null;
+}
+
+/**
+ * Calculate Levenshtein distance (edit distance) between two strings
+ */
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+
+  return matrix[b.length][a.length];
 }
 
 /**
@@ -254,6 +318,9 @@ export class MessageRouter {
       const session = await this.stateManager.getState(authState.userId!);
       const state = session?.state || ConversationState.MAIN_MENU;
 
+      // Track user message for proficiency
+      await proficiencyTracker.trackMessage(authState.userId!);
+
       // Track user message in conversation history (if not already tracked by NLP handler)
       // Only track for non-NLP flows
       if (state !== ConversationState.MAIN_MENU && state !== ConversationState.IDLE) {
@@ -283,11 +350,21 @@ export class MessageRouter {
   }
 
   private isCommand(text: string): boolean {
-    return text.trim().startsWith('/');
+    const trimmed = text.trim();
+    if (trimmed.startsWith('/')) return true;
+
+    // Allow common commands without "/" for better UX
+    const commandsWithoutSlash = ['ביטול', 'תפריט', 'עזרה', 'cancel', 'menu', 'help'];
+    return commandsWithoutSlash.some(cmd => trimmed === cmd || trimmed.toLowerCase() === cmd);
   }
 
   private async handleCommand(from: string, command: string): Promise<void> {
-    const cmd = command.trim().toLowerCase();
+    let cmd = command.trim().toLowerCase();
+
+    // Normalize commands - add "/" if missing
+    if (!cmd.startsWith('/') && this.isCommand(command)) {
+      cmd = '/' + cmd;
+    }
     const authState = await this.getAuthState(from);
     const userId = authState?.userId;
 
@@ -298,8 +375,9 @@ export class MessageRouter {
           await this.sendMessage(from, 'אנא התחבר תחילה.');
           return;
         }
+        await proficiencyTracker.trackCommandUsage(userId);
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(from);
+        await this.showAdaptiveMenu(from, userId, { isExplicitRequest: true });
         break;
 
       case '/ביטול':
@@ -308,9 +386,10 @@ export class MessageRouter {
           await this.sendMessage(from, 'אנא התחבר תחילה.');
           return;
         }
+        await proficiencyTracker.trackCommandUsage(userId);
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
         await this.sendMessage(from, 'הפעולה בוטלה. חוזרים לתפריט הראשי.');
-        await this.showMainMenu(from);
+        await this.showAdaptiveMenu(from, userId, { isExplicitRequest: false });
         break;
 
       case '/עזרה':
@@ -423,6 +502,10 @@ export class MessageRouter {
         await this.handleEventDeletionConfirm(phone, userId, text);
         break;
 
+      case ConversationState.DELETING_ALL_EVENTS_CONFIRM:
+        await this.handleBulkEventDeletionConfirm(phone, userId, text);
+        break;
+
       // ===== REMINDER LISTING & CANCELLATION =====
       case ConversationState.LISTING_REMINDERS:
         await this.handleReminderListing(phone, userId, text);
@@ -480,6 +563,10 @@ export class MessageRouter {
 
       case ConversationState.SETTINGS_TIMEZONE:
         await this.handleSettingsTimezone(phone, userId, text);
+        break;
+
+      case ConversationState.SETTINGS_MENU_DISPLAY:
+        await this.handleSettingsMenuDisplay(phone, userId, text);
         break;
 
       // ===== DRAFT MESSAGES =====
@@ -700,16 +787,16 @@ export class MessageRouter {
   }
 
   private async handleEventConflictConfirm(phone: string, userId: string, text: string): Promise<void> {
-    const choice = text.trim().toLowerCase();
+    const choice = fuzzyMatchYesNo(text);
 
-    if (choice === 'לא' || choice === 'no') {
+    if (choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ האירוע בוטל.');
       await this.showMainMenu(phone);
       return;
     }
 
-    if (choice !== 'כן' && choice !== 'yes') {
+    if (choice !== 'yes') {
       await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
       return;
     }
@@ -786,16 +873,16 @@ export class MessageRouter {
   }
 
   private async handleEventConfirm(phone: string, userId: string, text: string): Promise<void> {
-    const choice = text.trim().toLowerCase();
+    const choice = fuzzyMatchYesNo(text);
 
-    if (choice === 'לא' || choice === 'no') {
+    if (choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ האירוע בוטל.');
       await this.showMainMenu(phone);
       return;
     }
 
-    if (choice !== 'כן' && choice !== 'yes') {
+    if (choice !== 'yes') {
       await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
       return;
     }
@@ -815,13 +902,17 @@ export class MessageRouter {
 
     try {
       // Create event in database
-      await this.eventService.createEvent({
+      const event = await this.eventService.createEvent({
         userId,
         title,
         startTsUtc: new Date(eventStartDate),
-        location: location || undefined,
-        notes: notes || undefined
+        location: location || undefined
       });
+
+      // Add notes as a comment if provided (notes from NLP context is a string)
+      if (notes && typeof notes === 'string') {
+        await this.eventService.addComment(event.id, userId, notes, { priority: 'normal' });
+      }
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
@@ -977,16 +1068,16 @@ export class MessageRouter {
   }
 
   private async handleReminderConfirm(phone: string, userId: string, text: string): Promise<void> {
-    const choice = text.trim().toLowerCase();
+    const choice = fuzzyMatchYesNo(text);
 
-    if (choice === 'לא' || choice === 'no') {
+    if (choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ התזכורת בוטלה.');
       await this.showMainMenu(phone);
       return;
     }
 
-    if (choice !== 'כן' && choice !== 'yes') {
+    if (choice !== 'yes') {
       await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
       return;
     }
@@ -1039,7 +1130,25 @@ export class MessageRouter {
   // ========== DRAFT MESSAGE HANDLERS ==========
 
   private async handleDraftMessageRecipient(phone: string, userId: string, text: string): Promise<void> {
-    const recipientName = text.trim();
+    let recipientName = text.trim();
+
+    // Extract recipient from natural language patterns
+    // "שלח הודעה ללנה" → "לנה"
+    // "שלח הודעה לאשתי" → "אשתי"
+    // "לנה" → "לנה"
+    const naturalLanguagePatterns = [
+      /(?:שלח|כתוב|שלחי|כתבי)\s+הודעה\s+ל([א-ת]+)/,  // "שלח הודעה ללנה"
+      /(?:הודעה|מסר)\s+ל([א-ת]+)/,                       // "הודעה ללנה"
+      /^ל([א-ת]+)$/,                                      // "ללנה"
+    ];
+
+    for (const pattern of naturalLanguagePatterns) {
+      const match = recipientName.match(pattern);
+      if (match && match[1]) {
+        recipientName = match[1];
+        break;
+      }
+    }
 
     if (recipientName.length < 2) {
       await this.sendMessage(phone, 'שם קצר מדי. אנא הזן שם איש קשר:');
@@ -1047,7 +1156,7 @@ export class MessageRouter {
     }
 
     // Detect confusion - user repeating intent keywords instead of providing recipient
-    const confusionKeywords = ['הודעה', 'פגישה', 'תזכורת', 'לשלוח', 'message', 'meeting', 'reminder'];
+    const confusionKeywords = ['פגישה', 'תזכורת', 'meeting', 'reminder'];
     if (confusionKeywords.some(keyword => recipientName.toLowerCase().includes(keyword))) {
       await this.sendMessage(phone, 'אני צריך שם של איש קשר.\n\nדוגמאות: דני, אמא, יוסי\n\n(או שלח /ביטול לביטול)');
       return;
@@ -1082,6 +1191,31 @@ export class MessageRouter {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.showMainMenu(phone);
       return;
+    }
+
+    // Handle "unknownContact" confirmation with yes/no
+    // User was asked "contact not found, continue anyway?"
+    if (unknownContact) {
+      const choice = fuzzyMatchYesNo(text);
+
+      if (choice === 'no') {
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.sendMessage(phone, 'ביטלתי את ניסוח ההודעה.');
+        await this.showMainMenu(phone);
+        return;
+      }
+
+      if (choice === 'yes') {
+        // User confirmed - now ask for message content
+        await this.sendMessage(phone, `מה תוכן ההודעה ל-${recipient}?\n\n(או שלח /ביטול)`);
+        // Update context - remove unknownContact flag, keep recipient
+        await this.stateManager.setState(userId, ConversationState.DRAFT_MESSAGE_CONTENT, {
+          recipient
+        });
+        return;
+      }
+
+      // Not a clear yes/no - treat as message content and proceed
     }
 
     const content = text.trim();
@@ -2010,11 +2144,9 @@ export class MessageRouter {
 
     // Handle NLP-based single event deletion with yes/no confirmation
     if (fromNLP && eventId) {
-      const normalizedText = text.trim().toLowerCase();
-      const yesWords = ['כן', 'yes', '1', 'אישור', 'מחק', 'בטוח'];
-      const noWords = ['לא', 'no', '2', 'ביטול', 'בטל', 'לא מחק'];
+      const choice = fuzzyMatchYesNo(text);
 
-      if (yesWords.some(word => normalizedText.includes(word))) {
+      if (choice === 'yes') {
         try {
           const event = await this.eventService.getEventById(eventId, userId);
           if (!event) {
@@ -2038,7 +2170,7 @@ export class MessageRouter {
         return;
       }
 
-      if (noWords.some(word => normalizedText.includes(word))) {
+      if (choice === 'no') {
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
         await this.sendMessage(phone, 'מחיקת האירוע בוטלה.');
         await this.showMainMenu(phone);
@@ -2078,6 +2210,52 @@ export class MessageRouter {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.showMainMenu(phone);
     }
+  }
+
+  private async handleBulkEventDeletionConfirm(phone: string, userId: string, text: string): Promise<void> {
+    const session = await this.stateManager.getState(userId);
+    const eventIds = session?.context?.eventIds || [];
+
+    const choice = fuzzyMatchYesNo(text);
+
+    if (choice === 'yes') {
+      try {
+        // Delete all events
+        let deletedCount = 0;
+        for (const eventId of eventIds) {
+          try {
+            await this.eventService.deleteEvent(eventId, userId);
+            deletedCount++;
+          } catch (error) {
+            logger.error('Failed to delete event in bulk operation', { eventId, error });
+          }
+        }
+
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+
+        if (deletedCount === eventIds.length) {
+          await this.sendMessage(phone, `✅ ${deletedCount} אירועים נמחקו בהצלחה.`);
+        } else {
+          await this.sendMessage(phone, `⚠️ ${deletedCount} מתוך ${eventIds.length} אירועים נמחקו.\n\nחלק מהאירועים נכשלו במחיקה.`);
+        }
+        await this.showMainMenu(phone);
+      } catch (error) {
+        logger.error('Failed bulk delete', { userId, error });
+        await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת האירועים.');
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+      }
+      return;
+    }
+
+    if (choice === 'no') {
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, 'מחיקת האירועים בוטלה.');
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    await this.sendMessage(phone, 'תגובה לא ברורה. אנא ענה "כן" למחיקה או "לא" לביטול.');
   }
 
   // ========== REMINDER HANDLERS ==========
@@ -2331,16 +2509,16 @@ export class MessageRouter {
   }
 
   private async handleContactConfirm(phone: string, userId: string, text: string): Promise<void> {
-    const choice = text.trim().toLowerCase();
+    const choice = fuzzyMatchYesNo(text);
 
-    if (choice === 'לא' || choice === 'no') {
+    if (choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ איש הקשר בוטל.');
       await this.showMainMenu(phone);
       return;
     }
 
-    if (choice !== 'כן' && choice !== 'yes') {
+    if (choice !== 'yes') {
       await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
       return;
     }
@@ -2349,7 +2527,7 @@ export class MessageRouter {
     await this.reactToLastMessage(userId, '✅');
 
     const session = await this.stateManager.getState(userId);
-    const { name, relation, aliases } = session?.context || {};
+    const { name, relation, aliases, retryCount } = session?.context || {};
 
     if (!name) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
@@ -2372,9 +2550,25 @@ export class MessageRouter {
 
     } catch (error) {
       logger.error('Failed to create contact', { userId, error });
-      await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת איש הקשר.');
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+
+      // Error recovery - offer retry
+      const currentRetryCount = retryCount || 0;
+
+      if (currentRetryCount < 2) {
+        // Offer retry (max 2 attempts)
+        await this.sendMessage(phone, `❌ אירעה שגיאה ביצירת איש הקשר.\n\n🔄 האם לנסות שוב? (כן/לא)`);
+        await this.stateManager.setState(userId, ConversationState.ADDING_CONTACT_CONFIRM, {
+          name,
+          relation,
+          aliases,
+          retryCount: currentRetryCount + 1
+        });
+      } else {
+        // Max retries reached
+        await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת איש הקשר.\n\nמשהו השתבש. נסה שוב מאוחר יותר או שלח /עזרה לתמיכה.');
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+      }
     }
   }
 
@@ -2422,10 +2616,10 @@ export class MessageRouter {
   private async handleSettings(phone: string, userId: string, text: string): Promise<void> {
     const choice = text.trim();
 
-    if (choice === '3') {
+    if (choice === '4') {
       // Back to menu
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.showAdaptiveMenu(phone, userId, { isExplicitRequest: false });
       return;
     }
 
@@ -2450,13 +2644,30 @@ export class MessageRouter {
         return;
       }
 
-      await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר 1-3.');
+      if (choice === '3') {
+        // Menu display mode
+        const currentMode = settings.prefsJsonb?.menuDisplayMode || 'adaptive';
+        const modeNames = {
+          always: 'תמיד',
+          adaptive: 'אדפטיבי (מתאים לרמה)',
+          errors_only: 'רק בשגיאות',
+          never: 'לעולם לא'
+        };
+
+        await this.stateManager.setState(userId, ConversationState.SETTINGS_MENU_DISPLAY);
+        await this.sendMessage(phone,
+          `📋 תצוגת תפריט\n\nמצב נוכחי: ${modeNames[currentMode]}\n\nבחר מצב:\n\n1️⃣ תמיד - הצג תפריט אחרי כל פעולה\n2️⃣ אדפטיבי - התאם לפי הרמה שלך (מומלץ)\n3️⃣ רק בשגיאות - הצג רק כשיש בעיה\n4️⃣ לעולם לא - אל תציג תפריט\n\n(או שלח /ביטול)`
+        );
+        return;
+      }
+
+      await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר 1-4.');
 
     } catch (error) {
       logger.error('Failed to load settings', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בטעינת ההגדרות.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.showAdaptiveMenu(phone, userId, { isError: true });
     }
   }
 
@@ -2484,12 +2695,12 @@ export class MessageRouter {
       await this.settingsService.updateLocale(userId, locale);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, `✅ השפה שונתה ל-${languageName}!`);
-      await this.showMainMenu(phone);
+      await this.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
     } catch (error) {
       logger.error('Failed to update language', { userId, locale, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בשינוי השפה.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.showAdaptiveMenu(phone, userId, { isError: true });
     }
   }
 
@@ -2525,12 +2736,53 @@ export class MessageRouter {
       await this.settingsService.updateTimezone(userId, timezone);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, `✅ אזור הזמן שונה ל-${timezoneName}!`);
-      await this.showMainMenu(phone);
+      await this.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
     } catch (error) {
       logger.error('Failed to update timezone', { userId, timezone, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בשינוי אזור הזמן.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.showAdaptiveMenu(phone, userId, { isError: true });
+    }
+  }
+
+  private async handleSettingsMenuDisplay(phone: string, userId: string, text: string): Promise<void> {
+    const choice = text.trim();
+
+    let mode: MenuDisplayMode;
+    let modeName: string;
+
+    switch (choice) {
+      case '1':
+        mode = 'always';
+        modeName = 'תמיד';
+        break;
+      case '2':
+        mode = 'adaptive';
+        modeName = 'אדפטיבי (מתאים לרמה)';
+        break;
+      case '3':
+        mode = 'errors_only';
+        modeName = 'רק בשגיאות';
+        break;
+      case '4':
+        mode = 'never';
+        modeName = 'לעולם לא';
+        break;
+      default:
+        await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר 1-4.');
+        return;
+    }
+
+    try {
+      await this.settingsService.updateMenuDisplayMode(userId, mode);
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, `✅ מצב תצוגת תפריט שונה ל-${modeName}!`);
+      await this.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
+    } catch (error) {
+      logger.error('Failed to update menu display mode', { userId, mode, error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה בשינוי מצב תצוגת התפריט.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showAdaptiveMenu(phone, userId, { isError: true });
     }
   }
 
@@ -2737,7 +2989,7 @@ export class MessageRouter {
           break;
 
         case '6': // Settings menu
-          await this.sendMessage(phone, '⚙️ הגדרות\n\n1️⃣ שינוי שפה\n2️⃣ שינוי אזור זמן\n3️⃣ חזרה לתפריט\n\nבחר מספר');
+          await this.sendMessage(phone, '⚙️ הגדרות\n\n1️⃣ שינוי שפה\n2️⃣ שינוי אזור זמן\n3️⃣ תצוגת תפריט\n4️⃣ חזרה לתפריט\n\nבחר מספר');
           await this.stateManager.setState(userId, ConversationState.SETTINGS_MENU);
           break;
 
@@ -2804,6 +3056,83 @@ export class MessageRouter {
 בחר מספר (1-8) או שלח פקודה:
 /תפריט - חזרה לתפריט
 /עזרה - עזרה`;
+
+    await this.sendMessage(phone, menu);
+  }
+
+  /**
+   * Show adaptive menu based on user proficiency and preferences
+   */
+  private async showAdaptiveMenu(
+    phone: string,
+    userId: string,
+    context: {
+      isError?: boolean;
+      isIdle?: boolean;
+      lastMessageTime?: Date;
+      isExplicitRequest?: boolean;
+      actionType?: 'event_created' | 'event_deleted' | 'reminder_created' | 'task_completed' | 'contact_added' | 'settings_updated';
+    }
+  ): Promise<void> {
+    // Get user preference
+    const menuPreference = await this.settingsService.getMenuDisplayMode(userId);
+
+    // Determine if menu should be shown
+    const menuDecision = await proficiencyTracker.shouldShowMenu(userId, menuPreference, {
+      isError: context.isError || false,
+      isIdle: context.isIdle || false,
+      lastMessageTime: context.lastMessageTime,
+      isExplicitRequest: context.isExplicitRequest || false,
+    });
+
+    if (!menuDecision.show) {
+      return; // Don't show menu
+    }
+
+    // Show full menu
+    if (menuDecision.type === 'full') {
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    // Show contextual mini-menu
+    if (menuDecision.type === 'contextual' && context.actionType) {
+      await this.showContextualMenu(phone, context.actionType);
+      return;
+    }
+
+    // Fallback to full menu
+    await this.showMainMenu(phone);
+  }
+
+  /**
+   * Show contextual mini-menu based on recent action
+   */
+  private async showContextualMenu(phone: string, actionType: string): Promise<void> {
+    let menu = '';
+
+    switch (actionType) {
+      case 'event_created':
+        menu = `✅ האירוע נוסף!\n\nמה עוד?\n📅 ראה אירועים\n⏰ הוסף תזכורת\n➕ אירוע נוסף\n\n(או שלח /תפריט)`;
+        break;
+      case 'event_deleted':
+        menu = `✅ האירוע נמחק!\n\nמה עוד?\n📅 ראה אירועים\n➕ הוסף אירוע\n\n(או שלח /תפריט)`;
+        break;
+      case 'reminder_created':
+        menu = `✅ התזכורת נוספה!\n\nמה עוד?\n⏰ ראה תזכורות\n➕ תזכורת נוספת\n📅 הוסף אירוע\n\n(או שלח /תפריט)`;
+        break;
+      case 'task_completed':
+        menu = `✅ משימה הושלמה!\n\nמה עוד?\n✅ ראה משימות\n➕ משימה חדשה\n\n(או שלח /תפריט)`;
+        break;
+      case 'contact_added':
+        menu = `✅ איש הקשר נוסף!\n\nמה עוד?\n👨‍👩‍👧 ראה אנשי קשר\n📝 נסח הודעה\n\n(או שלח /תפריט)`;
+        break;
+      case 'settings_updated':
+        menu = `✅ ההגדרות עודכנו!\n\n⚙️ הגדרות נוספות\n📋 תפריט ראשי\n\n(או שלח /תפריט)`;
+        break;
+      default:
+        menu = `מה לעשות הלאה?\n\n📋 שלח /תפריט לתפריט מלא`;
+    }
 
     await this.sendMessage(phone, menu);
   }
@@ -2882,9 +3211,14 @@ export class MessageRouter {
 
       // If confidence is too low, ask for clarification
       if (intent.confidence < requiredConfidence || intent.intent === 'unknown') {
+        await proficiencyTracker.trackNLPFailure(userId);
         await this.sendMessage(phone, intent.clarificationNeeded || 'לא הבנתי. אנא נסה שוב או שלח /תפריט לתפריט ראשי');
+        await this.showAdaptiveMenu(phone, userId, { isError: true });
         return;
       }
+
+      // Track successful NLP parsing
+      await proficiencyTracker.trackNLPSuccess(userId);
 
       // Handle different intents
       switch (intent.intent) {
@@ -3291,6 +3625,34 @@ export class MessageRouter {
 
   private async handleNLPDeleteEvent(phone: string, userId: string, intent: any): Promise<void> {
     const { event } = intent;
+
+    // Handle bulk delete (delete all events)
+    if (event?.deleteAll) {
+      const allEvents = await this.eventService.getUpcomingEvents(userId, 100);
+
+      if (allEvents.length === 0) {
+        await this.sendMessage(phone, '📅 אין לך אירועים קרובים למחוק.');
+        return;
+      }
+
+      // Show confirmation for bulk delete
+      let confirmMsg = `⚠️ אתה עומד למחוק ${allEvents.length} אירועים:\n\n`;
+      allEvents.slice(0, 5).forEach((evt, idx) => {
+        const dt = DateTime.fromJSDate(evt.startTsUtc).setZone('Asia/Jerusalem');
+        confirmMsg += `${idx + 1}. ${evt.title} - ${dt.toFormat('dd/MM HH:mm')}\n`;
+      });
+      if (allEvents.length > 5) {
+        confirmMsg += `... ועוד ${allEvents.length - 5} אירועים\n`;
+      }
+      confirmMsg += `\n⚠️ פעולה זו תמחק את כל האירועים!\n\nהאם אתה בטוח? (כן/לא)`;
+
+      await this.sendMessage(phone, confirmMsg);
+      await this.stateManager.setState(userId, ConversationState.DELETING_ALL_EVENTS_CONFIRM, {
+        eventIds: allEvents.map(e => e.id),
+        fromNLP: true
+      });
+      return;
+    }
 
     // If we have specific event details, search for matching events
     if (event?.title || event?.date) {

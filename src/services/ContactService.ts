@@ -42,7 +42,7 @@ export class ContactService {
         input.userId,
         input.name,
         input.relation || null,
-        JSON.stringify(input.aliases || []),
+        input.aliases || [],
       ];
 
       const result = await this.dbPool.query(query, values);
@@ -145,7 +145,7 @@ export class ContactService {
       }
       if (update.aliases !== undefined) {
         updateFields.push(`aliases = $${paramIndex++}`);
-        values.push(JSON.stringify(update.aliases));
+        values.push(update.aliases);
       }
 
       if (updateFields.length === 0) {
