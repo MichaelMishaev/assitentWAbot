@@ -237,6 +237,12 @@ export class MessageRouter {
             lastMessageId: messageId,
             lastMessageFrom: from
           });
+        } else {
+          // No session exists - create minimal session in MAIN_MENU state just to store message ID
+          await this.stateManager.setState(user.id, ConversationState.MAIN_MENU, {
+            lastMessageId: messageId,
+            lastMessageFrom: from
+          });
         }
       }
 
@@ -4554,8 +4560,13 @@ export class MessageRouter {
       const contacts = await this.contactService.getAllContacts(userId);
       const timezone = 'Asia/Jerusalem'; // Default timezone
 
+      // Get original event date in Israel timezone
+      const { DateTime } = await import('luxon');
+      const originalDt = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
+      const originalDate = originalDt.toFormat('dd/MM/yyyy'); // e.g., "08/10/2025"
+
       const intent = await nlp.parseIntent(
-        `עדכן את ${event.title} ${normalizedText}`, // Inject event title with normalized time
+        `עדכן את ${event.title} ל-${originalDate} ${normalizedText}`, // Include original date + new time
         contacts,
         timezone,
         []
