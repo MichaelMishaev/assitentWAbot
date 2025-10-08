@@ -13,7 +13,7 @@ interface Contact {
 }
 
 export interface NLPIntent {
-  intent: 'create_event' | 'create_reminder' | 'search_event' | 'list_events' | 'delete_event' | 'delete_reminder' | 'update_event' | 'update_reminder' | 'complete_task' | 'send_message' | 'add_contact' | 'add_comment' | 'view_comments' | 'delete_comment' | 'unknown';
+  intent: 'create_event' | 'create_reminder' | 'search_event' | 'list_events' | 'delete_event' | 'delete_reminder' | 'update_event' | 'update_reminder' | 'complete_task' | 'send_message' | 'add_contact' | 'add_comment' | 'view_comments' | 'delete_comment' | 'generate_dashboard' | 'unknown';
   confidence: number;
   urgency?: 'urgent' | 'important' | 'normal'; // NEW: Emotional context
   event?: {
@@ -98,7 +98,7 @@ User contacts: ${JSON.stringify(contactNames, null, 2)}
 
 Parse the message and return JSON with this structure:
 {
-  "intent": "create_event|create_reminder|search_event|list_events|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|unknown",
+  "intent": "create_event|create_reminder|search_event|list_events|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|generate_dashboard|unknown",
   "confidence": 0.0-1.0,
   "urgency": "urgent|important|normal (optional)",
   "event": {
@@ -194,6 +194,11 @@ DELETE COMMENT:
 - Last: "מחק הערה אחרונה", "מחק את ההערה האחרונה", "delete last comment" → delete_comment with deleteBy: "last"
 - By text: "מחק \"[טקסט]\"", "מחק הערה \"[טקסט]\"" → delete_comment with deleteBy: "text"
 - Examples: "מחק הערה 2", "מחק הערה אחרונה מרופא שיניים", "מחק \"להביא מסמכים\""
+
+DASHBOARD (NEW FEATURE):
+- "תן לי לוח", "דף סיכום", "דף אישי", "לוח סיכום", "סיכום", "dashboard", "summary page", "my page" → generate_dashboard
+- "רוצה לראות הכל", "תראה לי הכל", "show me everything", "overview" → generate_dashboard
+- Examples: "תן לי דף סיכום", "רוצה לוח אישי", "תראה לי סיכום"
 
 URGENCY DETECTION:
 - "דחוף", "urgent", "ASAP", "עכשיו", "מיידי" → urgency: "urgent"

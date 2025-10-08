@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>הלוח האישי שלי</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#667eea',
+            secondary: '#764ba2',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .fade-in { animation: fadeIn 0.5s ease-out; }
+    .skeleton { animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    .card-hover { transition: all 0.3s ease; }
+    .card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+    .priority-urgent { border-right: 4px solid #ef4444; }
+    .priority-high { border-right: 4px solid #f59e0b; }
+    .priority-normal { border-right: 4px solid #3b82f6; }
+    .priority-low { border-right: 4px solid #10b981; }
+    .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 min-h-screen">
+
+  <!-- Loading Screen -->
+  <div id="loading" class="fixed inset-0 gradient-bg flex items-center justify-center z-50">
+    <div class="text-center">
+      <div class="text-6xl mb-4 animate-bounce">📊</div>
+      <div class="text-white text-2xl font-bold mb-4">טוען את הלוח שלך...</div>
+      <div class="flex gap-2 justify-center">
+        <div class="w-3 h-3 bg-white rounded-full skeleton"></div>
+        <div class="w-3 h-3 bg-white rounded-full skeleton" style="animation-delay: 0.2s"></div>
+        <div class="w-3 h-3 bg-white rounded-full skeleton" style="animation-delay: 0.4s"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div id="content" class="hidden">
+    <!-- Header -->
+    <header class="gradient-bg text-white shadow-lg">
+      <div class="container mx-auto px-4 py-6">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 class="text-3xl md:text-4xl font-bold flex items-center gap-3">
+              <span>📊</span>
+              <span>הלוח האישי שלי</span>
+            </h1>
+            <p class="text-purple-100 mt-2" id="currentDate"></p>
+          </div>
+          <div class="flex items-center gap-3 bg-white/20 px-4 py-2 rounded-full">
+            <span class="text-sm">⏰</span>
+            <span class="text-sm font-medium" id="expiryTimer">טוען...</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Stats Cards -->
+    <div class="container mx-auto px-4 -mt-8 mb-8">
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <!-- Stat Card Template -->
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+          <div class="text-3xl mb-2">📅</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-events">0</div>
+          <div class="text-sm text-gray-600">אירועים</div>
+        </div>
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+          <div class="text-3xl mb-2">🗓️</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-today">0</div>
+          <div class="text-sm text-gray-600">היום</div>
+        </div>
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+          <div class="text-3xl mb-2">⏰</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-reminders">0</div>
+          <div class="text-sm text-gray-600">תזכורות</div>
+        </div>
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+          <div class="text-3xl mb-2">🔔</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-upcoming">0</div>
+          <div class="text-sm text-gray-600">קרובות</div>
+        </div>
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+          <div class="text-3xl mb-2">✅</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-tasks">0</div>
+          <div class="text-sm text-gray-600">משימות</div>
+        </div>
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+          <div class="text-3xl mb-2">🎯</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-completed">0</div>
+          <div class="text-sm text-gray-600">הושלמו</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="container mx-auto px-4 mb-6">
+      <div class="glass rounded-2xl p-2 shadow-lg inline-flex gap-2">
+        <button onclick="showTab('events')" id="tab-events" class="px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg">
+          📅 אירועים
+        </button>
+        <button onclick="showTab('reminders')" id="tab-reminders" class="px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100">
+          ⏰ תזכורות
+        </button>
+        <button onclick="showTab('tasks')" id="tab-tasks" class="px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100">
+          ✅ משימות
+        </button>
+      </div>
+    </div>
+
+    <!-- Content Sections -->
+    <div class="container mx-auto px-4 pb-12">
+
+      <!-- Events Section -->
+      <div id="section-events" class="fade-in">
+        <div class="glass rounded-2xl shadow-xl p-6 md:p-8">
+          <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+            <span>📅</span>
+            <span>האירועים שלי</span>
+          </h2>
+          <div id="events-list" class="space-y-4">
+            <!-- Events will be loaded here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Reminders Section -->
+      <div id="section-reminders" class="hidden fade-in">
+        <div class="glass rounded-2xl shadow-xl p-6 md:p-8">
+          <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+            <span>⏰</span>
+            <span>התזכורות שלי</span>
+          </h2>
+          <div id="reminders-list" class="space-y-4">
+            <!-- Reminders will be loaded here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Tasks Section -->
+      <div id="section-tasks" class="hidden fade-in">
+        <div class="glass rounded-2xl shadow-xl p-6 md:p-8">
+          <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+            <span>✅</span>
+            <span>המשימות שלי</span>
+          </h2>
+          <div id="tasks-list" class="space-y-4">
+            <!-- Tasks will be loaded here -->
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 text-white py-8 mt-12">
+      <div class="container mx-auto px-4 text-center">
+        <p class="text-gray-400">🤖 נוצר על ידי WhatsApp Assistant Bot</p>
+        <p class="text-gray-500 text-sm mt-2">הקישור תקף ל-15 דקות בלבד</p>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Error Screen -->
+  <div id="error" class="hidden fixed inset-0 bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+      <div class="text-6xl mb-4">⚠️</div>
+      <h1 class="text-2xl font-bold text-gray-800 mb-2">אופס! משהו השתבש</h1>
+      <p class="text-gray-600 mb-6" id="error-message">לא הצלחנו לטעון את הנתונים</p>
+      <button onclick="location.reload()" class="bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-6 py-3 rounded-xl font-medium hover:shadow-lg transition-all">
+        נסה שוב
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const TOKEN = '{{TOKEN}}';
+    let data = null;
+    let expiryInterval = null;
+
+    // Initialize
+    window.addEventListener('DOMContentLoaded', async () => {
+      // Set current date
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      document.getElementById('currentDate').textContent = new Date().toLocaleDateString('he-IL', options);
+
+      // Load data
+      await loadDashboardData();
+    });
+
+    async function loadDashboardData() {
+      try {
+        const response = await fetch(`/api/dashboard/${TOKEN}`);
+
+        if (!response.ok) {
+          throw new Error('Failed to load dashboard data');
+        }
+
+        const result = await response.json();
+        data = result.data;
+
+        // Update stats
+        document.getElementById('stat-events').textContent = data.stats.totalEvents;
+        document.getElementById('stat-today').textContent = data.stats.todayEvents;
+        document.getElementById('stat-reminders').textContent = data.stats.totalReminders;
+        document.getElementById('stat-upcoming').textContent = data.stats.upcomingReminders;
+        document.getElementById('stat-tasks').textContent = data.stats.activeTasks;
+        document.getElementById('stat-completed').textContent = data.stats.completedTasks;
+
+        // Start expiry timer
+        startExpiryTimer(result.expiresIn);
+
+        // Render events
+        renderEvents(data.events);
+        renderReminders(data.reminders);
+        renderTasks(data.tasks);
+
+        // Show content
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('content').classList.remove('hidden');
+
+      } catch (error) {
+        console.error('Error loading dashboard:', error);
+        showError('לא הצלחנו לטעון את הנתונים. אנא נסה שוב.');
+      }
+    }
+
+    function startExpiryTimer(seconds) {
+      const updateTimer = () => {
+        const minutes = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        document.getElementById('expiryTimer').textContent =
+          `פג תוקף בעוד ${minutes}:${secs.toString().padStart(2, '0')}`;
+
+        if (seconds <= 0) {
+          clearInterval(expiryInterval);
+          showError('הקישור פג תוקפו. אנא בקש קישור חדש מהבוט.');
+        }
+        seconds--;
+      };
+
+      updateTimer();
+      expiryInterval = setInterval(updateTimer, 1000);
+    }
+
+    function renderEvents(events) {
+      const container = document.getElementById('events-list');
+
+      if (events.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-12">
+            <div class="text-6xl mb-4">📭</div>
+            <p class="text-gray-600 text-lg">אין אירועים קרובים</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = events.map(event => {
+        const start = new Date(event.startTsUtc);
+        const isToday = isDateToday(start);
+        const isPast = start < new Date();
+
+        return `
+          <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 md:p-6 border-r-4 border-blue-500 card-hover ${isPast ? 'opacity-60' : ''}">
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-2">
+                  ${isToday ? '<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold">היום</span>' : ''}
+                  ${isPast ? '<span class="bg-gray-400 text-white text-xs px-2 py-1 rounded-full">עבר</span>' : ''}
+                </div>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">${escapeHtml(event.title)}</h3>
+                <div class="flex flex-wrap gap-4 text-sm text-gray-600">
+                  <span class="flex items-center gap-1">
+                    📅 ${formatDate(start)}
+                  </span>
+                  ${!event.isAllDay ? `<span class="flex items-center gap-1">🕐 ${formatTime(start)}</span>` : '<span class="flex items-center gap-1">⏰ כל היום</span>'}
+                  ${event.location ? `<span class="flex items-center gap-1">📍 ${escapeHtml(event.location)}</span>` : ''}
+                </div>
+                ${event.notes ? `<p class="mt-3 text-gray-700 text-sm">${escapeHtml(event.notes)}</p>` : ''}
+              </div>
+              <div class="text-3xl">${isPast ? '✓' : '📅'}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderReminders(reminders) {
+      const container = document.getElementById('reminders-list');
+
+      if (reminders.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-12">
+            <div class="text-6xl mb-4">🔕</div>
+            <p class="text-gray-600 text-lg">אין תזכורות פעילות</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = reminders.map(reminder => {
+        const due = new Date(reminder.dueTsUtc);
+        const isPast = due < new Date();
+        const isUpcoming = !isPast && (due - new Date()) < 24 * 60 * 60 * 1000;
+
+        return `
+          <div class="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 md:p-6 border-r-4 border-amber-500 card-hover ${!reminder.isActive || isPast ? 'opacity-60' : ''}">
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-2">
+                  ${isUpcoming ? '<span class="bg-orange-500 text-white text-xs px-2 py-1 rounded-full font-bold animate-pulse">קרוב!</span>' : ''}
+                  ${!reminder.isActive ? '<span class="bg-gray-400 text-white text-xs px-2 py-1 rounded-full">מבוטל</span>' : ''}
+                  ${reminder.recurrence ? '<span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">חוזר</span>' : ''}
+                </div>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">${escapeHtml(reminder.title)}</h3>
+                <div class="flex flex-wrap gap-4 text-sm text-gray-600">
+                  <span class="flex items-center gap-1">
+                    📅 ${formatDate(due)}
+                  </span>
+                  <span class="flex items-center gap-1">
+                    🕐 ${formatTime(due)}
+                  </span>
+                  ${reminder.recurrence ? `<span class="flex items-center gap-1">🔄 ${reminder.recurrence}</span>` : ''}
+                </div>
+              </div>
+              <div class="text-3xl">⏰</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderTasks(tasks) {
+      const container = document.getElementById('tasks-list');
+
+      if (tasks.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-12">
+            <div class="text-6xl mb-4">🎉</div>
+            <p class="text-gray-600 text-lg">כל המשימות הושלמו!</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = tasks.map(task => {
+        const priorityClass = `priority-${task.priority}`;
+        const priorityEmoji = {
+          urgent: '🔴',
+          high: '🟠',
+          normal: '🔵',
+          low: '🟢'
+        }[task.priority] || '🔵';
+
+        const isOverdue = task.dueTsUtc && new Date(task.dueTsUtc) < new Date();
+
+        return `
+          <div class="bg-white rounded-xl p-4 md:p-6 ${priorityClass} shadow-md card-hover">
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-lg">${priorityEmoji}</span>
+                  ${task.status === 'in_progress' ? '<span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">בביצוע</span>' : ''}
+                  ${isOverdue ? '<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full animate-pulse">באיחור!</span>' : ''}
+                </div>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">${escapeHtml(task.title)}</h3>
+                ${task.description ? `<p class="text-gray-600 text-sm mb-3">${escapeHtml(task.description)}</p>` : ''}
+                <div class="flex flex-wrap gap-4 text-sm text-gray-500">
+                  ${task.dueTsUtc ? `
+                    <span class="flex items-center gap-1">
+                      📅 ${formatDate(new Date(task.dueTsUtc))}
+                    </span>
+                  ` : ''}
+                  <span class="flex items-center gap-1">
+                    🏷️ ${getPriorityText(task.priority)}
+                  </span>
+                </div>
+              </div>
+              <div class="text-3xl">✅</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function showTab(tab) {
+      // Hide all sections
+      document.getElementById('section-events').classList.add('hidden');
+      document.getElementById('section-reminders').classList.add('hidden');
+      document.getElementById('section-tasks').classList.add('hidden');
+
+      // Reset all tab buttons
+      document.getElementById('tab-events').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
+      document.getElementById('tab-reminders').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
+      document.getElementById('tab-tasks').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
+
+      // Show selected section and activate tab
+      document.getElementById(`section-${tab}`).classList.remove('hidden');
+      document.getElementById(`tab-${tab}`).className = 'px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg';
+    }
+
+    function showError(message) {
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('content').classList.add('hidden');
+      document.getElementById('error-message').textContent = message;
+      document.getElementById('error').classList.remove('hidden');
+    }
+
+    function formatDate(date) {
+      return date.toLocaleDateString('he-IL', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+
+    function formatTime(date) {
+      return date.toLocaleTimeString('he-IL', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function isDateToday(date) {
+      const today = new Date();
+      return date.getDate() === today.getDate() &&
+             date.getMonth() === today.getMonth() &&
+             date.getFullYear() === today.getFullYear();
+    }
+
+    function getPriorityText(priority) {
+      const map = {
+        urgent: 'דחוף',
+        high: 'גבוה',
+        normal: 'רגיל',
+        low: 'נמוך'
+      };
+      return map[priority] || 'רגיל';
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

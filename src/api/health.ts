@@ -3,10 +3,14 @@ import { Server } from 'http';
 import { testConnection } from '../config/database.js';
 import { testRedisConnection } from '../config/redis.js';
 import logger from '../utils/logger.js';
+import dashboardRouter from './dashboard.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 let server: Server | null = null;
+
+// Mount dashboard routes
+app.use(dashboardRouter);
 
 app.get('/health', async (req: Request, res: Response) => {
   try {

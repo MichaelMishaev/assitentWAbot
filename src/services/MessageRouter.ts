@@ -5,6 +5,7 @@ import { ReminderService } from './ReminderService.js';
 import { ContactService } from './ContactService.js';
 import { SettingsService } from './SettingsService.js';
 import { TaskService } from './TaskService.js';
+import { dashboardTokenService } from './DashboardTokenService.js';
 import { proficiencyTracker } from './ProficiencyTracker.js';
 import { IMessageProvider } from '../providers/IMessageProvider.js';
 import { ConversationState, AuthState, MenuDisplayMode } from '../types/index.js';
@@ -451,6 +452,15 @@ export class MessageRouter {
       case '/עזרה':
       case '/help':
         await this.showHelp(from);
+        break;
+
+      case '/לוח':
+      case '/dashboard':
+        if (!userId) {
+          await this.sendMessage(from, 'אנא התחבר תחילה.');
+          return;
+        }
+        await this.handleGenerateDashboard(from, userId);
         break;
 
       case '/התנתק':
@@ -3004,6 +3014,10 @@ export class MessageRouter {
           await this.handleNLPDeleteComment(phone, userId, intent);
           break;
 
+        case 'generate_dashboard':
+          await this.handleGenerateDashboard(phone, userId);
+          break;
+
         default:
           await this.sendMessage(phone, 'לא הבנתי. שלח /תפריט לתפריט ראשי');
       }
@@ -3623,6 +3637,7 @@ export class MessageRouter {
 
 🔹 פקודות זמינות:
 /תפריט - חזרה לתפריט הראשי
+/לוח - קבל קישור ללוח אישי מעוצב 📊
 /ביטול - ביטול פעולה נוכחית
 /עזרה - הצגת עזרה זו
 /התנתק - יציאה מהחשבון
@@ -3630,7 +3645,8 @@ export class MessageRouter {
 🔹 תכונות פעילות:
 ✅ ניהול אירועים (יצירה, רשימה, עריכה, מחיקה)
 ✅ תזכורות (יצירה, תזמון אוטומטי)
-✅ אנשי קשר (ניהול מלא)
+✅ משימות (מעקב והשלמה)
+✅ לוח אישי מעוצב (HTML)
 ✅ הגדרות (שפה, אזור זמן)
 ✅ NLP - שפה טבעית!
 
@@ -3638,6 +3654,7 @@ export class MessageRouter {
 • "קבע פגישה עם דני מחר ב-3"
 • "תזכיר לי להתקשר לאמא ביום רביעי"
 • "מה יש לי מחר?"
+• "תן לי לוח סיכום" / "דף אישי"
 
 שלח /תפריט כדי להתחיל!`;
 
@@ -3960,6 +3977,47 @@ export class MessageRouter {
     } catch (error) {
       logger.error('Failed to delete comment', { userId, comment, error });
       await this.sendMessage(phone, '❌ שגיאה במחיקת הערה. נסה שוב מאוחר יותר.');
+    }
+  }
+
+  /**
+   * Generate and send a dashboard link to the user
+   */
+  private async handleGenerateDashboard(phone: string, userId: string): Promise<void> {
+    try {
+      logger.info('Generating dashboard for user', { userId });
+
+      // Send initial message
+      await this.sendMessage(phone, '⏳ יוצר לוח אישי...');
+
+      // Generate token
+      const token = await dashboardTokenService.generateToken(userId);
+
+      // Build URL (use environment variable for production)
+      const baseUrl = process.env.DASHBOARD_URL || `http://localhost:${process.env.PORT || 3000}`;
+      const dashboardUrl = `${baseUrl}/d/${token}`;
+
+      // Send dashboard link
+      const message = `✨ הלוח האישי שלך מוכן!
+
+📊 צפה בכל האירועים, התזכורות והמשימות שלך בממשק נוח וצבעוני
+
+🔗 ${dashboardUrl}
+
+⏰ הקישור תקף ל-15 דקות בלבד מטעמי אבטחה
+
+💡 אפשר לפתוח מכל מכשיר - מחשב, טאבלט או נייד!`;
+
+      await this.sendMessage(phone, message);
+
+      logger.info('Dashboard link sent successfully', {
+        userId,
+        token: token.substring(0, 8) + '...'
+      });
+
+    } catch (error) {
+      logger.error('Failed to generate dashboard', { userId, error });
+      await this.sendMessage(phone, '❌ שגיאה ביצירת הלוח. אנא נסה שוב מאוחר יותר.');
     }
   }
 
