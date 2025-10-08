@@ -584,6 +584,18 @@ export class MessageRouter {
         await this.handleDeletingReminderConfirm(phone, userId, text);
         break;
 
+      case ConversationState.UPDATING_REMINDER_SELECT:
+        await this.handleUpdatingReminderSelect(phone, userId, text);
+        break;
+
+      case ConversationState.UPDATING_REMINDER_OCCURRENCE:
+        await this.handleUpdatingReminderOccurrence(phone, userId, text);
+        break;
+
+      case ConversationState.UPDATING_REMINDER_CONFIRM:
+        await this.handleUpdatingReminderConfirm(phone, userId, text);
+        break;
+
       // ===== SETTINGS =====
       case ConversationState.SETTINGS_MENU:
         await this.handleSettings(phone, userId, text);
@@ -2465,6 +2477,191 @@ export class MessageRouter {
     }
   }
 
+  private async handleUpdatingReminderSelect(phone: string, userId: string, text: string): Promise<void> {
+    const session = await this.stateManager.getState(userId);
+    const matchedReminders = session?.context?.matchedReminders || [];
+    const newDateTime = session?.context?.newDateTime;
+
+    if (matchedReminders.length === 0 || !newDateTime) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    const index = parseInt(text.trim()) - 1;
+
+    if (isNaN(index) || index < 0 || index >= matchedReminders.length) {
+      await this.sendMessage(phone, '❌ מספר תזכורת לא תקין. נסה שוב או שלח /ביטול');
+      return;
+    }
+
+    const reminderToUpdate = matchedReminders[index];
+    const isRecurring = reminderToUpdate.rrule && reminderToUpdate.rrule.trim().length > 0;
+    const newDate = new Date(newDateTime);
+
+    if (isRecurring) {
+      // Show occurrence selection
+      await this.showRecurringUpdateOptions(phone, userId, reminderToUpdate, newDate);
+    } else {
+      // Direct confirmation
+      await this.confirmReminderUpdate(phone, userId, reminderToUpdate, newDate, false);
+    }
+  }
+
+  private async handleUpdatingReminderOccurrence(phone: string, userId: string, text: string): Promise<void> {
+    const choice = text.trim();
+
+    if (choice === 'ביטול' || choice === '❌') {
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, '❌ העדכון בוטל.');
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    const choiceNum = parseInt(choice);
+
+    if (choiceNum !== 1 && choiceNum !== 2) {
+      await this.sendMessage(phone, 'אנא שלח 1 (רק הפעם הבאה) או 2 (את כולם)');
+      return;
+    }
+
+    const session = await this.stateManager.getState(userId);
+    const { reminderId, newDateTime, rrule, nextOccurrence, reminderTitle } = session?.context || {};
+
+    if (!reminderId || !newDateTime) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    const newDate = new Date(newDateTime);
+
+    if (choiceNum === 1) {
+      // Update THIS ONE only - create new one-time reminder
+      const nextOccDate = new Date(nextOccurrence);
+      const newDt = DateTime.fromJSDate(newDate).setZone('Asia/Jerusalem');
+
+      // Set the next occurrence date with the new time
+      const updatedNextOccurrence = DateTime.fromJSDate(nextOccDate)
+        .setZone('Asia/Jerusalem')
+        .set({ hour: newDt.hour, minute: newDt.minute, second: 0 })
+        .toJSDate();
+
+      try {
+        // Create new one-time reminder for this specific occurrence
+        const newReminder = await this.reminderService.createReminder({
+          userId,
+          title: `${reminderTitle} (מעודכן)`,
+          dueTsUtc: updatedNextOccurrence,
+          // No rrule - this is a one-time reminder
+        });
+
+        // Schedule with BullMQ
+        const { scheduleReminder } = await import('../queues/ReminderQueue.js');
+        await scheduleReminder({
+          reminderId: newReminder.id,
+          userId,
+          title: newReminder.title,
+          phone
+        }, updatedNextOccurrence);
+
+        const displayDt = DateTime.fromJSDate(updatedNextOccurrence).setZone('Asia/Jerusalem');
+        await this.sendMessage(phone, `✅ נוצרה תזכורת חד-פעמית!\n\n📌 ${newReminder.title}\n📅 ${displayDt.toFormat('dd/MM/yyyy HH:mm')}\n\n💡 התזכורת החוזרת המקורית ממשיכה כרגיל.`);
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+      } catch (error) {
+        logger.error('Failed to create one-time reminder update', { userId, reminderId, error });
+        await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת התזכורת החדשה.');
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+      }
+    } else {
+      // Update ALL - update the base reminder time
+      const reminder = await this.reminderService.getReminderById(reminderId, userId);
+      if (reminder) {
+        await this.confirmReminderUpdate(phone, userId, reminder, newDate, true);
+      } else {
+        await this.sendMessage(phone, '❌ התזכורת לא נמצאה.');
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+      }
+    }
+  }
+
+  private async handleUpdatingReminderConfirm(phone: string, userId: string, text: string): Promise<void> {
+    const choice = text.trim().toLowerCase();
+
+    if (choice === 'לא' || choice === 'no') {
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, '❌ העדכון בוטל.');
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    if (choice !== 'כן' && choice !== 'yes') {
+      await this.sendMessage(phone, 'אנא שלח "כן" לאישור או "לא" לביטול');
+      return;
+    }
+
+    // React with checkmark for confirmation
+    await this.reactToLastMessage(userId, '✅');
+
+    const session = await this.stateManager.getState(userId);
+    const { reminderId, newDateTime, updateAll } = session?.context || {};
+
+    if (!reminderId || !newDateTime) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+      return;
+    }
+
+    try {
+      const newDate = new Date(newDateTime);
+
+      // Update reminder in database
+      const updated = await this.reminderService.updateReminder(reminderId, userId, {
+        dueTsUtc: newDate
+      });
+
+      if (!updated) {
+        await this.sendMessage(phone, '❌ לא הצלחתי לעדכן את התזכורת.');
+        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+        await this.showMainMenu(phone);
+        return;
+      }
+
+      // Reschedule with BullMQ
+      const { cancelReminder, scheduleReminder } = await import('../queues/ReminderQueue.js');
+      await cancelReminder(reminderId); // Cancel old job
+      await scheduleReminder({
+        reminderId: updated.id,
+        userId,
+        title: updated.title,
+        phone
+      }, newDate); // Schedule new job
+
+      const displayDt = DateTime.fromJSDate(newDate).setZone('Asia/Jerusalem');
+      let successMessage = `✅ התזכורת עודכנה בהצלחה!\n\n📌 ${updated.title}\n📅 ${displayDt.toFormat('dd/MM/yyyy HH:mm')}`;
+
+      if (updateAll) {
+        successMessage += '\n\n🔄 כל המופעים עודכנו!';
+      }
+
+      await this.sendMessage(phone, successMessage);
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+
+    } catch (error) {
+      logger.error('Failed to update reminder', { userId, reminderId, error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה בעדכון התזכורת.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.showMainMenu(phone);
+    }
+  }
+
   // ========== SETTINGS HANDLERS ==========
 
   private async handleSettings(phone: string, userId: string, text: string): Promise<void> {
@@ -3818,7 +4015,146 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
   }
 
   private async handleNLPUpdateReminder(phone: string, userId: string, intent: any): Promise<void> {
-    await this.sendMessage(phone, '⏰ עדכון תזכורות יהיה זמין בקרוב!\n\nשלח /תפריט לחזרה לתפריט');
+    const { reminder } = intent;
+
+    if (!reminder?.title) {
+      await this.sendMessage(phone, '❌ לא זיהיתי איזו תזכורת לעדכן.\n\nאנא נסה שוב או שלח /תפריט');
+      return;
+    }
+
+    // Extract new time/date if provided
+    const hasNewTime = reminder.time || reminder.date || reminder.dateText;
+
+    if (!hasNewTime) {
+      await this.sendMessage(phone, '❌ לא זיהיתי מה לעדכן (זמן/תאריך).\n\nדוגמה: "עדכן אימון לשעה 9"\n\nשלח /תפריט לחזרה');
+      return;
+    }
+
+    // Search for reminders by title (fuzzy match)
+    const allReminders = await this.reminderService.getActiveReminders(userId, 100);
+
+    if (allReminders.length === 0) {
+      await this.sendMessage(phone, '📭 אין לך תזכורות פעילות.\n\nשלח /תפריט לחזרה לתפריט');
+      return;
+    }
+
+    // Use fuzzy match (0.45 threshold for Hebrew flexibility)
+    let matchedReminders = filterByFuzzyMatch(allReminders, reminder.title, (r: any) => r.title, 0.45);
+
+    if (matchedReminders.length === 0) {
+      await this.sendMessage(phone, `❌ לא מצאתי תזכורת עם השם "${reminder.title}".\n\nשלח /תפריט לחזרה לתפריט`);
+      return;
+    }
+
+    // Parse the new date/time
+    let newDateTime: Date | null = null;
+    if (reminder.date || reminder.dateText) {
+      newDateTime = safeParseDate(reminder.date || reminder.dateText, 'handleNLPUpdateReminder');
+    }
+
+    if (!newDateTime) {
+      await this.sendMessage(phone, '❌ לא הצלחתי להבין את הזמן/תאריך החדש.\n\nנסה שוב או שלח /תפריט');
+      logger.error('Invalid date in NLP update reminder', { date: reminder.date, dateText: reminder.dateText });
+      return;
+    }
+
+    if (matchedReminders.length === 1) {
+      // Single match - check if recurring
+      const reminderToUpdate = matchedReminders[0];
+      const isRecurring = reminderToUpdate.rrule && reminderToUpdate.rrule.trim().length > 0;
+
+      if (isRecurring) {
+        // Recurring reminder - ask user: this one or all?
+        await this.showRecurringUpdateOptions(phone, userId, reminderToUpdate, newDateTime);
+      } else {
+        // Non-recurring - confirm update directly
+        await this.confirmReminderUpdate(phone, userId, reminderToUpdate, newDateTime, false);
+      }
+      return;
+    }
+
+    // Multiple matches - show list
+    let message = `🔍 מצאתי ${matchedReminders.length} תזכורות:\n\n`;
+    matchedReminders.slice(0, 5).forEach((r: any, index: number) => {
+      const dt = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
+      const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+      const recurringIcon = (r.rrule && r.rrule.trim().length > 0) ? '🔄 ' : '';
+      message += `${index + 1}. ${recurringIcon}${r.title} - ${displayDate}\n`;
+    });
+
+    message += '\nאיזו תזכורת לעדכן? (שלח מספר או /ביטול)';
+
+    await this.sendMessage(phone, message);
+    await this.stateManager.setState(userId, ConversationState.UPDATING_REMINDER_SELECT, {
+      matchedReminders: matchedReminders.slice(0, 5),
+      newDateTime: newDateTime.toISOString(),
+      fromNLP: true
+    });
+  }
+
+  private async showRecurringUpdateOptions(phone: string, userId: string, reminder: any, newDateTime: Date): Promise<void> {
+    const dt = DateTime.fromJSDate(reminder.dueTsUtc).setZone('Asia/Jerusalem');
+    const newDt = DateTime.fromJSDate(newDateTime).setZone('Asia/Jerusalem');
+
+    // Calculate next occurrence
+    const now = DateTime.now().setZone('Asia/Jerusalem');
+    let nextOccurrence = dt;
+
+    // If current time is in the past, find next occurrence
+    if (dt < now) {
+      // Simple approach: add 7 days if weekly (most common case)
+      if (reminder.rrule.includes('FREQ=WEEKLY')) {
+        const daysUntilNext = (dt.weekday - now.weekday + 7) % 7 || 7;
+        nextOccurrence = now.plus({ days: daysUntilNext }).set({ hour: dt.hour, minute: dt.minute });
+      } else if (reminder.rrule.includes('FREQ=DAILY')) {
+        nextOccurrence = now.plus({ days: 1 }).set({ hour: dt.hour, minute: dt.minute });
+      } else {
+        nextOccurrence = now.plus({ weeks: 1 }).set({ hour: dt.hour, minute: dt.minute });
+      }
+    }
+
+    const message = `🔄 תזכורת חוזרת: "${reminder.title}"
+📅 זמן נוכחי: ${dt.toFormat('HH:mm')}
+🆕 זמן חדש: ${newDt.toFormat('HH:mm')}
+
+לעדכן את:
+
+1️⃣ רק הפעם הבאה (${nextOccurrence.toFormat('dd/MM')})
+2️⃣ את כולם (כל המופעים)
+❌ ביטול
+
+שלח מספר (1-2)`;
+
+    await this.sendMessage(phone, message);
+    await this.stateManager.setState(userId, ConversationState.UPDATING_REMINDER_OCCURRENCE, {
+      reminderId: reminder.id,
+      reminderTitle: reminder.title,
+      originalTime: reminder.dueTsUtc.toISOString(),
+      newDateTime: newDateTime.toISOString(),
+      rrule: reminder.rrule,
+      nextOccurrence: nextOccurrence.toJSDate().toISOString(),
+      fromNLP: true
+    });
+  }
+
+  private async confirmReminderUpdate(phone: string, userId: string, reminder: any, newDateTime: Date, isRecurring: boolean): Promise<void> {
+    const oldDt = DateTime.fromJSDate(reminder.dueTsUtc).setZone('Asia/Jerusalem');
+    const newDt = DateTime.fromJSDate(newDateTime).setZone('Asia/Jerusalem');
+
+    const confirmMessage = `✏️ עדכון תזכורת: "${reminder.title}"
+
+📅 זמן ישן: ${oldDt.toFormat('dd/MM/yyyy HH:mm')}
+🆕 זמן חדש: ${newDt.toFormat('dd/MM/yyyy HH:mm')}
+${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
+האם לעדכן? (כן/לא)`;
+
+    await this.sendMessage(phone, confirmMessage);
+    await this.stateManager.setState(userId, ConversationState.UPDATING_REMINDER_CONFIRM, {
+      reminderId: reminder.id,
+      newDateTime: newDateTime.toISOString(),
+      updateAll: isRecurring,
+      fromNLP: true
+    });
   }
 
   private async showHelp(phone: string): Promise<void> {
