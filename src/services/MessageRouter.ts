@@ -3994,11 +3994,31 @@ export class MessageRouter {
       const token = await dashboardTokenService.generateToken(userId);
 
       // Build URL (use environment variable for production)
-      // Railway provides RAILWAY_PUBLIC_DOMAIN automatically
-      const baseUrl = process.env.DASHBOARD_URL ||
-                      (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null) ||
-                      `http://localhost:${process.env.PORT || 3000}`;
+      let baseUrl: string;
+
+      if (process.env.DASHBOARD_URL) {
+        // Explicitly configured URL (highest priority)
+        baseUrl = process.env.DASHBOARD_URL;
+      } else if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+        // Railway automatic domain
+        baseUrl = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+      } else if (process.env.NODE_ENV === 'production') {
+        // Production fallback - you need to set DASHBOARD_URL in Railway!
+        logger.warn('DASHBOARD_URL not set in production - using placeholder');
+        baseUrl = 'https://your-app-url.railway.app';
+      } else {
+        // Development
+        baseUrl = `http://localhost:${process.env.PORT || 3000}`;
+      }
+
       const dashboardUrl = `${baseUrl}/d/${token}`;
+
+      logger.info('Generated dashboard URL', {
+        baseUrl,
+        hasRailwayDomain: !!process.env.RAILWAY_PUBLIC_DOMAIN,
+        hasDashboardUrl: !!process.env.DASHBOARD_URL,
+        nodeEnv: process.env.NODE_ENV
+      });
 
       // Send dashboard link
       const message = `✨ הלוח האישי שלך מוכן!
