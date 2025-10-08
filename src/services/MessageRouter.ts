@@ -4020,18 +4020,21 @@ export class MessageRouter {
         nodeEnv: process.env.NODE_ENV
       });
 
-      // Send dashboard link
-      const message = `✨ הלוח האישי שלך מוכן!
+      // Send dashboard link - split into two messages for better clickability
+      const introMessage = `✨ *הלוח האישי שלך מוכן!*
 
 📊 צפה בכל האירועים, התזכורות והמשימות שלך בממשק נוח וצבעוני
 
-🔗 ${dashboardUrl}
+לחץ על הקישור למטה לפתיחה:`;
 
-⏰ הקישור תקף ל-15 דקות בלבד מטעמי אבטחה
+      const linkMessage = `${dashboardUrl}
 
-💡 אפשר לפתוח מכל מכשיר - מחשב, טאבלט או נייד!`;
+⏰ *הקישור תקף ל-15 דקות בלבד*
 
-      await this.sendMessage(phone, message);
+💡 ניתן לפתוח מכל מכשיר - מחשב, טאבלט או נייד`;
+
+      await this.sendMessage(phone, introMessage);
+      await this.sendMessage(phone, linkMessage);
 
       logger.info('Dashboard link sent successfully', {
         userId,
