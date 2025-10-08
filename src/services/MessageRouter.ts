@@ -3994,7 +3994,10 @@ export class MessageRouter {
       const token = await dashboardTokenService.generateToken(userId);
 
       // Build URL (use environment variable for production)
-      const baseUrl = process.env.DASHBOARD_URL || `http://localhost:${process.env.PORT || 3000}`;
+      // Railway provides RAILWAY_PUBLIC_DOMAIN automatically
+      const baseUrl = process.env.DASHBOARD_URL ||
+                      (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null) ||
+                      `http://localhost:${process.env.PORT || 3000}`;
       const dashboardUrl = `${baseUrl}/d/${token}`;
 
       // Send dashboard link
