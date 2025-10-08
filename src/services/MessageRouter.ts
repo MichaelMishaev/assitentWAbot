@@ -1122,7 +1122,6 @@ export class MessageRouter {
       }, new Date(reminderDueDate));
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.sendMessage(phone, `🎉 התזכורת "${title}" נוצרה בהצלחה!`);
       await this.showMainMenu(phone);
 
     } catch (error) {
@@ -2350,7 +2349,6 @@ export class MessageRouter {
       await cancelReminder(reminder.id);
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.sendMessage(phone, `🗑️ התזכורת "${reminder.title}" בוטלה בהצלחה!`);
       await this.showMainMenu(phone);
 
     } catch (error) {
