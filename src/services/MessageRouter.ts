@@ -3267,6 +3267,10 @@ export class MessageRouter {
           await this.handleNLPSearchEvents(phone, userId, intent);
           break;
 
+        case 'list_reminders':
+          await this.handleNLPListReminders(phone, userId, intent);
+          break;
+
         case 'delete_event':
           await this.handleNLPDeleteEvent(phone, userId, intent);
           break;
@@ -4155,6 +4159,58 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       updateAll: isRecurring,
       fromNLP: true
     });
+  }
+
+  private async handleNLPListReminders(phone: string, userId: string, intent: any): Promise<void> {
+    try {
+      // Get all active reminders for user
+      const reminders = await this.reminderService.getActiveReminders(userId, 50);
+
+      if (reminders.length === 0) {
+        await this.sendMessage(phone, '📭 אין לך תזכורות פעילות.\n\nשלח /תפריט לחזרה לתפריט');
+        return;
+      }
+
+      // Format reminders list
+      let message = `⏰ התזכורות שלך (${reminders.length}):\n\n`;
+
+      reminders.forEach((reminder, index) => {
+        const dt = DateTime.fromJSDate(reminder.dueTsUtc).setZone('Asia/Jerusalem');
+        const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+        const recurringIcon = (reminder.rrule && reminder.rrule.trim().length > 0) ? '🔄 ' : '';
+
+        message += `${index + 1}. ${recurringIcon}${reminder.title}\n`;
+        message += `   📅 ${displayDate}\n`;
+        if (reminder.rrule) {
+          // Parse RRULE to show frequency
+          const rrule = reminder.rrule.toUpperCase();
+          if (rrule.includes('FREQ=DAILY')) {
+            message += `   🔄 חוזר מידי יום\n`;
+          } else if (rrule.includes('FREQ=WEEKLY')) {
+            if (rrule.includes('BYDAY=SU')) message += `   🔄 חוזר כל יום ראשון\n`;
+            else if (rrule.includes('BYDAY=MO')) message += `   🔄 חוזר כל יום שני\n`;
+            else if (rrule.includes('BYDAY=TU')) message += `   🔄 חוזר כל יום שלישי\n`;
+            else if (rrule.includes('BYDAY=WE')) message += `   🔄 חוזר כל יום רביעי\n`;
+            else if (rrule.includes('BYDAY=TH')) message += `   🔄 חוזר כל יום חמישי\n`;
+            else if (rrule.includes('BYDAY=FR')) message += `   🔄 חוזר כל יום שישי\n`;
+            else if (rrule.includes('BYDAY=SA')) message += `   🔄 חוזר כל יום שבת\n`;
+            else message += `   🔄 חוזר מידי שבוע\n`;
+          } else if (rrule.includes('FREQ=MONTHLY')) {
+            message += `   🔄 חוזר מידי חודש\n`;
+          }
+        }
+        message += '\n';
+      });
+
+      message += '💡 לעדכן: "עדכן [שם] לשעה [זמן]"\n';
+      message += '💡 למחוק: "מחק תזכורת [שם]"';
+
+      await this.sendMessage(phone, message);
+
+    } catch (error) {
+      logger.error('Failed to list reminders from NLP', { userId, error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה בטעינת התזכורות.\n\nשלח /תפריט לחזרה לתפריט');
+    }
   }
 
   private async showHelp(phone: string): Promise<void> {

@@ -13,7 +13,7 @@ interface Contact {
 }
 
 export interface NLPIntent {
-  intent: 'create_event' | 'create_reminder' | 'search_event' | 'list_events' | 'delete_event' | 'delete_reminder' | 'update_event' | 'update_reminder' | 'complete_task' | 'send_message' | 'add_contact' | 'add_comment' | 'view_comments' | 'delete_comment' | 'generate_dashboard' | 'unknown';
+  intent: 'create_event' | 'create_reminder' | 'search_event' | 'list_events' | 'list_reminders' | 'delete_event' | 'delete_reminder' | 'update_event' | 'update_reminder' | 'complete_task' | 'send_message' | 'add_contact' | 'add_comment' | 'view_comments' | 'delete_comment' | 'generate_dashboard' | 'unknown';
   confidence: number;
   urgency?: 'urgent' | 'important' | 'normal'; // NEW: Emotional context
   event?: {
@@ -98,7 +98,7 @@ User contacts: ${JSON.stringify(contactNames, null, 2)}
 
 Parse the message and return JSON with this structure:
 {
-  "intent": "create_event|create_reminder|search_event|list_events|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|generate_dashboard|unknown",
+  "intent": "create_event|create_reminder|search_event|list_events|list_reminders|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|generate_dashboard|unknown",
   "confidence": 0.0-1.0,
   "urgency": "urgent|important|normal (optional)",
   "event": {
@@ -143,6 +143,7 @@ CREATE:
 - Reminder keywords: "תזכיר", "תזכורת", "remind", "reminder", "אל תשכח", "don't forget"
 
 SEARCH/LIST (ALL VARIATIONS):
+EVENTS:
 - "מה יש לי", "מה יש", "יש לי", "שיש לי", "האירועים שלי", "האירועים שיש", "האירועים שיש לי"
 - "מה יש אצלי", "מה יש בלוז", "מה בתכנית" (what's in my schedule/plan)
 - "הראה", "תראה", "הצג", "תציג", "תן לי", "give me", "show me"
@@ -156,6 +157,14 @@ SEARCH/LIST (ALL VARIATIONS):
 - "מתי הבר מצווה", "מתי הפגישה", "מתי האירוע" (when is the bar mitzvah/meeting/event)
 - English: "what do I have", "what have I got", "what's on", "what events", "my events", "my schedule"
 → search_event/list_events
+
+REMINDERS (CRITICAL - separate from events!):
+- "הצג תזכורות", "תראה תזכורות", "מה התזכורות", "show reminders", "list reminders"
+- "התזכורות שלי", "כל התזכורות", "my reminders", "all reminders"
+- "מה יש לי של תזכורות", "רשימת תזכורות", "איזה תזכורות יש"
+- "הראה לי מה תזכרתי", "מה שקבעתי לעצמי", "מה לתזכר"
+- English: "show my reminders", "what reminders", "list my reminders"
+→ list_reminders
 
 UPDATE/EDIT:
 - "עדכן", "שנה", "תשנה", "תעדכן", "דחה", "הזז", "update", "change", "edit", "modify", "reschedule", "postpone", "move" → update_event/update_reminder
