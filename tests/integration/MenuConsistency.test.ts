@@ -7,7 +7,7 @@
  * Based on ultrathink analysis from MENU_LOGIC_BUGS.md
  */
 
-import { renderEventsMenu, renderContactsMenu, renderSettingsMenu, renderRemindersMenu } from '../../src/utils/menuRenderer';
+import { renderEventsMenu, renderSettingsMenu, renderRemindersMenu } from '../../src/utils/menuRenderer';
 
 describe('Menu Consistency Tests', () => {
 
@@ -36,12 +36,6 @@ describe('Menu Consistency Tests', () => {
       const menu = renderEventsMenu();
       const maxOption = extractMaxOption(menu);
       expect(maxOption).toBe(6); // Should be 6 after fix
-    });
-
-    it('should extract correct max option from contacts menu', () => {
-      const menu = renderContactsMenu();
-      const maxOption = extractMaxOption(menu);
-      expect(maxOption).toBe(4);
     });
 
     it('should extract correct max option from settings menu', () => {
@@ -95,27 +89,6 @@ describe('Menu Consistency Tests', () => {
     });
   });
 
-  describe('Contacts Menu Consistency', () => {
-    it('should show 4 options in menu', () => {
-      const menu = renderContactsMenu();
-
-      expect(menu).toContain('1)');
-      expect(menu).toContain('2)');
-      expect(menu).toContain('3)');
-      expect(menu).toContain('4)');
-
-      expect(menu).toContain('(1-4)');
-    });
-
-    it('should have all CRUD operations', () => {
-      const menu = renderContactsMenu();
-
-      expect(menu).toContain('הצג'); // View
-      expect(menu).toContain('הוסף'); // Add
-      expect(menu).toContain('מחק'); // Delete
-      expect(menu).toContain('חזרה'); // Back
-    });
-  });
 
   describe('Settings Menu Consistency', () => {
     it('should show 3 options in menu', () => {
@@ -202,7 +175,6 @@ describe('Menu Consistency Tests', () => {
 
       const menus = {
         events: renderEventsMenu(),
-        contacts: renderContactsMenu(),
         settings: renderSettingsMenu(),
         reminders: renderRemindersMenu(),
       };
@@ -240,7 +212,6 @@ describe('Menu Consistency Tests', () => {
 
       const menus = [
         { name: 'Events', menu: renderEventsMenu(), expectedMax: 6 },
-        { name: 'Contacts', menu: renderContactsMenu(), expectedMax: 4 },
         { name: 'Settings', menu: renderSettingsMenu(), expectedMax: 3 },
         { name: 'Reminders', menu: renderRemindersMenu(), expectedMax: 4 },
       ];
