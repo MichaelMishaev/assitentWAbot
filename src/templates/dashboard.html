@@ -30,6 +30,7 @@
     .skeleton { animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
     .card-hover { transition: all 0.3s ease; }
     .card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+    .card-hover:active { transform: translateY(-2px) scale(0.98); }
     .priority-urgent { border-right: 4px solid #ef4444; }
     .priority-high { border-right: 4px solid #f59e0b; }
     .priority-normal { border-right: 4px solid #3b82f6; }
@@ -203,6 +204,8 @@
       display: grid;
       grid-template-columns: repeat(7, 1fr);
       gap: 4px;
+      width: 100%;
+      min-height: 0;
     }
     .compact-day {
       aspect-ratio: 1;
@@ -215,6 +218,8 @@
       cursor: pointer;
       transition: all 0.2s ease;
       padding: 4px;
+      min-height: 60px;
+      max-height: 120px;
     }
     .compact-day:hover {
       background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
@@ -389,7 +394,7 @@
     <div class="container mx-auto px-4 mb-8">
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <!-- Stat Card Template -->
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card cursor-pointer" onclick="handleStatCardClick('events')" data-card-type="events">
           <div class="text-3xl mb-2">📅</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-events">0</div>
           <div class="text-sm text-gray-600">אירועים</div>
@@ -397,7 +402,7 @@
             <div class="progress-fill" id="progress-events" style="width: 0%"></div>
           </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card cursor-pointer" onclick="handleStatCardClick('today')" data-card-type="today">
           <div class="text-3xl mb-2">🗓️</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-today">0</div>
           <div class="text-sm text-gray-600">היום</div>
@@ -405,7 +410,7 @@
             <div class="progress-fill" id="progress-today" style="width: 0%"></div>
           </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card cursor-pointer" onclick="handleStatCardClick('reminders')" data-card-type="reminders">
           <div class="text-3xl mb-2">⏰</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-reminders">0</div>
           <div class="text-sm text-gray-600">תזכורות</div>
@@ -413,7 +418,7 @@
             <div class="progress-fill" id="progress-reminders" style="width: 0%"></div>
           </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card cursor-pointer" onclick="handleStatCardClick('upcoming')" data-card-type="upcoming">
           <div class="text-3xl mb-2">🔔</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-upcoming">0</div>
           <div class="text-sm text-gray-600">קרובות</div>
@@ -421,7 +426,7 @@
             <div class="progress-fill" id="progress-upcoming" style="width: 0%"></div>
           </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card cursor-pointer" onclick="handleStatCardClick('tasks')" data-card-type="tasks">
           <div class="text-3xl mb-2">✅</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-tasks">0</div>
           <div class="text-sm text-gray-600">משימות פעילות</div>
@@ -429,7 +434,7 @@
             <div class="progress-fill" id="progress-tasks" style="width: 0%"></div>
           </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card cursor-pointer" onclick="handleStatCardClick('completed')" data-card-type="completed">
           <div class="text-3xl mb-2">🎯</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-completed">0</div>
           <div class="text-sm text-gray-600">הושלמו</div>
@@ -544,7 +549,7 @@
             </div>
           </div>
 
-          <div id="month-view-content" class="overflow-x-auto">
+          <div id="month-view-content" class="overflow-auto w-full">
             <!-- Month grid will be generated here -->
           </div>
         </div>
@@ -704,6 +709,79 @@
       <div id="modalBody">
         <!-- Modal content will be injected here -->
       </div>
+    </div>
+  </div>
+
+  <!-- Floating Action Button (FAB) -->
+  <button
+    id="add-fab"
+    onclick="openAddMenu()"
+    class="fixed bottom-24 left-1/2 transform -translate-x-1/2
+           bg-gradient-to-r from-purple-500 to-indigo-600
+           text-white rounded-full w-16 h-16
+           flex items-center justify-center
+           shadow-2xl hover:shadow-purple-500/50
+           transition-all duration-300 hover:scale-110
+           z-50"
+    style="display: none;"
+    aria-label="הוסף פריט חדש"
+  >
+    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4"/>
+    </svg>
+  </button>
+
+  <!-- Bottom Sheet Menu Overlay -->
+  <div id="add-menu-overlay" class="hidden fixed inset-0 bg-black/50 z-[60] transition-opacity" onclick="closeAddMenu()"></div>
+
+  <!-- Bottom Sheet Menu -->
+  <div id="add-menu" class="hidden fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-[70] transform translate-y-full transition-transform duration-300">
+    <div class="p-6">
+      <!-- Drag Handle -->
+      <div class="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-6"></div>
+
+      <!-- Title -->
+      <h3 class="text-xl font-bold text-gray-800 mb-4 text-center">
+        מה תרצה להוסף?
+      </h3>
+
+      <!-- Options -->
+      <div class="space-y-3">
+        <button onclick="openAddModalFromSheet('event')" class="w-full bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border-2 border-blue-500 rounded-2xl p-4 text-right transition-all hover:shadow-lg">
+          <div class="flex items-center gap-4">
+            <span class="text-3xl">📅</span>
+            <div class="flex-1">
+              <div class="font-bold text-gray-800 text-lg">אירוע חדש</div>
+              <div class="text-sm text-gray-600">פגישות, אירועים ומועדים</div>
+            </div>
+          </div>
+        </button>
+
+        <button onclick="openAddModalFromSheet('reminder')" class="w-full bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 border-2 border-amber-500 rounded-2xl p-4 text-right transition-all hover:shadow-lg">
+          <div class="flex items-center gap-4">
+            <span class="text-3xl">⏰</span>
+            <div class="flex-1">
+              <div class="font-bold text-gray-800 text-lg">תזכורת חדשה</div>
+              <div class="text-sm text-gray-600">תזכורות לדברים חשובים</div>
+            </div>
+          </div>
+        </button>
+
+        <button onclick="openAddModalFromSheet('task')" class="w-full bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 border-2 border-green-500 rounded-2xl p-4 text-right transition-all hover:shadow-lg">
+          <div class="flex items-center gap-4">
+            <span class="text-3xl">✅</span>
+            <div class="flex-1">
+              <div class="font-bold text-gray-800 text-lg">משימה חדשה</div>
+              <div class="text-sm text-gray-600">דברים שצריך לעשות</div>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <!-- Cancel Button -->
+      <button onclick="closeAddMenu()" class="w-full mt-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-2xl p-4 font-medium transition-all">
+        ביטול
+      </button>
     </div>
   </div>
 
@@ -943,6 +1021,48 @@
     let currentYear = new Date().getFullYear();
     let selectedDate = null;
 
+    // Handle stat card clicks
+    function handleStatCardClick(cardType) {
+      // Map card types to actions
+      const cardActions = {
+        'events': () => {
+          showTab('agenda');
+          document.getElementById('filter-events').click();
+        },
+        'today': () => {
+          // Show today's overview panel and scroll to it
+          const todayPanel = document.getElementById('today-overview');
+          if (todayPanel) {
+            todayPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Add a highlight animation
+            todayPanel.style.animation = 'pulse 0.5s ease-in-out';
+            setTimeout(() => {
+              todayPanel.style.animation = '';
+            }, 500);
+          }
+        },
+        'reminders': () => {
+          showTab('reminders');
+        },
+        'upcoming': () => {
+          showTab('reminders');
+          // Could filter to show only upcoming reminders
+        },
+        'tasks': () => {
+          showTab('tasks');
+        },
+        'completed': () => {
+          showTab('tasks');
+          // Could filter to show only completed tasks
+        }
+      };
+
+      // Execute the action for this card type
+      if (cardActions[cardType]) {
+        cardActions[cardType]();
+      }
+    }
+
     function showTab(tab) {
       // Hide all sections
       const sections = ['week', 'month', 'agenda', 'calendar', 'events', 'reminders', 'tasks'];
@@ -1176,31 +1296,31 @@
 
       if (!data) return result;
 
-      // Check events
-      data.events.forEach(event => {
+      // Check events - store both event and original index
+      data.events.forEach((event, index) => {
         const eventDate = new Date(event.startTsUtc);
         const eventDateStr = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
         if (eventDateStr === dateStr) {
-          result.events.push(event);
+          result.events.push({ ...event, originalIndex: index });
         }
       });
 
-      // Check reminders
-      data.reminders.forEach(reminder => {
+      // Check reminders - store both reminder and original index
+      data.reminders.forEach((reminder, index) => {
         const reminderDate = new Date(reminder.dueTsUtc);
         const reminderDateStr = `${reminderDate.getFullYear()}-${String(reminderDate.getMonth() + 1).padStart(2, '0')}-${String(reminderDate.getDate()).padStart(2, '0')}`;
         if (reminderDateStr === dateStr && reminder.isActive) {
-          result.reminders.push(reminder);
+          result.reminders.push({ ...reminder, originalIndex: index });
         }
       });
 
-      // Check tasks
-      data.tasks.forEach(task => {
+      // Check tasks - store both task and original index
+      data.tasks.forEach((task, index) => {
         if (task.dueTsUtc) {
           const taskDate = new Date(task.dueTsUtc);
           const taskDateStr = `${taskDate.getFullYear()}-${String(taskDate.getMonth() + 1).padStart(2, '0')}-${String(taskDate.getDate()).padStart(2, '0')}`;
           if (taskDateStr === dateStr) {
-            result.tasks.push(task);
+            result.tasks.push({ ...task, originalIndex: index });
           }
         }
       });
@@ -1232,7 +1352,8 @@
       // Show events
       dayItems.events.forEach(event => {
         const item = document.createElement('div');
-        item.className = 'bg-blue-50 border-r-4 border-blue-500 rounded-lg p-3';
+        item.className = 'bg-blue-50 border-r-4 border-blue-500 rounded-lg p-3 cursor-pointer hover:shadow-lg transition-all';
+        item.onclick = () => showEventModal(event.originalIndex, 'event');
         item.innerHTML = `
           <div class="flex items-start gap-2">
             <span class="text-xl">📅</span>
@@ -1251,7 +1372,8 @@
       // Show reminders
       dayItems.reminders.forEach(reminder => {
         const item = document.createElement('div');
-        item.className = 'bg-amber-50 border-r-4 border-amber-500 rounded-lg p-3';
+        item.className = 'bg-amber-50 border-r-4 border-amber-500 rounded-lg p-3 cursor-pointer hover:shadow-lg transition-all';
+        item.onclick = () => showEventModal(reminder.originalIndex, 'reminder');
         item.innerHTML = `
           <div class="flex items-start gap-2">
             <span class="text-xl">⏰</span>
@@ -1277,7 +1399,8 @@
         }[task.priority] || '🔵';
 
         const item = document.createElement('div');
-        item.className = 'bg-green-50 border-r-4 border-green-500 rounded-lg p-3';
+        item.className = 'bg-green-50 border-r-4 border-green-500 rounded-lg p-3 cursor-pointer hover:shadow-lg transition-all';
+        item.onclick = () => showEventModal(task.originalIndex, 'task');
         item.innerHTML = `
           <div class="flex items-start gap-2">
             <span class="text-xl">✅</span>
@@ -2066,6 +2189,128 @@
         section.classList.toggle('expanded');
       }
     }
+
+    // FAB and Bottom Sheet Menu Functions
+    function openAddMenu() {
+      const overlay = document.getElementById('add-menu-overlay');
+      const menu = document.getElementById('add-menu');
+
+      overlay.classList.remove('hidden');
+      menu.classList.remove('hidden');
+
+      // Trigger animation
+      setTimeout(() => {
+        menu.classList.remove('translate-y-full');
+        overlay.classList.remove('opacity-0');
+      }, 10);
+
+      // Prevent body scroll
+      document.body.style.overflow = 'hidden';
+
+      // Haptic feedback for mobile
+      if ('vibrate' in navigator) {
+        navigator.vibrate(10);
+      }
+    }
+
+    function closeAddMenu() {
+      const overlay = document.getElementById('add-menu-overlay');
+      const menu = document.getElementById('add-menu');
+
+      menu.classList.add('translate-y-full');
+      overlay.classList.add('opacity-0');
+
+      setTimeout(() => {
+        overlay.classList.add('hidden');
+        menu.classList.add('hidden');
+        document.body.style.overflow = '';
+      }, 300);
+    }
+
+    function openAddModalFromSheet(type) {
+      closeAddMenu();
+
+      // Wait for bottom sheet to close, then open modal
+      setTimeout(() => {
+        // TODO: Connect to your existing add modal functions
+        // For now, just show an alert
+        alert(`Opening ${type} modal - Connect this to your existing add modal logic`);
+
+        // Example: You would call your existing modal functions here
+        // if (type === 'event') openEventModal();
+        // if (type === 'reminder') openReminderModal();
+        // if (type === 'task') openTaskModal();
+      }, 350);
+    }
+
+    // Show/hide FAB based on active tab
+    function updateFABVisibility() {
+      const fab = document.getElementById('add-fab');
+      const currentTab = document.querySelector('.tab-btn.tab-active')?.id;
+
+      // Show FAB on agenda, events, reminders, and tasks tabs
+      const showFABTabs = ['tab-agenda', 'tab-events', 'tab-reminders', 'tab-tasks'];
+
+      if (showFABTabs.includes(currentTab)) {
+        fab.style.display = 'flex';
+      } else {
+        fab.style.display = 'none';
+      }
+    }
+
+    // Update showTab function to handle FAB visibility
+    const originalShowTab = showTab;
+    showTab = function(tab) {
+      originalShowTab(tab);
+      updateFABVisibility();
+    };
+
+    // Swipe down to close bottom sheet
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    const addMenu = document.getElementById('add-menu');
+    if (addMenu) {
+      addMenu.addEventListener('touchstart', (e) => {
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
+      });
+
+      addMenu.addEventListener('touchmove', (e) => {
+        const touchEndY = e.touches[0].clientY;
+        const diff = touchEndY - touchStartY;
+        const time = Date.now() - touchStartTime;
+
+        // Swipe down threshold: 50px in less than 500ms
+        if (diff > 50 && time < 500) {
+          closeAddMenu();
+        }
+      });
+    }
+
+    // Keyboard shortcut: Cmd+N or Ctrl+N to open add menu
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        const fab = document.getElementById('add-fab');
+        if (fab.style.display !== 'none') {
+          openAddMenu();
+        }
+      }
+
+      // Escape to close bottom sheet
+      if (e.key === 'Escape') {
+        const menu = document.getElementById('add-menu');
+        if (!menu.classList.contains('hidden')) {
+          closeAddMenu();
+        }
+      }
+    });
+
+    // Initialize FAB visibility on page load
+    window.addEventListener('load', () => {
+      updateFABVisibility();
+    });
   </script>
 </body>
 </html>

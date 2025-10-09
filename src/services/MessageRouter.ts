@@ -4673,21 +4673,17 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
         nodeEnv: process.env.NODE_ENV
       });
 
-      // Send dashboard link - split into two messages for better clickability
-      const introMessage = `✨ *הלוח האישי שלך מוכן!*
+      // Send consolidated dashboard link in one message
+      const message = `✨ *הלוח האישי שלך מוכן!*
 
-📊 צפה בכל האירועים, התזכורות והמשימות שלך בממשק נוח וצבעוני
+📊 צפה בכל האירועים והמשימות שלך בממשק נוח וצבעוני
 
-לחץ על הקישור למטה לפתיחה:`;
+${dashboardUrl}
 
-      const linkMessage = `${dashboardUrl}
-
-⏰ *הקישור תקף ל-15 דקות בלבד*
-
+⏰ הקישור תקף ל-15 דקות בלבד
 💡 ניתן לפתוח מכל מכשיר - מחשב, טאבלט או נייד`;
 
-      await this.sendMessage(phone, introMessage);
-      await this.sendMessage(phone, linkMessage);
+      await this.sendMessage(phone, message);
 
       logger.info('Dashboard link sent successfully', {
         userId,
