@@ -37,32 +37,82 @@
     .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
     .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
     .calendar-day {
-      min-height: 100px;
-      transition: all 0.2s ease;
+      min-height: 120px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
     }
     .calendar-day:hover {
-      background: rgba(102, 126, 234, 0.05);
-      transform: scale(1.02);
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.08));
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+      z-index: 10;
     }
     .calendar-today {
-      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.15), rgba(118, 75, 162, 0.15));
       border: 2px solid #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
     }
     .event-dot {
-      width: 6px;
-      height: 6px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       display: inline-block;
-      margin: 0 1px;
+      margin: 0 2px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
     .event-item {
-      font-size: 0.7rem;
-      padding: 2px 4px;
-      border-radius: 4px;
-      margin-bottom: 2px;
+      font-size: 0.75rem;
+      padding: 3px 6px;
+      border-radius: 6px;
+      margin-bottom: 3px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .event-item:hover {
+      transform: translateX(-2px);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .modal.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-content {
+      background: white;
+      border-radius: 24px;
+      max-width: 600px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      animation: slideUp 0.3s ease-out;
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(50px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .clickable-card {
+      cursor: pointer;
+      user-select: none;
+    }
+    .clickable-card:active {
+      transform: scale(0.98);
     }
   </style>
 </head>
@@ -295,6 +345,15 @@
     </div>
   </div>
 
+  <!-- Item Details Modal -->
+  <div id="itemModal" class="modal" onclick="closeModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div id="modalBody">
+        <!-- Modal content will be injected here -->
+      </div>
+    </div>
+  </div>
+
   <script>
     const TOKEN = '{{TOKEN}}';
     let data = null;
@@ -381,18 +440,19 @@
         return;
       }
 
-      container.innerHTML = events.map(event => {
+      container.innerHTML = events.map((event, index) => {
         const start = new Date(event.startTsUtc);
         const isToday = isDateToday(start);
         const isPast = start < new Date();
 
         return `
-          <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 md:p-6 border-r-4 border-blue-500 card-hover ${isPast ? 'opacity-60' : ''}">
+          <div onclick="showEventModal(${index}, 'event')" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 md:p-6 border-r-4 border-blue-500 card-hover clickable-card ${isPast ? 'opacity-60' : ''}">
             <div class="flex items-start justify-between gap-4">
               <div class="flex-1">
                 <div class="flex items-center gap-2 mb-2">
                   ${isToday ? '<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold">היום</span>' : ''}
                   ${isPast ? '<span class="bg-gray-400 text-white text-xs px-2 py-1 rounded-full">עבר</span>' : ''}
+                  <span class="text-xs text-gray-500">לחץ לפרטים מלאים 👆</span>
                 </div>
                 <h3 class="text-lg font-bold text-gray-800 mb-2">${escapeHtml(event.title)}</h3>
                 <div class="flex flex-wrap gap-4 text-sm text-gray-600">
@@ -402,7 +462,7 @@
                   ${!event.isAllDay ? `<span class="flex items-center gap-1">🕐 ${formatTime(start)}</span>` : '<span class="flex items-center gap-1">⏰ כל היום</span>'}
                   ${event.location ? `<span class="flex items-center gap-1">📍 ${escapeHtml(event.location)}</span>` : ''}
                 </div>
-                ${event.notes ? `<p class="mt-3 text-gray-700 text-sm">${escapeHtml(event.notes)}</p>` : ''}
+                ${event.notes ? `<p class="mt-3 text-gray-700 text-sm line-clamp-2">${escapeHtml(event.notes)}</p>` : ''}
               </div>
               <div class="text-3xl">${isPast ? '✓' : '📅'}</div>
             </div>
@@ -424,19 +484,20 @@
         return;
       }
 
-      container.innerHTML = reminders.map(reminder => {
+      container.innerHTML = reminders.map((reminder, index) => {
         const due = new Date(reminder.dueTsUtc);
         const isPast = due < new Date();
         const isUpcoming = !isPast && (due - new Date()) < 24 * 60 * 60 * 1000;
 
         return `
-          <div class="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 md:p-6 border-r-4 border-amber-500 card-hover ${!reminder.isActive || isPast ? 'opacity-60' : ''}">
+          <div onclick="showEventModal(${index}, 'reminder')" class="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 md:p-6 border-r-4 border-amber-500 card-hover clickable-card ${!reminder.isActive || isPast ? 'opacity-60' : ''}">
             <div class="flex items-start justify-between gap-4">
               <div class="flex-1">
                 <div class="flex items-center gap-2 mb-2">
                   ${isUpcoming ? '<span class="bg-orange-500 text-white text-xs px-2 py-1 rounded-full font-bold animate-pulse">קרוב!</span>' : ''}
                   ${!reminder.isActive ? '<span class="bg-gray-400 text-white text-xs px-2 py-1 rounded-full">מבוטל</span>' : ''}
                   ${reminder.recurrence ? '<span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">חוזר</span>' : ''}
+                  <span class="text-xs text-gray-500">לחץ לפרטים מלאים 👆</span>
                 </div>
                 <h3 class="text-lg font-bold text-gray-800 mb-2">${escapeHtml(reminder.title)}</h3>
                 <div class="flex flex-wrap gap-4 text-sm text-gray-600">
@@ -469,7 +530,7 @@
         return;
       }
 
-      container.innerHTML = tasks.map(task => {
+      container.innerHTML = tasks.map((task, index) => {
         const priorityClass = `priority-${task.priority}`;
         const priorityEmoji = {
           urgent: '🔴',
@@ -481,16 +542,17 @@
         const isOverdue = task.dueTsUtc && new Date(task.dueTsUtc) < new Date();
 
         return `
-          <div class="bg-white rounded-xl p-4 md:p-6 ${priorityClass} shadow-md card-hover">
+          <div onclick="showEventModal(${index}, 'task')" class="bg-white rounded-xl p-4 md:p-6 ${priorityClass} shadow-md card-hover clickable-card">
             <div class="flex items-start justify-between gap-4">
               <div class="flex-1">
                 <div class="flex items-center gap-2 mb-2">
                   <span class="text-lg">${priorityEmoji}</span>
                   ${task.status === 'in_progress' ? '<span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">בביצוע</span>' : ''}
                   ${isOverdue ? '<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full animate-pulse">באיחור!</span>' : ''}
+                  <span class="text-xs text-gray-500">לחץ לפרטים מלאים 👆</span>
                 </div>
                 <h3 class="text-lg font-bold text-gray-800 mb-2">${escapeHtml(task.title)}</h3>
-                ${task.description ? `<p class="text-gray-600 text-sm mb-3">${escapeHtml(task.description)}</p>` : ''}
+                ${task.description ? `<p class="text-gray-600 text-sm mb-3 line-clamp-2">${escapeHtml(task.description)}</p>` : ''}
                 <div class="flex flex-wrap gap-4 text-sm text-gray-500">
                   ${task.dueTsUtc ? `
                     <span class="flex items-center gap-1">
@@ -874,6 +936,220 @@
       currentYear = today.getFullYear();
       renderCalendar();
     }
+
+    // Modal functions
+    function showEventModal(index, type) {
+      let item, content;
+
+      if (type === 'event') {
+        item = data.events[index];
+        const start = new Date(item.startTsUtc);
+        const end = item.endTsUtc ? new Date(item.endTsUtc) : null;
+        const isToday = isDateToday(start);
+        const isPast = start < new Date();
+
+        content = `
+          <div class="gradient-bg p-6 rounded-t-3xl">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-2xl font-bold text-white flex items-center gap-3">
+                <span>📅</span>
+                <span>פרטי אירוע</span>
+              </h2>
+              <button onclick="closeModal()" class="text-white hover:bg-white/20 rounded-full p-2 transition-all">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+            ${isToday ? '<div class="bg-red-500 text-white text-sm px-3 py-1 rounded-full inline-block font-bold">האירוע היום! 🎯</div>' : ''}
+            ${isPast ? '<div class="bg-gray-500 text-white text-sm px-3 py-1 rounded-full inline-block">עבר</div>' : ''}
+          </div>
+
+          <div class="p-6 space-y-6">
+            <div>
+              <h3 class="text-3xl font-bold text-gray-900 mb-2">${escapeHtml(item.title)}</h3>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-blue-50 rounded-xl p-4">
+                <div class="text-sm text-blue-600 font-medium mb-1">📅 תאריך התחלה</div>
+                <div class="text-lg font-bold text-blue-900">${formatDate(start)}</div>
+                ${!item.isAllDay ? `<div class="text-md text-blue-700 mt-1">🕐 ${formatTime(start)}</div>` : '<div class="text-md text-blue-700 mt-1">⏰ כל היום</div>'}
+              </div>
+
+              ${end ? `
+                <div class="bg-indigo-50 rounded-xl p-4">
+                  <div class="text-sm text-indigo-600 font-medium mb-1">📅 תאריך סיום</div>
+                  <div class="text-lg font-bold text-indigo-900">${formatDate(end)}</div>
+                  <div class="text-md text-indigo-700 mt-1">🕐 ${formatTime(end)}</div>
+                </div>
+              ` : ''}
+            </div>
+
+            ${item.location ? `
+              <div class="bg-purple-50 rounded-xl p-4">
+                <div class="text-sm text-purple-600 font-medium mb-2">📍 מיקום</div>
+                <div class="text-lg text-purple-900">${escapeHtml(item.location)}</div>
+              </div>
+            ` : ''}
+
+            ${item.notes ? `
+              <div class="bg-gray-50 rounded-xl p-4">
+                <div class="text-sm text-gray-600 font-medium mb-2">💬 הערות</div>
+                <div class="text-gray-800 whitespace-pre-wrap">${escapeHtml(item.notes)}</div>
+              </div>
+            ` : ''}
+
+            <div class="flex gap-3 pt-4">
+              <button onclick="closeModal()" class="flex-1 bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-6 py-3 rounded-xl font-medium hover:shadow-lg transition-all">
+                סגור
+              </button>
+            </div>
+          </div>
+        `;
+      } else if (type === 'reminder') {
+        item = data.reminders[index];
+        const due = new Date(item.dueTsUtc);
+        const isPast = due < new Date();
+        const isUpcoming = !isPast && (due - new Date()) < 24 * 60 * 60 * 1000;
+
+        content = `
+          <div class="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-t-3xl">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-2xl font-bold text-white flex items-center gap-3">
+                <span>⏰</span>
+                <span>פרטי תזכורת</span>
+              </h2>
+              <button onclick="closeModal()" class="text-white hover:bg-white/20 rounded-full p-2 transition-all">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+            ${isUpcoming ? '<div class="bg-orange-600 text-white text-sm px-3 py-1 rounded-full inline-block font-bold animate-pulse">קרוב! 🔔</div>' : ''}
+            ${!item.isActive ? '<div class="bg-gray-500 text-white text-sm px-3 py-1 rounded-full inline-block">מבוטל</div>' : ''}
+            ${item.recurrence ? '<div class="bg-blue-500 text-white text-sm px-3 py-1 rounded-full inline-block">תזכורת חוזרת 🔄</div>' : ''}
+          </div>
+
+          <div class="p-6 space-y-6">
+            <div>
+              <h3 class="text-3xl font-bold text-gray-900 mb-2">${escapeHtml(item.title)}</h3>
+            </div>
+
+            <div class="bg-amber-50 rounded-xl p-4">
+              <div class="text-sm text-amber-600 font-medium mb-1">⏰ מועד התזכורת</div>
+              <div class="text-lg font-bold text-amber-900">${formatDate(due)}</div>
+              <div class="text-md text-amber-700 mt-1">🕐 ${formatTime(due)}</div>
+            </div>
+
+            ${item.recurrence ? `
+              <div class="bg-blue-50 rounded-xl p-4">
+                <div class="text-sm text-blue-600 font-medium mb-2">🔄 חזרתיות</div>
+                <div class="text-lg text-blue-900">${escapeHtml(item.recurrence)}</div>
+              </div>
+            ` : ''}
+
+            <div class="bg-gray-50 rounded-xl p-4">
+              <div class="text-sm text-gray-600 font-medium mb-2">ℹ️ מצב</div>
+              <div class="text-lg ${item.isActive ? 'text-green-600' : 'text-gray-600'}">${item.isActive ? 'פעילה ✓' : 'מבוטלת'}</div>
+            </div>
+
+            <div class="flex gap-3 pt-4">
+              <button onclick="closeModal()" class="flex-1 bg-gradient-to-r from-amber-500 to-orange-600 text-white px-6 py-3 rounded-xl font-medium hover:shadow-lg transition-all">
+                סגור
+              </button>
+            </div>
+          </div>
+        `;
+      } else if (type === 'task') {
+        item = data.tasks[index];
+        const priorityEmoji = {
+          urgent: '🔴',
+          high: '🟠',
+          normal: '🔵',
+          low: '🟢'
+        }[item.priority] || '🔵';
+        const isOverdue = item.dueTsUtc && new Date(item.dueTsUtc) < new Date();
+
+        content = `
+          <div class="bg-gradient-to-r from-green-500 to-emerald-600 p-6 rounded-t-3xl">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-2xl font-bold text-white flex items-center gap-3">
+                <span>✅</span>
+                <span>פרטי משימה</span>
+              </h2>
+              <button onclick="closeModal()" class="text-white hover:bg-white/20 rounded-full p-2 transition-all">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+            ${item.status === 'in_progress' ? '<div class="bg-blue-500 text-white text-sm px-3 py-1 rounded-full inline-block">בביצוע 🚀</div>' : ''}
+            ${isOverdue ? '<div class="bg-red-500 text-white text-sm px-3 py-1 rounded-full inline-block animate-pulse">באיחור! ⚠️</div>' : ''}
+          </div>
+
+          <div class="p-6 space-y-6">
+            <div>
+              <h3 class="text-3xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+                <span>${priorityEmoji}</span>
+                <span>${escapeHtml(item.title)}</span>
+              </h3>
+            </div>
+
+            ${item.description ? `
+              <div class="bg-gray-50 rounded-xl p-4">
+                <div class="text-sm text-gray-600 font-medium mb-2">📝 תיאור</div>
+                <div class="text-gray-800 whitespace-pre-wrap">${escapeHtml(item.description)}</div>
+              </div>
+            ` : ''}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-purple-50 rounded-xl p-4">
+                <div class="text-sm text-purple-600 font-medium mb-1">🏷️ עדיפות</div>
+                <div class="text-lg font-bold text-purple-900">${getPriorityText(item.priority)}</div>
+              </div>
+
+              ${item.dueTsUtc ? `
+                <div class="bg-blue-50 rounded-xl p-4">
+                  <div class="text-sm text-blue-600 font-medium mb-1">📅 תאריך יעד</div>
+                  <div class="text-lg font-bold text-blue-900">${formatDate(new Date(item.dueTsUtc))}</div>
+                </div>
+              ` : ''}
+            </div>
+
+            <div class="bg-green-50 rounded-xl p-4">
+              <div class="text-sm text-green-600 font-medium mb-2">ℹ️ סטטוס</div>
+              <div class="text-lg text-green-900">${item.status === 'in_progress' ? 'בביצוע 🚀' : item.status === 'completed' ? 'הושלמה ✓' : 'ממתינה'}</div>
+            </div>
+
+            <div class="flex gap-3 pt-4">
+              <button onclick="closeModal()" class="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-6 py-3 rounded-xl font-medium hover:shadow-lg transition-all">
+                סגור
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      document.getElementById('modalBody').innerHTML = content;
+      document.getElementById('itemModal').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal(event) {
+      // Close if clicking on backdrop or close button
+      if (!event || event.target.id === 'itemModal' || event.target.closest('button')) {
+        document.getElementById('itemModal').classList.remove('active');
+        document.body.style.overflow = 'auto';
+      }
+    }
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+    });
   </script>
 </body>
 </html>
