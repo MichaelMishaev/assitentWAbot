@@ -11,6 +11,7 @@ import { IMessageProvider } from '../providers/IMessageProvider.js';
 import { ConversationState, AuthState, MenuDisplayMode } from '../types/index.js';
 import { redis } from '../config/redis.js';
 import logger from '../utils/logger.js';
+import { prodMessageLogger } from '../utils/productionMessageLogger.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
 import { safeParseDate, extractDateFromIntent } from '../utils/dateValidator.js';
 import {
@@ -278,6 +279,19 @@ export class MessageRouter {
 
       // Retrieve user once and reuse throughout
       let user = await this.authService.getUserByPhone(from);
+
+      // Log incoming message to production logger
+      if (user && messageId) {
+        const session = await this.stateManager.getState(user.id);
+        prodMessageLogger.logIncomingMessage({
+          messageId,
+          userId: user.id,
+          phone: from,
+          messageText: text,
+          conversationState: session?.state || ConversationState.MAIN_MENU,
+          metadata: { quotedMessage }
+        });
+      }
 
       // Store messageId for potential reactions
       if (messageId && user) {
@@ -3851,7 +3865,7 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         // User said "update EVENT_TITLE to NEW_VALUE"
         // Search by title in recent events (past + future, DESC order)
         events = await this.eventService.getAllEvents(userId, 100, 0, true);
-        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
+        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.3);
       } else if (event.date || event.dateText) {
         // User said "update event on DATE" - date is search term
         const dateQuery = parseDateFromNLP(event, 'handleNLPUpdateEvent');
@@ -3863,22 +3877,35 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
 
         events = await this.eventService.getEventsByDate(userId, dateQuery.date!);
 
-        // Filter by title if provided (45% threshold for Hebrew flexibility)
+        // Filter by title if provided (30% threshold for Hebrew flexibility)
         if (event.title && events.length > 0) {
-          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
+          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.3);
         }
       } else {
         // Search all recent events (past + future, DESC order)
         events = await this.eventService.getAllEvents(userId, 100, 0, true);
 
-        // Filter by title if provided (45% threshold for Hebrew flexibility)
+        // Filter by title if provided (30% threshold for Hebrew flexibility)
         if (event.title && events.length > 0) {
-          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
+          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.3);
         }
       }
 
       if (events.length === 0) {
-        await this.sendMessage(phone, '❌ לא נמצא אירוע לעדכון.\n\nנסה לפרט יותר או שלח /תפריט לתפריט ראשי');
+        // No matches - get some recent events to help user
+        const recentEvents = await this.eventService.getAllEvents(userId, 5, 0, true);
+        let helpMessage = '❌ לא נמצא אירוע לעדכון.\n\n';
+        if (recentEvents.length > 0) {
+          helpMessage += 'האירועים האחרונים שלך:\n';
+          recentEvents.forEach((e: any) => {
+            const dt = DateTime.fromJSDate(e.startTsUtc).setZone('Asia/Jerusalem');
+            helpMessage += `• ${e.title} (${dt.toFormat('dd/MM HH:mm')})\n`;
+          });
+          helpMessage += '\nנסה שוב עם השם המדויק';
+        } else {
+          helpMessage += 'אין לך אירועים.\nשלח /תפריט לחזרה';
+        }
+        await this.sendMessage(phone, helpMessage);
         return;
       }
 
@@ -4042,11 +4069,20 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       return;
     }
 
-    // Use fuzzy match (0.45 threshold for Hebrew flexibility)
-    let matchedReminders = filterByFuzzyMatch(allReminders, reminder.title, (r: any) => r.title, 0.45);
+    // Use fuzzy match (0.3 threshold for Hebrew flexibility - more lenient)
+    let matchedReminders = filterByFuzzyMatch(allReminders, reminder.title, (r: any) => r.title, 0.3);
 
     if (matchedReminders.length === 0) {
-      await this.sendMessage(phone, `❌ לא מצאתי תזכורת עם השם "${reminder.title}".\n\nשלח /תפריט לחזרה לתפריט`);
+      // No matches - show available reminders to help user
+      let helpMessage = `❌ לא מצאתי תזכורת עם השם "${reminder.title}".\n\n`;
+      helpMessage += `התזכורות שלך:\n`;
+      allReminders.slice(0, 5).forEach((r: any, index: number) => {
+        const dt = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
+        const recurringIcon = (r.rrule && r.rrule.trim().length > 0) ? '🔄 ' : '';
+        helpMessage += `• ${recurringIcon}${r.title}\n`;
+      });
+      helpMessage += `\nנסה שוב עם השם המדויק, או שלח /תפריט לחזרה`;
+      await this.sendMessage(phone, helpMessage);
       return;
     }
 
@@ -4249,7 +4285,9 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
 
   private async sendMessage(to: string, message: string): Promise<string> {
     try {
+      const startTime = Date.now();
       const messageId = await this.messageProvider.sendMessage(to, message);
+      const processingTime = Date.now() - startTime;
       logger.debug('Message sent', { to, messageId, messageLength: message.length });
 
       // Track assistant message in conversation history
@@ -4257,6 +4295,17 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
         const authState = await this.getAuthState(to);
         if (authState?.userId) {
           await this.stateManager.addToHistory(authState.userId, 'assistant', message);
+
+          // Log outgoing message to production logger
+          const session = await this.stateManager.getState(authState.userId);
+          prodMessageLogger.logOutgoingMessage({
+            messageId,
+            userId: authState.userId,
+            phone: to,
+            messageText: message,
+            conversationState: session?.state || ConversationState.MAIN_MENU,
+            processingTime
+          });
         }
       } catch (historyError) {
         // Don't fail message sending if history tracking fails

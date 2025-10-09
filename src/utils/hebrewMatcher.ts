@@ -32,14 +32,31 @@ function normalizeText(text: string): string {
 }
 
 /**
+ * Strip common Hebrew prefixes from a token
+ * Common prefixes: ה (the), ל (to), ב (in), כ (like), מ (from), ש (that)
+ */
+function stripHebrewPrefixes(token: string): string {
+  // Strip if token starts with prefix and has at least 2 more characters
+  if (token.length >= 3) {
+    const firstChar = token[0];
+    if ('הלבכמש'.includes(firstChar)) {
+      return token.substring(1);
+    }
+  }
+  return token;
+}
+
+/**
  * Tokenize text into significant words
  * - Split by whitespace
+ * - Strip Hebrew prefixes
  * - Remove stop words
  * - Filter out very short tokens
  */
 function tokenize(text: string): string[] {
   return normalizeText(text)
     .split(' ')
+    .map(token => stripHebrewPrefixes(token)) // Strip prefixes like ל from לאימון
     .filter(token => token.length >= 2) // Ignore single characters
     .filter(token => !HEBREW_STOP_WORDS.has(token));
 }
