@@ -265,16 +265,24 @@ export class MessageRouter {
           return;
         }
 
-        // Check if currently processing (prevent race conditions)
-        const currentlyProcessing = await redis.get(processingKey);
-        if (currentlyProcessing) {
-          logger.info('Message already being processed', { messageId, from });
+        // ATOMIC CHECK-AND-SET: Use SET NX (set if not exists) to prevent race conditions
+        // This ensures only ONE process can successfully acquire the processing lock
+        // Returns 'OK' if successful, null if key already exists
+        const acquired = await redis.set(
+          processingKey,
+          Date.now().toString(),
+          'EX',
+          1800,  // 30 min expiry for safety
+          'NX'   // Only set if key doesn't exist (atomic)
+        );
+
+        if (!acquired) {
+          // Another process is already processing this message
+          logger.info('Message already being processed (race condition prevented)', { messageId, from });
           return;
         }
 
-        // Mark as processing (30 min expiry for safety)
-        await redis.setex(processingKey, 1800, Date.now().toString());
-        logger.debug('Marked message as processing', { messageId });
+        logger.debug('Acquired processing lock for message', { messageId });
       }
 
       // Retrieve user once and reuse throughout
