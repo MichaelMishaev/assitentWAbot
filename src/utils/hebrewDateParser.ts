@@ -90,6 +90,41 @@ export function parseHebrewDate(
     'שבת': 6,
   };
 
+  // Check for plural day names (e.g., "ימי ראשון" = "on Sundays")
+  // This indicates recurring day query, return next occurrence but caller should know it's recurring
+  const pluralDayMatch = dateInput.match(/^ימי\s+(.+)$/);
+  if (pluralDayMatch) {
+    const dayName = pluralDayMatch[1];
+    if (hebrewDays.hasOwnProperty(dayName)) {
+      const targetDay = hebrewDays[dayName];
+      let date = getNextWeekday(now, targetDay);
+      if (extractedTime) {
+        date = date.set({ hour: extractedTime.hour, minute: extractedTime.minute });
+      }
+      return {
+        success: true,
+        date: date.toJSDate(),
+      };
+    }
+  }
+
+  // Check for "ביום ראשון" = "on Sunday" (also indicates day-of-week query)
+  const inDayMatch = dateInput.match(/^ב?יום\s+(.+)$/);
+  if (inDayMatch) {
+    const dayName = inDayMatch[1];
+    if (hebrewDays.hasOwnProperty(dayName)) {
+      const targetDay = hebrewDays[dayName];
+      let date = getNextWeekday(now, targetDay);
+      if (extractedTime) {
+        date = date.set({ hour: extractedTime.hour, minute: extractedTime.minute });
+      }
+      return {
+        success: true,
+        date: date.toJSDate(),
+      };
+    }
+  }
+
   // Check for day name with "יום" prefix
   const dayWithPrefix = dateInput.replace(/^יום\s+/, '');
   if (hebrewDays.hasOwnProperty(dayWithPrefix)) {

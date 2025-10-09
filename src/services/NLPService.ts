@@ -27,6 +27,9 @@ export interface NLPIntent {
   reminder?: {
     title: string;
     dueDate?: string; // ISO 8601 datetime
+    date?: string; // ISO 8601 datetime (alias for dueDate)
+    dateText?: string; // Hebrew date text for parsing
+    time?: string; // Time string HH:MM for updates
     recurrence?: string; // RRULE format
   };
   message?: {
@@ -113,7 +116,10 @@ Parse the message and return JSON with this structure:
   },
   "reminder": {
     "title": "string",
-    "dueDate": "ISO 8601 datetime in ${userTimezone}",
+    "dueDate": "ISO 8601 datetime in ${userTimezone} (for create/update)",
+    "date": "ISO 8601 datetime (alias for dueDate, use for updates)",
+    "dateText": "Hebrew date text (optional, e.g., 'מחר', 'יום ראשון')",
+    "time": "Time string HH:MM (optional, for update_reminder without full date)",
     "recurrence": "RRULE format (optional)"
   },
   "message": {
@@ -166,8 +172,20 @@ REMINDERS (CRITICAL - separate from events!):
 - English: "show my reminders", "what reminders", "list my reminders"
 → list_reminders
 
-UPDATE/EDIT:
-- "עדכן", "שנה", "תשנה", "תעדכן", "דחה", "הזז", "update", "change", "edit", "modify", "reschedule", "postpone", "move" → update_event/update_reminder
+UPDATE/EDIT (CRITICAL - Distinguish between reminders and events):
+REMINDER Updates (use update_reminder):
+- If message contains "תזכורת" → update_reminder
+- If updating recurring item (mentions "ימי X", "כל X") → likely update_reminder
+- "עדכן תזכורת", "שנה תזכורת" → update_reminder
+- "עדכן ללכת לאימון" (if "ללכת לאימון" is a known reminder title) → update_reminder
+- "תזכורת של ימי ראשון, תעדכן" → update_reminder
+
+EVENT Updates (use update_event):
+- If message contains "אירוע", "פגישה", "meeting" → update_event
+- "עדכן פגישה", "שנה אירוע" → update_event
+- If not explicitly a reminder → default to update_event
+
+- "עדכן", "שנה", "תשנה", "תעדכן", "דחה", "הזז", "update", "change", "edit", "modify", "reschedule", "postpone", "move"
 
 DELETE (ALL CONJUGATIONS & SLANG):
 - CANCEL: "תבטל", "בטל", "לבטל", "ביטול", "מבטל", "ביטלתי", "ביטלת", "אבטל"
@@ -242,11 +260,13 @@ RELATIVE TIMES:
 - "בעוד שבוע" → one week from now
 - "בעוד חצי שעה" → current time + 30 minutes
 
-TIME OF DAY:
+TIME OF DAY (CRITICAL - Extract ALL time formats):
 - "בבוקר", "בערב", "בצהריים", "בלילה" → morning (9:00), evening (18:00), noon (12:00), night (21:00)
 - "ב-3", "בשעה 3" → 15:00 today (3 PM)
 - "ב-15:00", "ב15" → 15:00 today
 - "לשעה 14:00", "בשעה 14:00", "ב-14:00" → EXACTLY 14:00 (DO NOT default to 00:00!)
+- "ל 19:00", "ל 19:30", "ל-19:00" → EXACTLY 19:00, 19:30 (ל without שעה)
+- "תעדכן שעה ל 19:00" → time: 19:00
 - "8 בערב" → 20:00 today
 
 EXPLICIT DATES:
@@ -283,6 +303,9 @@ KEY EXAMPLES (cover all intents):
 7. DELETE WITH TITLE: "תבטל בדיקת דם" → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}} (CRITICAL: partial title, fuzzy match)
 8. DELETE ALL: "מחק את כל הפגישות" → {"intent":"delete_event","confidence":0.95,"event":{"deleteAll":true}} (CRITICAL: set deleteAll flag for bulk operations!)
 9. UPDATE EVENT: "עדכן פגישה עם דני ל-5 אחרי הצהריים" → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today 17:00 ISO>","dateText":"5 אחרי הצהריים"}}
+9b. UPDATE REMINDER WITH TIME: "תזכורת של ימי ראשון, תעדכן שעה ל 19:00" → {"intent":"update_reminder","confidence":0.9,"reminder":{"title":"ימי ראשון","dueDate":"<next_sunday 19:00 ISO>"}} (CRITICAL: "תזכורת" = update_reminder, "ל 19:00" = time 19:00)
+9c. UPDATE REMINDER BY EXACT TITLE: "עדכן ללכת לאימון לשעה 19:30" → {"intent":"update_reminder","confidence":0.9,"reminder":{"title":"ללכת לאימון","dueDate":"<date_with_19:30 ISO>"}} (CRITICAL: "ללכת לאימון" is reminder title, extract time 19:30)
+9d. UPDATE REMINDER BY PARTIAL TITLE: "עדכן אימון לשעה 19:30" → {"intent":"update_reminder","confidence":0.9,"reminder":{"title":"אימון","dueDate":"<date_with_19:30 ISO>"}} (CRITICAL: partial match "אימון", extract time)
 10. URGENCY: "דחוף! פגישה עם הבוס מחר ב-9" → {"intent":"create_event","confidence":0.95,"urgency":"urgent","event":{"title":"פגישה עם הבוס","date":"2025-11-12T09:00:00+02:00","dateText":"מחר ב-9"}}
 11. UNKNOWN/CLARIFY: "קבע משהו" → {"intent":"unknown","confidence":0.3,"clarificationNeeded":"מה תרצה לקבוע? אירוע או תזכורת?"}
 12. ADD CONTACT: "הוסף קשר דני 052-1234567 חבר שלי" → {"intent":"add_contact","confidence":0.95,"contact":{"name":"דני","phone":"0521234567","relation":"חבר"}}

@@ -36,6 +36,34 @@
     .priority-low { border-right: 4px solid #10b981; }
     .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
     .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+    .calendar-day {
+      min-height: 100px;
+      transition: all 0.2s ease;
+    }
+    .calendar-day:hover {
+      background: rgba(102, 126, 234, 0.05);
+      transform: scale(1.02);
+    }
+    .calendar-today {
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+      border: 2px solid #667eea;
+    }
+    .event-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      margin: 0 1px;
+    }
+    .event-item {
+      font-size: 0.7rem;
+      padding: 2px 4px;
+      border-radius: 4px;
+      margin-bottom: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body class="bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 min-h-screen">
@@ -113,8 +141,11 @@
 
     <!-- Tabs -->
     <div class="container mx-auto px-4 mb-6">
-      <div class="glass rounded-2xl p-2 shadow-lg inline-flex gap-2">
-        <button onclick="showTab('events')" id="tab-events" class="px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg">
+      <div class="glass rounded-2xl p-2 shadow-lg inline-flex gap-2 flex-wrap">
+        <button onclick="showTab('calendar')" id="tab-calendar" class="px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg">
+          📆 לוח שנה
+        </button>
+        <button onclick="showTab('events')" id="tab-events" class="px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100">
           📅 אירועים
         </button>
         <button onclick="showTab('reminders')" id="tab-reminders" class="px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100">
@@ -129,8 +160,81 @@
     <!-- Content Sections -->
     <div class="container mx-auto px-4 pb-12">
 
+      <!-- Calendar Section -->
+      <div id="section-calendar" class="fade-in">
+        <div class="glass rounded-2xl shadow-xl p-4 md:p-8">
+          <div class="flex items-center justify-between mb-6 flex-wrap gap-4">
+            <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
+              <span>📆</span>
+              <span>לוח השנה שלי</span>
+            </h2>
+            <div class="flex items-center gap-2">
+              <button onclick="changeMonth(-1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+                ←
+              </button>
+              <span id="calendar-month-year" class="text-lg font-bold text-gray-700 px-4"></span>
+              <button onclick="changeMonth(1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+                →
+              </button>
+              <button onclick="goToToday()" class="bg-gradient-to-r from-purple-500 to-indigo-600 hover:shadow-lg text-white px-4 py-2 rounded-lg font-medium transition-all mr-2">
+                היום
+              </button>
+            </div>
+          </div>
+
+          <!-- Calendar Legend -->
+          <div class="flex flex-wrap gap-4 mb-6 text-sm">
+            <div class="flex items-center gap-2">
+              <div class="event-dot bg-blue-500"></div>
+              <span class="text-gray-600">אירוע</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="event-dot bg-amber-500"></div>
+              <span class="text-gray-600">תזכורת</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="event-dot bg-green-500"></div>
+              <span class="text-gray-600">משימה</span>
+            </div>
+          </div>
+
+          <!-- Calendar Grid -->
+          <div class="overflow-x-auto">
+            <div class="min-w-full">
+              <!-- Day Headers -->
+              <div class="grid grid-cols-7 gap-1 mb-2">
+                <div class="text-center font-bold text-gray-700 py-2">ראשון</div>
+                <div class="text-center font-bold text-gray-700 py-2">שני</div>
+                <div class="text-center font-bold text-gray-700 py-2">שלישי</div>
+                <div class="text-center font-bold text-gray-700 py-2">רביעי</div>
+                <div class="text-center font-bold text-gray-700 py-2">חמישי</div>
+                <div class="text-center font-bold text-gray-700 py-2">שישי</div>
+                <div class="text-center font-bold text-gray-700 py-2">שבת</div>
+              </div>
+              <!-- Calendar Days -->
+              <div id="calendar-grid" class="grid grid-cols-7 gap-1">
+                <!-- Days will be generated by JavaScript -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Selected Day Details -->
+          <div id="day-details" class="mt-6 hidden">
+            <div class="border-t-2 border-purple-200 pt-6">
+              <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <span>📋</span>
+                <span id="selected-day-title"></span>
+              </h3>
+              <div id="day-details-content" class="space-y-3">
+                <!-- Day details will be populated here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Events Section -->
-      <div id="section-events" class="fade-in">
+      <div id="section-events" class="hidden fade-in">
         <div class="glass rounded-2xl shadow-xl p-6 md:p-8">
           <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
             <span>📅</span>
@@ -232,6 +336,9 @@
         renderEvents(data.events);
         renderReminders(data.reminders);
         renderTasks(data.tasks);
+
+        // Initialize calendar
+        initializeCalendar();
 
         // Show content
         document.getElementById('loading').classList.add('hidden');
@@ -402,13 +509,20 @@
       }).join('');
     }
 
+    // Calendar state
+    let currentMonth = new Date().getMonth();
+    let currentYear = new Date().getFullYear();
+    let selectedDate = null;
+
     function showTab(tab) {
       // Hide all sections
+      document.getElementById('section-calendar').classList.add('hidden');
       document.getElementById('section-events').classList.add('hidden');
       document.getElementById('section-reminders').classList.add('hidden');
       document.getElementById('section-tasks').classList.add('hidden');
 
       // Reset all tab buttons
+      document.getElementById('tab-calendar').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
       document.getElementById('tab-events').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
       document.getElementById('tab-reminders').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
       document.getElementById('tab-tasks').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
@@ -416,6 +530,11 @@
       // Show selected section and activate tab
       document.getElementById(`section-${tab}`).classList.remove('hidden');
       document.getElementById(`tab-${tab}`).className = 'px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg';
+
+      // If calendar tab is shown, render the calendar
+      if (tab === 'calendar') {
+        renderCalendar();
+      }
     }
 
     function showError(message) {
@@ -462,6 +581,298 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Calendar functions
+    function initializeCalendar() {
+      currentMonth = new Date().getMonth();
+      currentYear = new Date().getFullYear();
+      renderCalendar();
+    }
+
+    function renderCalendar() {
+      const monthNames = [
+        'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
+        'יולי', 'אוגוסט', 'סספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
+      ];
+
+      // Update month/year display
+      document.getElementById('calendar-month-year').textContent =
+        `${monthNames[currentMonth]} ${currentYear}`;
+
+      // Get first day of month and number of days
+      const firstDay = new Date(currentYear, currentMonth, 1);
+      const lastDay = new Date(currentYear, currentMonth + 1, 0);
+      const daysInMonth = lastDay.getDate();
+      const startingDayOfWeek = firstDay.getDay();
+
+      // Calculate previous month's days to show
+      const prevMonthLastDay = new Date(currentYear, currentMonth, 0).getDate();
+      const prevMonthDays = startingDayOfWeek;
+
+      const grid = document.getElementById('calendar-grid');
+      grid.innerHTML = '';
+
+      let dayCounter = 1;
+      let nextMonthDay = 1;
+
+      // Create 6 weeks (42 days total)
+      for (let i = 0; i < 42; i++) {
+        const dayCell = document.createElement('div');
+        dayCell.className = 'calendar-day bg-white rounded-lg p-2 border border-gray-200 cursor-pointer';
+
+        let currentDay, currentMonth_local, currentYear_local;
+        let isCurrentMonth = false;
+        let isToday = false;
+
+        if (i < prevMonthDays) {
+          // Previous month
+          currentDay = prevMonthLastDay - prevMonthDays + i + 1;
+          currentMonth_local = currentMonth === 0 ? 11 : currentMonth - 1;
+          currentYear_local = currentMonth === 0 ? currentYear - 1 : currentYear;
+          dayCell.classList.add('opacity-40');
+        } else if (dayCounter <= daysInMonth) {
+          // Current month
+          currentDay = dayCounter;
+          currentMonth_local = currentMonth;
+          currentYear_local = currentYear;
+          isCurrentMonth = true;
+          dayCounter++;
+
+          // Check if today
+          const today = new Date();
+          if (currentDay === today.getDate() &&
+              currentMonth === today.getMonth() &&
+              currentYear === today.getFullYear()) {
+            isToday = true;
+            dayCell.classList.add('calendar-today');
+          }
+        } else {
+          // Next month
+          currentDay = nextMonthDay;
+          currentMonth_local = currentMonth === 11 ? 0 : currentMonth + 1;
+          currentYear_local = currentMonth === 11 ? currentYear + 1 : currentYear;
+          nextMonthDay++;
+          dayCell.classList.add('opacity-40');
+        }
+
+        // Create date string
+        const dateStr = `${currentYear_local}-${String(currentMonth_local + 1).padStart(2, '0')}-${String(currentDay).padStart(2, '0')}`;
+
+        // Day number
+        const dayNumber = document.createElement('div');
+        dayNumber.className = 'font-bold text-gray-700 mb-1 text-sm';
+        dayNumber.textContent = currentDay;
+        dayCell.appendChild(dayNumber);
+
+        // Get items for this day
+        const dayItems = getItemsForDate(dateStr);
+
+        // Show dots for items
+        if (dayItems.events.length + dayItems.reminders.length + dayItems.tasks.length > 0) {
+          const dotsContainer = document.createElement('div');
+          dotsContainer.className = 'flex gap-1 mb-1 flex-wrap';
+
+          dayItems.events.slice(0, 3).forEach(() => {
+            const dot = document.createElement('div');
+            dot.className = 'event-dot bg-blue-500';
+            dotsContainer.appendChild(dot);
+          });
+
+          dayItems.reminders.slice(0, 3).forEach(() => {
+            const dot = document.createElement('div');
+            dot.className = 'event-dot bg-amber-500';
+            dotsContainer.appendChild(dot);
+          });
+
+          dayItems.tasks.slice(0, 3).forEach(() => {
+            const dot = document.createElement('div');
+            dot.className = 'event-dot bg-green-500';
+            dotsContainer.appendChild(dot);
+          });
+
+          dayCell.appendChild(dotsContainer);
+
+          // Show first few items as mini labels (only for current month)
+          if (isCurrentMonth) {
+            const itemsPreview = document.createElement('div');
+            itemsPreview.className = 'space-y-1';
+
+            [...dayItems.events.slice(0, 2)].forEach(event => {
+              const item = document.createElement('div');
+              item.className = 'event-item bg-blue-100 text-blue-800';
+              item.textContent = event.title;
+              item.title = event.title;
+              itemsPreview.appendChild(item);
+            });
+
+            [...dayItems.reminders.slice(0, 1)].forEach(reminder => {
+              const item = document.createElement('div');
+              item.className = 'event-item bg-amber-100 text-amber-800';
+              item.textContent = reminder.title;
+              item.title = reminder.title;
+              itemsPreview.appendChild(item);
+            });
+
+            dayCell.appendChild(itemsPreview);
+          }
+        }
+
+        // Click handler
+        dayCell.onclick = () => showDayDetails(dateStr, currentDay, currentMonth_local, currentYear_local);
+
+        grid.appendChild(dayCell);
+      }
+    }
+
+    function getItemsForDate(dateStr) {
+      const result = {
+        events: [],
+        reminders: [],
+        tasks: []
+      };
+
+      if (!data) return result;
+
+      // Check events
+      data.events.forEach(event => {
+        const eventDate = new Date(event.startTsUtc);
+        const eventDateStr = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
+        if (eventDateStr === dateStr) {
+          result.events.push(event);
+        }
+      });
+
+      // Check reminders
+      data.reminders.forEach(reminder => {
+        const reminderDate = new Date(reminder.dueTsUtc);
+        const reminderDateStr = `${reminderDate.getFullYear()}-${String(reminderDate.getMonth() + 1).padStart(2, '0')}-${String(reminderDate.getDate()).padStart(2, '0')}`;
+        if (reminderDateStr === dateStr && reminder.isActive) {
+          result.reminders.push(reminder);
+        }
+      });
+
+      // Check tasks
+      data.tasks.forEach(task => {
+        if (task.dueTsUtc) {
+          const taskDate = new Date(task.dueTsUtc);
+          const taskDateStr = `${taskDate.getFullYear()}-${String(taskDate.getMonth() + 1).padStart(2, '0')}-${String(taskDate.getDate()).padStart(2, '0')}`;
+          if (taskDateStr === dateStr) {
+            result.tasks.push(task);
+          }
+        }
+      });
+
+      return result;
+    }
+
+    function showDayDetails(dateStr, day, month, year) {
+      const monthNames = [
+        'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
+        'יולי', 'אוגוסט', 'סספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
+      ];
+
+      const dayItems = getItemsForDate(dateStr);
+      const total = dayItems.events.length + dayItems.reminders.length + dayItems.tasks.length;
+
+      if (total === 0) {
+        document.getElementById('day-details').classList.add('hidden');
+        return;
+      }
+
+      selectedDate = dateStr;
+      document.getElementById('selected-day-title').textContent =
+        `${day} ב${monthNames[month]} ${year} (${total} פריטים)`;
+
+      const content = document.getElementById('day-details-content');
+      content.innerHTML = '';
+
+      // Show events
+      dayItems.events.forEach(event => {
+        const item = document.createElement('div');
+        item.className = 'bg-blue-50 border-r-4 border-blue-500 rounded-lg p-3';
+        item.innerHTML = `
+          <div class="flex items-start gap-2">
+            <span class="text-xl">📅</span>
+            <div class="flex-1">
+              <div class="font-bold text-blue-900">${escapeHtml(event.title)}</div>
+              <div class="text-sm text-blue-700 mt-1">
+                ${event.isAllDay ? '⏰ כל היום' : `🕐 ${formatTime(new Date(event.startTsUtc))}`}
+                ${event.location ? `<br>📍 ${escapeHtml(event.location)}` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+        content.appendChild(item);
+      });
+
+      // Show reminders
+      dayItems.reminders.forEach(reminder => {
+        const item = document.createElement('div');
+        item.className = 'bg-amber-50 border-r-4 border-amber-500 rounded-lg p-3';
+        item.innerHTML = `
+          <div class="flex items-start gap-2">
+            <span class="text-xl">⏰</span>
+            <div class="flex-1">
+              <div class="font-bold text-amber-900">${escapeHtml(reminder.title)}</div>
+              <div class="text-sm text-amber-700 mt-1">
+                🕐 ${formatTime(new Date(reminder.dueTsUtc))}
+                ${reminder.recurrence ? `<br>🔄 ${reminder.recurrence}` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+        content.appendChild(item);
+      });
+
+      // Show tasks
+      dayItems.tasks.forEach(task => {
+        const priorityEmoji = {
+          urgent: '🔴',
+          high: '🟠',
+          normal: '🔵',
+          low: '🟢'
+        }[task.priority] || '🔵';
+
+        const item = document.createElement('div');
+        item.className = 'bg-green-50 border-r-4 border-green-500 rounded-lg p-3';
+        item.innerHTML = `
+          <div class="flex items-start gap-2">
+            <span class="text-xl">✅</span>
+            <div class="flex-1">
+              <div class="font-bold text-green-900">
+                ${priorityEmoji} ${escapeHtml(task.title)}
+              </div>
+              ${task.description ? `<div class="text-sm text-green-700 mt-1">${escapeHtml(task.description)}</div>` : ''}
+              <div class="text-xs text-green-600 mt-1">
+                🏷️ ${getPriorityText(task.priority)}
+              </div>
+            </div>
+          </div>
+        `;
+        content.appendChild(item);
+      });
+
+      document.getElementById('day-details').classList.remove('hidden');
+    }
+
+    function changeMonth(delta) {
+      currentMonth += delta;
+      if (currentMonth < 0) {
+        currentMonth = 11;
+        currentYear--;
+      } else if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
+      renderCalendar();
+    }
+
+    function goToToday() {
+      const today = new Date();
+      currentMonth = today.getMonth();
+      currentYear = today.getFullYear();
+      renderCalendar();
     }
   </script>
 </body>

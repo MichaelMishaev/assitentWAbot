@@ -4088,13 +4088,37 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
 
     // Parse the new date/time
     let newDateTime: Date | null = null;
+
     if (reminder.date || reminder.dateText) {
+      // Full date/time provided
       newDateTime = safeParseDate(reminder.date || reminder.dateText, 'handleNLPUpdateReminder');
+    } else if (reminder.time && matchedReminders.length > 0) {
+      // Only time provided (e.g., "תעדכן שעה ל 19:00")
+      // Use the first matched reminder's date and update time
+      const existingReminder = matchedReminders[0];
+      const existingDt = DateTime.fromJSDate(existingReminder.dueTsUtc).setZone('Asia/Jerusalem');
+
+      // Parse time from format "19:00" or "19:30"
+      const timeMatch = reminder.time.match(/(\d{1,2}):(\d{2})/);
+      if (timeMatch) {
+        const hour = parseInt(timeMatch[1], 10);
+        const minute = parseInt(timeMatch[2], 10);
+
+        if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+          // Keep the date, update the time
+          newDateTime = existingDt.set({ hour, minute, second: 0, millisecond: 0 }).toJSDate();
+          logger.info('Updated reminder time only', {
+            originalTime: existingDt.toFormat('HH:mm'),
+            newTime: `${hour}:${minute}`,
+            reminderId: existingReminder.id
+          });
+        }
+      }
     }
 
     if (!newDateTime) {
       await this.sendMessage(phone, '❌ לא הצלחתי להבין את הזמן/תאריך החדש.\n\nנסה שוב או שלח /תפריט');
-      logger.error('Invalid date in NLP update reminder', { date: reminder.date, dateText: reminder.dateText });
+      logger.error('Invalid date in NLP update reminder', { date: reminder.date, dateText: reminder.dateText, time: reminder.time });
       return;
     }
 
