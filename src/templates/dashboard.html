@@ -134,61 +134,70 @@
     .week-grid {
       display: grid;
       grid-template-columns: 60px repeat(7, 1fr);
-      gap: 1px;
-      background: #e5e7eb;
-      border-radius: 12px;
+      gap: 0;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
       overflow: hidden;
     }
     .time-slot {
-      background: white;
-      padding: 8px;
-      font-size: 0.75rem;
+      background: #f9fafb;
+      padding: 8px 4px;
+      font-size: 0.7rem;
       color: #6b7280;
-      text-align: center;
-      border-right: 1px solid #e5e7eb;
+      text-align: right;
+      border-left: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
     }
     .day-column {
       background: white;
       min-height: 60px;
       position: relative;
-      padding: 4px;
+      padding: 0;
+      border-left: 1px solid #e5e7eb;
+      border-bottom: 1px solid #e5e7eb;
     }
     .day-header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 12px 8px;
+      background: #f3f4f6;
+      color: #374151;
+      padding: 8px 4px;
       text-align: center;
       font-weight: 600;
+      font-size: 0.85rem;
+      border-left: 1px solid #d1d5db;
+      border-bottom: 2px solid #d1d5db;
     }
     .day-header.today {
-      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      background: #dbeafe;
+      color: #1e40af;
+      font-weight: 700;
     }
     .event-block {
       position: absolute;
-      left: 4px;
-      right: 4px;
-      padding: 4px 6px;
-      border-radius: 6px;
-      font-size: 0.75rem;
+      left: 2px;
+      right: 2px;
+      padding: 2px 4px;
+      border-radius: 2px;
+      font-size: 0.7rem;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: opacity 0.15s ease;
       overflow: hidden;
       z-index: 1;
+      border-left: 3px solid;
     }
     .event-block:hover {
-      transform: scale(1.02);
+      opacity: 0.85;
       z-index: 10;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     }
     .event-block-event {
-      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      background: #3b82f6;
       color: white;
-      border-left: 3px solid #1d4ed8;
+      border-left-color: #1e40af;
     }
     .event-block-reminder {
-      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      background: #f59e0b;
       color: white;
-      border-left: 3px solid #b45309;
+      border-left-color: #b45309;
     }
     .compact-month {
       display: grid;
@@ -493,15 +502,15 @@
               <span>📅</span>
               <span>תצוגת שבוע</span>
             </h2>
-            <div class="flex items-center gap-2">
-              <button onclick="changeWeek(-1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+            <div class="flex items-center gap-2" dir="ltr">
+              <button onclick="changeWeek(-1)" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium transition-all">
                 ←
               </button>
-              <span id="week-range" class="text-lg font-bold text-gray-700 px-4"></span>
-              <button onclick="changeWeek(1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+              <span id="week-range" class="text-lg font-bold text-gray-700 px-4" dir="rtl"></span>
+              <button onclick="changeWeek(1)" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium transition-all">
                 →
               </button>
-              <button onclick="goToThisWeek()" class="bg-gradient-to-r from-purple-500 to-indigo-600 hover:shadow-lg text-white px-4 py-2 rounded-lg font-medium transition-all mr-2">
+              <button onclick="goToThisWeek()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-all mr-2">
                 השבוע
               </button>
             </div>
@@ -521,15 +530,15 @@
               <span>📆</span>
               <span>תצוגת חודש</span>
             </h2>
-            <div class="flex items-center gap-2">
-              <button onclick="changeMonth(-1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+            <div class="flex items-center gap-2" dir="ltr">
+              <button onclick="changeMonth(-1)" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium transition-all">
                 ←
               </button>
-              <span id="month-name" class="text-lg font-bold text-gray-700 px-4"></span>
-              <button onclick="changeMonth(1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+              <span id="month-name" class="text-lg font-bold text-gray-700 px-4" dir="rtl"></span>
+              <button onclick="changeMonth(1)" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium transition-all">
                 →
               </button>
-              <button onclick="goToThisMonth()" class="bg-gradient-to-r from-purple-500 to-indigo-600 hover:shadow-lg text-white px-4 py-2 rounded-lg font-medium transition-all mr-2">
+              <button onclick="goToThisMonth()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-all mr-2">
                 החודש
               </button>
             </div>
@@ -1335,10 +1344,10 @@
       const today = new Date();
       const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
-      // Build 7-day grid with time slots
+      // Build 7-day grid with time slots (24 hours)
       const timeSlots = [];
-      for (let hour = 8; hour <= 22; hour++) {
-        timeSlots.push(`${hour}:00`);
+      for (let hour = 0; hour <= 23; hour++) {
+        timeSlots.push(String(hour).padStart(2, '0') + ':00');
       }
 
       let html = '<div class="week-grid">';
@@ -1349,7 +1358,7 @@
         const date = new Date(currentWeekStart);
         date.setDate(date.getDate() + i);
         const isToday = date.toDateString() === today.toDateString();
-        html += `<div class="day-header ${isToday ? 'today' : ''}">${dayNames[i]}<br><span class="text-sm">${date.getDate()}/${date.getMonth()+1}</span></div>`;
+        html += `<div class="day-header ${isToday ? 'today' : ''}">${dayNames[i]}<br><span style="font-size: 0.75rem; font-weight: 400;">${date.getDate()}/${date.getMonth()+1}</span></div>`;
       }
 
       // Time slot rows
@@ -1364,27 +1373,38 @@
           html += `<div class="day-column" id="day-${dayIndex}-${rowIndex}">`;
 
           // Add events/reminders for this day/time
-          const dayItems = getItemsForDate(dateStr);
-          let eventIndex = 0;
+          const hour = parseInt(time.split(':')[0]);
 
-          dayItems.events.forEach((event, idx) => {
-            const eventTime = new Date(event.startTsUtc);
-            const eventHour = eventTime.getHours();
-            if (eventHour === parseInt(time.split(':')[0])) {
-              const top = ((eventTime.getMinutes() / 60) * 60);
-              html += `<div class="event-block event-block-event" style="top: ${top}px; height: 54px;" onclick="showEventModal(${data.events.indexOf(event)}, 'event')">
-                ${escapeHtml(event.title.substring(0, 20))}${event.title.length > 20 ? '...' : ''}
+          // Add events for this hour
+          data.events.forEach((event, eventIdx) => {
+            const eventStart = new Date(event.startTsUtc);
+            const eventDateStr = `${eventStart.getFullYear()}-${String(eventStart.getMonth()+1).padStart(2,'0')}-${String(eventStart.getDate()).padStart(2,'0')}`;
+            const eventHour = eventStart.getHours();
+
+            if (eventDateStr === dateStr && eventHour === hour) {
+              const top = ((eventStart.getMinutes() / 60) * 56);
+              const eventEnd = event.endTsUtc ? new Date(event.endTsUtc) : new Date(eventStart.getTime() + 60*60*1000);
+              const durationMinutes = Math.max(30, (eventEnd - eventStart) / (1000 * 60));
+              const height = Math.min(56, (durationMinutes / 60) * 56);
+
+              html += `<div class="event-block event-block-event" style="top: ${top}px; height: ${height}px;" onclick="showEventModal(${eventIdx}, 'event')">
+                ${escapeHtml(event.title.substring(0, 25))}${event.title.length > 25 ? '...' : ''}
               </div>`;
             }
           });
 
-          dayItems.reminders.forEach((reminder, idx) => {
+          // Add reminders for this hour
+          data.reminders.filter(r => r.isActive).forEach((reminder, reminderIdx) => {
             const reminderTime = new Date(reminder.dueTsUtc);
+            const reminderDateStr = `${reminderTime.getFullYear()}-${String(reminderTime.getMonth()+1).padStart(2,'0')}-${String(reminderTime.getDate()).padStart(2,'0')}`;
             const reminderHour = reminderTime.getHours();
-            if (reminderHour === parseInt(time.split(':')[0])) {
-              const top = ((reminderTime.getMinutes() / 60) * 60);
-              html += `<div class="event-block event-block-reminder" style="top: ${top}px; height: 54px;" onclick="showEventModal(${data.reminders.indexOf(reminder)}, 'reminder')">
-                ⏰ ${escapeHtml(reminder.title.substring(0, 18))}${reminder.title.length > 18 ? '...' : ''}
+
+            if (reminderDateStr === dateStr && reminderHour === hour) {
+              const top = ((reminderTime.getMinutes() / 60) * 56);
+              const originalReminderIdx = data.reminders.indexOf(reminder);
+
+              html += `<div class="event-block event-block-reminder" style="top: ${top}px; height: 28px;" onclick="showEventModal(${originalReminderIdx}, 'reminder')">
+                ⏰ ${escapeHtml(reminder.title.substring(0, 20))}${reminder.title.length > 20 ? '...' : ''}
               </div>`;
             }
           });
