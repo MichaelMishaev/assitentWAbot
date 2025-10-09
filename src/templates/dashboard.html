@@ -37,9 +37,15 @@
     .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
     .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
     .calendar-day {
-      min-height: 120px;
+      min-height: 140px;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       position: relative;
+    }
+    @media (max-width: 768px) {
+      .calendar-day {
+        min-height: 100px;
+        font-size: 0.85rem;
+      }
     }
     .calendar-day:hover {
       background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.08));
@@ -74,6 +80,17 @@
     .event-item:hover {
       transform: translateX(-2px);
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    @media (max-width: 768px) {
+      .event-item {
+        font-size: 0.65rem;
+        padding: 2px 4px;
+      }
+      .event-dot {
+        width: 6px;
+        height: 6px;
+        margin: 0 1px;
+      }
     }
     .modal {
       display: none;
@@ -210,6 +227,104 @@
       padding: 2px 6px;
       margin-top: 2px;
     }
+    .filter-btn {
+      opacity: 0.5;
+      border: 2px solid transparent !important;
+    }
+    .filter-btn.filter-active {
+      opacity: 1;
+    }
+    .collapsible-header {
+      cursor: pointer;
+      user-select: none;
+    }
+    .collapsible-header:active {
+      transform: scale(0.98);
+    }
+    @media (max-width: 768px) {
+      .collapsible-content {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+      }
+      .collapsible-content.expanded {
+        max-height: 5000px;
+        transition: max-height 0.5s ease-in;
+      }
+      .stats-mobile-collapsible {
+        max-height: 300px;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+      }
+      .stats-mobile-collapsible.expanded {
+        max-height: 1000px;
+      }
+    }
+    /* Toast Notification Styles */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: white;
+      border-radius: 12px;
+      padding: 16px 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 9999;
+      animation: slideInRight 0.3s ease-out;
+      max-width: 400px;
+    }
+    @keyframes slideInRight {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .toast.success { border-right: 4px solid #10b981; }
+    .toast.error { border-right: 4px solid #ef4444; }
+    .toast.info { border-right: 4px solid #3b82f6; }
+    .toast-exit {
+      animation: slideOutRight 0.3s ease-out;
+    }
+    @keyframes slideOutRight {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+    /* Progress Bar Styles */
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: rgba(0,0,0,0.1);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transition: width 0.5s ease-out;
+      border-radius: 3px;
+    }
+    /* Stat Card Enhancement */
+    .stat-card {
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.5s ease-out;
+    }
+    .stat-card.loaded::before {
+      transform: scaleX(1);
+    }
   </style>
 </head>
 <body class="bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 min-h-screen">
@@ -248,39 +363,100 @@
       </div>
     </header>
 
+    <!-- Today's Overview Smart Panel -->
+    <div class="container mx-auto px-4 -mt-8 mb-6">
+      <div id="today-overview" class="glass rounded-2xl shadow-xl p-6 mb-6">
+        <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+          <span>🎯</span>
+          <span>סקירת היום</span>
+        </h2>
+        <div id="today-content" class="space-y-3">
+          <!-- Today's items will be loaded here -->
+        </div>
+      </div>
+    </div>
+
     <!-- Stats Cards -->
-    <div class="container mx-auto px-4 -mt-8 mb-8">
+    <div class="container mx-auto px-4 mb-8">
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <!-- Stat Card Template -->
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
           <div class="text-3xl mb-2">📅</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-events">0</div>
           <div class="text-sm text-gray-600">אירועים</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-events" style="width: 0%"></div>
+          </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
           <div class="text-3xl mb-2">🗓️</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-today">0</div>
           <div class="text-sm text-gray-600">היום</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-today" style="width: 0%"></div>
+          </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
           <div class="text-3xl mb-2">⏰</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-reminders">0</div>
           <div class="text-sm text-gray-600">תזכורות</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-reminders" style="width: 0%"></div>
+          </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
           <div class="text-3xl mb-2">🔔</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-upcoming">0</div>
           <div class="text-sm text-gray-600">קרובות</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-upcoming" style="width: 0%"></div>
+          </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
           <div class="text-3xl mb-2">✅</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-tasks">0</div>
-          <div class="text-sm text-gray-600">משימות</div>
+          <div class="text-sm text-gray-600">משימות פעילות</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-tasks" style="width: 0%"></div>
+          </div>
         </div>
-        <div class="glass rounded-2xl p-4 shadow-lg card-hover">
+        <div class="glass rounded-2xl p-4 shadow-lg card-hover stat-card">
           <div class="text-3xl mb-2">🎯</div>
           <div class="text-2xl font-bold text-gray-800" id="stat-completed">0</div>
           <div class="text-sm text-gray-600">הושלמו</div>
+          <div class="progress-bar">
+            <div class="progress-fill bg-green-500" id="progress-completed" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Search & Filter Bar -->
+    <div class="container mx-auto px-4 mb-6">
+      <div class="glass rounded-2xl shadow-lg p-4">
+        <div class="flex flex-col md:flex-row gap-4 items-stretch md:items-center">
+          <!-- Search Input -->
+          <div class="flex-1 relative">
+            <input
+              type="text"
+              id="search-input"
+              placeholder="🔍 חפש אירועים, תזכורות או משימות..."
+              class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-purple-500 focus:outline-none transition-all"
+              oninput="applyFilters()"
+            />
+          </div>
+          <!-- Filter Buttons -->
+          <div class="flex gap-2 flex-wrap">
+            <button onclick="toggleFilter('events')" id="filter-events" class="filter-btn filter-active px-4 py-2 rounded-lg font-medium transition-all bg-blue-100 text-blue-700 border-2 border-blue-500">
+              📅 אירועים
+            </button>
+            <button onclick="toggleFilter('reminders')" id="filter-reminders" class="filter-btn filter-active px-4 py-2 rounded-lg font-medium transition-all bg-amber-100 text-amber-700 border-2 border-amber-500">
+              ⏰ תזכורות
+            </button>
+            <button onclick="toggleFilter('tasks')" id="filter-tasks" class="filter-btn filter-active px-4 py-2 rounded-lg font-medium transition-all bg-green-100 text-green-700 border-2 border-green-500">
+              ✅ משימות
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -548,13 +724,24 @@
         const result = await response.json();
         data = result.data;
 
-        // Update stats
-        document.getElementById('stat-events').textContent = data.stats.totalEvents;
-        document.getElementById('stat-today').textContent = data.stats.todayEvents;
-        document.getElementById('stat-reminders').textContent = data.stats.totalReminders;
-        document.getElementById('stat-upcoming').textContent = data.stats.upcomingReminders;
-        document.getElementById('stat-tasks').textContent = data.stats.activeTasks;
-        document.getElementById('stat-completed').textContent = data.stats.completedTasks;
+        // Update stats with animations
+        updateStatCard('stat-events', data.stats.totalEvents, 'progress-events', 100);
+        updateStatCard('stat-today', data.stats.todayEvents, 'progress-today', 100);
+        updateStatCard('stat-reminders', data.stats.totalReminders, 'progress-reminders', 100);
+        updateStatCard('stat-upcoming', data.stats.upcomingReminders, 'progress-upcoming', 100);
+        updateStatCard('stat-tasks', data.stats.activeTasks, 'progress-tasks', 100);
+
+        // Calculate completion percentage
+        const totalTasks = data.stats.activeTasks + data.stats.completedTasks;
+        const completionPercentage = totalTasks > 0 ? (data.stats.completedTasks / totalTasks * 100) : 0;
+        updateStatCard('stat-completed', data.stats.completedTasks, 'progress-completed', completionPercentage);
+
+        // Animate stat cards
+        setTimeout(() => {
+          document.querySelectorAll('.stat-card').forEach((card, index) => {
+            setTimeout(() => card.classList.add('loaded'), index * 100);
+          });
+        }, 100);
 
         // Start expiry timer
         startExpiryTimer(result.expiresIn);
@@ -563,6 +750,9 @@
         renderEvents(data.events);
         renderReminders(data.reminders);
         renderTasks(data.tasks);
+
+        // Render Today's Overview
+        renderTodayOverview();
 
         // Initialize week view (default)
         renderWeekView();
@@ -938,6 +1128,10 @@
               item.className = 'event-item bg-blue-100 text-blue-800';
               item.textContent = event.title;
               item.title = event.title;
+              item.onclick = (e) => {
+                e.stopPropagation();
+                showEventModal(data.events.indexOf(event), 'event');
+              };
               itemsPreview.appendChild(item);
             });
 
@@ -946,6 +1140,10 @@
               item.className = 'event-item bg-amber-100 text-amber-800';
               item.textContent = reminder.title;
               item.title = reminder.title;
+              item.onclick = (e) => {
+                e.stopPropagation();
+                showEventModal(data.reminders.indexOf(reminder), 'reminder');
+              };
               itemsPreview.appendChild(item);
             });
 
@@ -1423,6 +1621,12 @@
             ` : ''}
 
             <div class="flex gap-3 pt-4">
+              <button onclick="copyEventToClipboard(${index}, 'event')" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                </svg>
+                העתק
+              </button>
               <button onclick="closeModal()" class="flex-1 bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-6 py-3 rounded-xl font-medium hover:shadow-lg transition-all">
                 סגור
               </button>
@@ -1477,6 +1681,12 @@
             </div>
 
             <div class="flex gap-3 pt-4">
+              <button onclick="copyEventToClipboard(${index}, 'reminder')" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                </svg>
+                העתק
+              </button>
               <button onclick="closeModal()" class="flex-1 bg-gradient-to-r from-amber-500 to-orange-600 text-white px-6 py-3 rounded-xl font-medium hover:shadow-lg transition-all">
                 סגור
               </button>
@@ -1545,6 +1755,12 @@
             </div>
 
             <div class="flex gap-3 pt-4">
+              <button onclick="copyEventToClipboard(${index}, 'task')" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 px-6 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                </svg>
+                העתק
+              </button>
               <button onclick="closeModal()" class="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-6 py-3 rounded-xl font-medium hover:shadow-lg transition-all">
                 סגור
               </button>
@@ -1572,6 +1788,264 @@
         closeModal();
       }
     });
+
+    // Today's Overview functionality
+    function renderTodayOverview() {
+      const container = document.getElementById('today-content');
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+      const next3Hours = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+
+      // Find today's urgent items
+      const urgentEvents = [];
+      const overdueItems = [];
+      const todayItems = [];
+
+      // Check events happening in next 3 hours
+      data.events.forEach((event, index) => {
+        const eventTime = new Date(event.startTsUtc);
+        if (eventTime >= now && eventTime <= next3Hours) {
+          urgentEvents.push({type: 'event', data: event, index, time: eventTime});
+        } else if (eventTime >= todayStart && eventTime <= todayEnd) {
+          todayItems.push({type: 'event', data: event, index, time: eventTime});
+        }
+      });
+
+      // Check reminders happening in next 3 hours
+      data.reminders.forEach((reminder, index) => {
+        if (!reminder.isActive) return;
+        const reminderTime = new Date(reminder.dueTsUtc);
+        if (reminderTime >= now && reminderTime <= next3Hours) {
+          urgentEvents.push({type: 'reminder', data: reminder, index, time: reminderTime});
+        } else if (reminderTime >= todayStart && reminderTime <= todayEnd) {
+          todayItems.push({type: 'reminder', data: reminder, index, time: reminderTime});
+        }
+      });
+
+      // Check overdue tasks
+      data.tasks.forEach((task, index) => {
+        if (task.status === 'completed') return;
+        if (task.dueTsUtc) {
+          const taskTime = new Date(task.dueTsUtc);
+          if (taskTime < now) {
+            overdueItems.push({type: 'task', data: task, index, time: taskTime});
+          } else if (taskTime >= todayStart && taskTime <= todayEnd) {
+            todayItems.push({type: 'task', data: task, index, time: taskTime});
+          }
+        }
+      });
+
+      let html = '';
+
+      // Urgent items (next 3 hours)
+      if (urgentEvents.length > 0) {
+        html += '<div class="bg-red-50 border-r-4 border-red-500 rounded-lg p-4 mb-3">';
+        html += '<h3 class="font-bold text-red-900 mb-2 flex items-center gap-2"><span>🔥</span><span>דחוף - 3 השעות הקרובות</span></h3>';
+        urgentEvents.forEach(item => {
+          if (item.type === 'event') {
+            html += `<div class="text-sm text-red-800 mb-1">📅 <strong>${escapeHtml(item.data.title)}</strong> - ${formatTime(item.time)}</div>`;
+          } else {
+            html += `<div class="text-sm text-red-800 mb-1">⏰ <strong>${escapeHtml(item.data.title)}</strong> - ${formatTime(item.time)}</div>`;
+          }
+        });
+        html += '</div>';
+      }
+
+      // Overdue tasks
+      if (overdueItems.length > 0) {
+        html += '<div class="bg-orange-50 border-r-4 border-orange-500 rounded-lg p-4 mb-3">';
+        html += `<h3 class="font-bold text-orange-900 mb-2 flex items-center gap-2"><span>⚠️</span><span>באיחור (${overdueItems.length})</span></h3>`;
+        overdueItems.slice(0, 3).forEach(item => {
+          const priorityEmoji = {urgent: '🔴', high: '🟠', normal: '🔵', low: '🟢'}[item.data.priority] || '🔵';
+          html += `<div class="text-sm text-orange-800 mb-1">${priorityEmoji} <strong>${escapeHtml(item.data.title)}</strong></div>`;
+        });
+        if (overdueItems.length > 3) {
+          html += `<div class="text-xs text-orange-600 mt-2">ועוד ${overdueItems.length - 3} משימות...</div>`;
+        }
+        html += '</div>';
+      }
+
+      // Today's schedule
+      if (todayItems.length > 0) {
+        html += '<div class="bg-blue-50 border-r-4 border-blue-500 rounded-lg p-4">';
+        html += `<h3 class="font-bold text-blue-900 mb-2 flex items-center gap-2"><span>📅</span><span>לוח היום (${todayItems.length})</span></h3>`;
+        todayItems.sort((a, b) => a.time - b.time).slice(0, 5).forEach(item => {
+          let emoji = item.type === 'event' ? '📅' : item.type === 'reminder' ? '⏰' : '✅';
+          html += `<div class="text-sm text-blue-800 mb-1">${emoji} <strong>${escapeHtml(item.data.title)}</strong> - ${formatTime(item.time)}</div>`;
+        });
+        if (todayItems.length > 5) {
+          html += `<div class="text-xs text-blue-600 mt-2">ועוד ${todayItems.length - 5} פריטים...</div>`;
+        }
+        html += '</div>';
+      }
+
+      if (html === '') {
+        html = '<div class="text-center py-6"><div class="text-4xl mb-2">✨</div><p class="text-gray-600">היום נראה רגוע! אין פריטים דחופים</p></div>';
+      }
+
+      container.innerHTML = html;
+    }
+
+    // Search and Filter functionality
+    let activeFilters = {events: true, reminders: true, tasks: true};
+
+    function toggleFilter(type) {
+      activeFilters[type] = !activeFilters[type];
+      const btn = document.getElementById(`filter-${type}`);
+      if (activeFilters[type]) {
+        btn.classList.add('filter-active');
+      } else {
+        btn.classList.remove('filter-active');
+      }
+      applyFilters();
+    }
+
+    function applyFilters() {
+      const searchTerm = document.getElementById('search-input').value.toLowerCase();
+
+      // Filter events
+      let filteredEvents = data.events;
+      if (!activeFilters.events) {
+        filteredEvents = [];
+      } else if (searchTerm) {
+        filteredEvents = data.events.filter(e =>
+          e.title.toLowerCase().includes(searchTerm) ||
+          (e.location && e.location.toLowerCase().includes(searchTerm)) ||
+          (e.notes && e.notes.toLowerCase().includes(searchTerm))
+        );
+      }
+
+      // Filter reminders
+      let filteredReminders = data.reminders;
+      if (!activeFilters.reminders) {
+        filteredReminders = [];
+      } else if (searchTerm) {
+        filteredReminders = data.reminders.filter(r =>
+          r.title.toLowerCase().includes(searchTerm)
+        );
+      }
+
+      // Filter tasks
+      let filteredTasks = data.tasks;
+      if (!activeFilters.tasks) {
+        filteredTasks = [];
+      } else if (searchTerm) {
+        filteredTasks = data.tasks.filter(t =>
+          t.title.toLowerCase().includes(searchTerm) ||
+          (t.description && t.description.toLowerCase().includes(searchTerm))
+        );
+      }
+
+      // Re-render filtered data
+      renderEvents(filteredEvents);
+      renderReminders(filteredReminders);
+      renderTasks(filteredTasks);
+
+      // Also update agenda view if it's active
+      const agendaSection = document.getElementById('section-agenda');
+      if (!agendaSection.classList.contains('hidden')) {
+        renderAgendaView();
+      }
+    }
+
+    // Quick Actions - Copy to clipboard
+    function copyEventToClipboard(index, type) {
+      let text = '';
+      if (type === 'event') {
+        const event = data.events[index];
+        const start = new Date(event.startTsUtc);
+        text = `אירוע: ${event.title}\n`;
+        text += `תאריך: ${formatDate(start)}\n`;
+        if (!event.isAllDay) text += `שעה: ${formatTime(start)}\n`;
+        if (event.location) text += `מיקום: ${event.location}\n`;
+        if (event.notes) text += `הערות: ${event.notes}\n`;
+      } else if (type === 'reminder') {
+        const reminder = data.reminders[index];
+        const due = new Date(reminder.dueTsUtc);
+        text = `תזכורת: ${reminder.title}\n`;
+        text += `תאריך: ${formatDate(due)}\n`;
+        text += `שעה: ${formatTime(due)}\n`;
+        if (reminder.recurrence) text += `חזרתיות: ${reminder.recurrence}\n`;
+      } else if (type === 'task') {
+        const task = data.tasks[index];
+        text = `משימה: ${task.title}\n`;
+        if (task.description) text += `תיאור: ${task.description}\n`;
+        text += `עדיפות: ${getPriorityText(task.priority)}\n`;
+        if (task.dueTsUtc) text += `תאריך יעד: ${formatDate(new Date(task.dueTsUtc))}\n`;
+      }
+
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('הועתק ללוח בהצלחה! ✓', 'success');
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        showToast('שגיאה בהעתקה. אנא נסה שוב.', 'error');
+      });
+    }
+
+    // Toast Notification System
+    function showToast(message, type = 'info') {
+      // Remove existing toasts
+      document.querySelectorAll('.toast').forEach(toast => toast.remove());
+
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+
+      const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+      const iconColor = type === 'success' ? 'text-green-600' : type === 'error' ? 'text-red-600' : 'text-blue-600';
+
+      toast.innerHTML = `
+        <div class="text-2xl ${iconColor}">${icon}</div>
+        <div class="flex-1">
+          <div class="font-medium text-gray-800">${message}</div>
+        </div>
+        <button onclick="this.parentElement.remove()" class="text-gray-400 hover:text-gray-600 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      `;
+
+      document.body.appendChild(toast);
+
+      // Auto remove after 3 seconds
+      setTimeout(() => {
+        toast.classList.add('toast-exit');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    // Update Stat Card with Animation
+    function updateStatCard(statId, value, progressId, percentage) {
+      const statEl = document.getElementById(statId);
+      const progressEl = document.getElementById(progressId);
+
+      // Animate number
+      let current = 0;
+      const increment = value / 20;
+      const timer = setInterval(() => {
+        current += increment;
+        if (current >= value) {
+          statEl.textContent = value;
+          clearInterval(timer);
+        } else {
+          statEl.textContent = Math.floor(current);
+        }
+      }, 30);
+
+      // Animate progress bar
+      setTimeout(() => {
+        progressEl.style.width = `${percentage}%`;
+      }, 100);
+    }
+
+    // Mobile Collapsible Toggle
+    function toggleMobileSection(sectionId) {
+      const section = document.getElementById(sectionId);
+      if (section) {
+        section.classList.toggle('expanded');
+      }
+    }
   </script>
 </body>
 </html>
