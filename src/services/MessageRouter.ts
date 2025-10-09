@@ -15,6 +15,7 @@ import { prodMessageLogger } from '../utils/productionMessageLogger.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
 import { safeParseDate, extractDateFromIntent } from '../utils/dateValidator.js';
 import { AuthRouter } from '../routing/AuthRouter.js';
+import { CommandRouter } from '../routing/CommandRouter.js';
 import {
   formatEventComments,
   formatCommentAdded,
@@ -233,6 +234,7 @@ async function resetFailureCount(userId: string, state: ConversationState): Prom
  */
 export class MessageRouter {
   private authRouter: AuthRouter;
+  private commandRouter: CommandRouter;
 
   constructor(
     private stateManager: StateManager,
@@ -252,9 +254,21 @@ export class MessageRouter {
       redis
     );
 
+    // Initialize CommandRouter with required dependencies
+    this.commandRouter = new CommandRouter(
+      stateManager,
+      eventService,
+      reminderService,
+      taskService,
+      settingsService,
+      messageProvider,
+      this.authRouter,
+      this.sendMessage.bind(this)
+    );
+
     // Set callback for showing menu after authentication
     this.authRouter.setShowMenuCallback(async (phone: string) => {
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     });
   }
 
@@ -451,56 +465,7 @@ export class MessageRouter {
   }
 
   private async handleCommand(from: string, command: string): Promise<void> {
-    let cmd = command.trim().toLowerCase();
-
-    // Normalize commands - add "/" if missing
-    if (!cmd.startsWith('/') && this.isCommand(command)) {
-      cmd = '/' + cmd;
-    }
-    const authState = await this.authRouter.getAuthState(from);
-    const userId = authState?.userId;
-
-    switch (cmd) {
-      case '/תפריט':
-      case '/menu':
-        if (!userId) {
-          await this.sendMessage(from, 'אנא התחבר תחילה.');
-          return;
-        }
-        await proficiencyTracker.trackCommandUsage(userId);
-        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showAdaptiveMenu(from, userId, { isExplicitRequest: true });
-        break;
-
-      case '/ביטול':
-      case '/cancel':
-        if (!userId) {
-          await this.sendMessage(from, 'אנא התחבר תחילה.');
-          return;
-        }
-        await proficiencyTracker.trackCommandUsage(userId);
-        await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.sendMessage(from, 'הפעולה בוטלה. חוזרים לתפריט הראשי.');
-        await this.showAdaptiveMenu(from, userId, { isExplicitRequest: false });
-        break;
-
-      case '/עזרה':
-      case '/help':
-        await this.showHelp(from);
-        break;
-
-      case '/התנתק':
-      case '/logout':
-        if (!userId) {
-          await this.sendMessage(from, 'לא מחובר כרגע.');
-          return;
-        }
-        await this.handleLogout(from, userId);
-        break;
-
-      default:
-        await this.sendMessage(from, 'פקודה לא מוכרת. שלח /עזרה לרשימת פקודות.');
-    }
+    await this.commandRouter.handleCommand(from, command);
   }
 
   /**
@@ -692,7 +657,7 @@ export class MessageRouter {
       default:
         logger.warn('Unknown state', { userId, state });
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -758,7 +723,7 @@ export class MessageRouter {
     if (!title || !date) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -769,7 +734,7 @@ export class MessageRouter {
       await this.sendMessage(phone, '❌ תאריך לא תקין. מתחילים מחדש.');
       logger.error('Invalid date in state for handleAddingEventTime', { date });
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -838,13 +803,13 @@ export class MessageRouter {
       // Send success message
       const confirmDt = DateTime.fromJSDate(finalDate).setZone('Asia/Jerusalem');
       await this.sendMessage(phone, `✅ ${title} - ${confirmDt.toFormat('dd/MM/yyyy HH:mm')}`);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to create event', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -854,7 +819,7 @@ export class MessageRouter {
     if (choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ האירוע בוטל.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -869,7 +834,7 @@ export class MessageRouter {
     if (!title || !startTsUtc) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -890,13 +855,13 @@ export class MessageRouter {
       // Send success message
       const confirmDt = DateTime.fromJSDate(new Date(startTsUtc)).setZone('Asia/Jerusalem');
       await this.sendMessage(phone, `✅ ${title} - ${confirmDt.toFormat('dd/MM/yyyy HH:mm')}\n\n(נוצר למרות התנגשות)`);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to create event after conflict confirmation', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -907,7 +872,7 @@ export class MessageRouter {
     if (!title || !startDate) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -940,7 +905,7 @@ export class MessageRouter {
     if (choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ האירוע בוטל.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -958,7 +923,7 @@ export class MessageRouter {
     if (!title || !eventStartDate) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -981,13 +946,13 @@ export class MessageRouter {
       // React with checkmark instead of sending text message
       await this.reactToLastMessage(userId, '✅');
 
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to create event', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -1020,7 +985,7 @@ export class MessageRouter {
     if (!title) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1085,7 +1050,7 @@ export class MessageRouter {
     if (!title || !dueDate) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1135,7 +1100,7 @@ export class MessageRouter {
     if (choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ התזכורת בוטלה.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1156,7 +1121,7 @@ export class MessageRouter {
     if (!title || !reminderDueDate) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1178,13 +1143,13 @@ export class MessageRouter {
       }, new Date(reminderDueDate));
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to create reminder', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת התזכורת. נסה שוב מאוחר יותר.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -1249,7 +1214,7 @@ export class MessageRouter {
 
       case '6': // Back to main menu
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         break;
 
       default:
@@ -1281,7 +1246,7 @@ export class MessageRouter {
     if (!title) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1302,7 +1267,7 @@ export class MessageRouter {
     if (!title) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1343,7 +1308,7 @@ export class MessageRouter {
     if (!title) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1384,7 +1349,7 @@ export class MessageRouter {
     if (choice === 'לא' || choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ המשימה בוטלה.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1399,7 +1364,7 @@ export class MessageRouter {
     if (!title) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1414,12 +1379,12 @@ export class MessageRouter {
 
       await this.sendMessage(phone, `✅ המשימה נוצרה בהצלחה!\n\n📌 ${task.title}`);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     } catch (error) {
       logger.error('Failed to create task', { error });
       await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת המשימה. אנא נסה שוב.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -1435,7 +1400,7 @@ export class MessageRouter {
     if (!tasks || !Array.isArray(tasks)) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1452,12 +1417,12 @@ export class MessageRouter {
       await this.taskService.markTaskAsCompleted(task.id, userId);
       await this.sendMessage(phone, `✅ המשימה "${task.title}" סומנה כבוצעה!`);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     } catch (error) {
       logger.error('Failed to mark task as done', { error });
       await this.sendMessage(phone, '❌ אירעה שגיאה. אנא נסה שוב.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -1468,7 +1433,7 @@ export class MessageRouter {
     if (!tasks || !Array.isArray(tasks)) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1491,7 +1456,7 @@ export class MessageRouter {
     if (choice === 'לא' || choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ המחיקה בוטלה.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1506,7 +1471,7 @@ export class MessageRouter {
     if (!taskId) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1518,12 +1483,12 @@ export class MessageRouter {
         await this.sendMessage(phone, '❌ המשימה לא נמצאה.');
       }
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     } catch (error) {
       logger.error('Failed to delete task', { error });
       await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת המשימה. אנא נסה שוב.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -1559,7 +1524,7 @@ export class MessageRouter {
 
         case '5': // Back
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-          await this.showMainMenu(phone);
+          await this.commandRouter.showMainMenu(phone);
           return;
 
         default:
@@ -1597,7 +1562,7 @@ export class MessageRouter {
           return;
         case '6': // Back to main menu
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-          await this.showMainMenu(phone);
+          await this.commandRouter.showMainMenu(phone);
           return;
         default:
           await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר מספר בין 1-6.');
@@ -1607,7 +1572,7 @@ export class MessageRouter {
       if (events.length === 0) {
         await this.sendMessage(phone, '📭 אין אירועים להצגה.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         return;
       }
 
@@ -1618,13 +1583,13 @@ export class MessageRouter {
 
       await this.sendMessage(phone, message);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to list events', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בטעינת האירועים.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -1649,7 +1614,7 @@ export class MessageRouter {
       if (events.length === 0) {
         await this.sendMessage(phone, `🔍 לא נמצאו אירועים עם "${searchQuery}"\n\nנסה חיפוש אחר או שלח /תפריט לחזרה`);
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         return;
       }
 
@@ -1673,7 +1638,7 @@ export class MessageRouter {
       logger.error('Failed to search events', { userId, searchQuery, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בחיפוש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -1730,17 +1695,17 @@ export class MessageRouter {
             // Store message-event mapping for reply-to quick actions
             await this.storeMessageEventMapping(sentMessageId, updated.id);
             await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-            await this.showMainMenu(phone);
+            await this.commandRouter.showMainMenu(phone);
           } else {
             await this.sendMessage(phone, '❌ לא הצלחתי לעדכן את האירוע. נסה שוב.');
             await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-            await this.showMainMenu(phone);
+            await this.commandRouter.showMainMenu(phone);
           }
         } catch (error) {
           logger.error('Failed to postpone event', { eventId, userId, error });
           await this.sendMessage(phone, '❌ אירעה שגיאה בעדכון האירוע.');
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-          await this.showMainMenu(phone);
+          await this.commandRouter.showMainMenu(phone);
         }
         return;
       }
@@ -1750,7 +1715,7 @@ export class MessageRouter {
       if (!event) {
         await this.sendMessage(phone, '❌ אירוע לא נמצא.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         return;
       }
 
@@ -1770,7 +1735,7 @@ export class MessageRouter {
       if (!event) {
         await this.sendMessage(phone, '❌ אירוע לא נמצא.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         return;
       }
 
@@ -1783,7 +1748,7 @@ export class MessageRouter {
     if (!selectedEvent) {
       await this.sendMessage(phone, '❌ אירוע לא נמצא.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1812,7 +1777,7 @@ export class MessageRouter {
 
       case '3': // Back to main menu
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         break;
 
       default:
@@ -1829,7 +1794,7 @@ export class MessageRouter {
     if (!selectedEvent) {
       await this.sendMessage(phone, '❌ אירוע לא נמצא.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1838,7 +1803,7 @@ export class MessageRouter {
       await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
       await this.sendMessage(phone, 'ℹ️ פעולת העריכה בוטלה.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -1889,7 +1854,7 @@ export class MessageRouter {
       case '4': // Back
         await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         break;
 
       default:
@@ -1939,7 +1904,7 @@ export class MessageRouter {
               'חוזר לתפריט הראשי...'
             );
             await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-            await this.showMainMenu(phone);
+            await this.commandRouter.showMainMenu(phone);
             return;
           }
 
@@ -1986,13 +1951,13 @@ export class MessageRouter {
           }
 
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-          await this.showMainMenu(phone);
+          await this.commandRouter.showMainMenu(phone);
 
         } catch (error) {
           logger.error('Failed to update event', { userId, eventId: selectedEvent.id, error });
           await this.sendMessage(phone, '❌ אירעה שגיאה בעדכון האירוע.');
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-          await this.showMainMenu(phone);
+          await this.commandRouter.showMainMenu(phone);
         }
         break;
     }
@@ -2006,7 +1971,7 @@ export class MessageRouter {
     if (choice === '5') {
       // User chose back to menu
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2043,7 +2008,7 @@ export class MessageRouter {
       if (events.length === 0) {
         await this.sendMessage(phone, '📭 אין אירועים למחיקה.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         return;
       }
 
@@ -2091,7 +2056,7 @@ export class MessageRouter {
       logger.error('Failed to list events for deletion', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בטעינת האירועים.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -2138,7 +2103,7 @@ export class MessageRouter {
       logger.error('Failed to search events', { userId, searchQuery, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בחיפוש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -2158,7 +2123,7 @@ export class MessageRouter {
           if (!event) {
             await this.sendMessage(phone, '❌ אירוע לא נמצא.');
             await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-            await this.showMainMenu(phone);
+            await this.commandRouter.showMainMenu(phone);
             return;
           }
 
@@ -2171,7 +2136,7 @@ export class MessageRouter {
           logger.error('Failed to delete event', { userId, eventId, error });
           await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת האירוע.');
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-          await this.showMainMenu(phone);
+          await this.commandRouter.showMainMenu(phone);
         }
         return;
       }
@@ -2179,7 +2144,7 @@ export class MessageRouter {
       if (choice === 'no') {
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
         await this.sendMessage(phone, 'מחיקת האירוע בוטלה.');
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         return;
       }
 
@@ -2191,7 +2156,7 @@ export class MessageRouter {
     if (events.length === 0) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2214,7 +2179,7 @@ export class MessageRouter {
       logger.error('Failed to delete event', { userId, eventId: eventToDelete.id, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת האירוע.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -2244,12 +2209,12 @@ export class MessageRouter {
         } else {
           await this.sendMessage(phone, `⚠️ ${deletedCount} מתוך ${eventIds.length} אירועים נמחקו.\n\nחלק מהאירועים נכשלו במחיקה.`);
         }
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
       } catch (error) {
         logger.error('Failed bulk delete', { userId, error });
         await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת האירועים.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
       }
       return;
     }
@@ -2257,7 +2222,7 @@ export class MessageRouter {
     if (choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, 'מחיקת האירועים בוטלה.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2272,7 +2237,7 @@ export class MessageRouter {
     if (choice === '4') {
       // Back to menu
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2298,7 +2263,7 @@ export class MessageRouter {
         if (reminders.length === 0) {
           await this.sendMessage(phone, '📭 אין תזכורות פעילות לביטול.');
           await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-          await this.showMainMenu(phone);
+          await this.commandRouter.showMainMenu(phone);
           return;
         }
 
@@ -2322,7 +2287,7 @@ export class MessageRouter {
       if (reminders.length === 0) {
         await this.sendMessage(phone, '📭 אין תזכורות להצגה.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         return;
       }
 
@@ -2335,13 +2300,13 @@ export class MessageRouter {
 
       await this.sendMessage(phone, message);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to list reminders', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בטעינת התזכורות.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -2352,7 +2317,7 @@ export class MessageRouter {
     if (reminders.length === 0) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2374,7 +2339,7 @@ export class MessageRouter {
     if (choice === 'לא' || choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ הביטול בוטל.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2392,7 +2357,7 @@ export class MessageRouter {
     if (!reminder) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2405,13 +2370,13 @@ export class MessageRouter {
       await cancelReminder(reminder.id);
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to cancel reminder', { userId, reminderId: reminder.id, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בביטול התזכורת.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -2422,7 +2387,7 @@ export class MessageRouter {
     if (matchedReminders.length === 0) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2464,7 +2429,7 @@ export class MessageRouter {
     if (choice === 'לא' || choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ המחיקה בוטלה.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2483,7 +2448,7 @@ export class MessageRouter {
     if (!reminderId) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2502,13 +2467,13 @@ export class MessageRouter {
 
       await this.sendMessage(phone, successMessage);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to delete reminder', { userId, reminderId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה במחיקת התזכורת.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -2520,7 +2485,7 @@ export class MessageRouter {
     if (matchedReminders.length === 0 || !newDateTime) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2550,7 +2515,7 @@ export class MessageRouter {
     if (choice === 'ביטול' || choice === '❌') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ העדכון בוטל.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2567,7 +2532,7 @@ export class MessageRouter {
     if (!reminderId || !newDateTime) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2605,12 +2570,12 @@ export class MessageRouter {
         const displayDt = DateTime.fromJSDate(updatedNextOccurrence).setZone('Asia/Jerusalem');
         await this.sendMessage(phone, `✅ נוצרה תזכורת חד-פעמית!\n\n📌 ${newReminder.title}\n📅 ${displayDt.toFormat('dd/MM/yyyy HH:mm')}\n\n💡 התזכורת החוזרת המקורית ממשיכה כרגיל.`);
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
       } catch (error) {
         logger.error('Failed to create one-time reminder update', { userId, reminderId, error });
         await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת התזכורת החדשה.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
       }
     } else {
       // Update ALL - update the base reminder time
@@ -2620,7 +2585,7 @@ export class MessageRouter {
       } else {
         await this.sendMessage(phone, '❌ התזכורת לא נמצאה.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
       }
     }
   }
@@ -2631,7 +2596,7 @@ export class MessageRouter {
     if (choice === 'לא' || choice === 'no') {
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, '❌ העדכון בוטל.');
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2649,7 +2614,7 @@ export class MessageRouter {
     if (!reminderId || !newDateTime) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
       return;
     }
 
@@ -2664,7 +2629,7 @@ export class MessageRouter {
       if (!updated) {
         await this.sendMessage(phone, '❌ לא הצלחתי לעדכן את התזכורת.');
         await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-        await this.showMainMenu(phone);
+        await this.commandRouter.showMainMenu(phone);
         return;
       }
 
@@ -2687,13 +2652,13 @@ export class MessageRouter {
 
       await this.sendMessage(phone, successMessage);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
 
     } catch (error) {
       logger.error('Failed to update reminder', { userId, reminderId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בעדכון התזכורת.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showMainMenu(phone);
+      await this.commandRouter.showMainMenu(phone);
     }
   }
 
@@ -2705,7 +2670,7 @@ export class MessageRouter {
     if (choice === '4') {
       // Back to menu
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showAdaptiveMenu(phone, userId, { isExplicitRequest: false });
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { isExplicitRequest: false });
       return;
     }
 
@@ -2753,7 +2718,7 @@ export class MessageRouter {
       logger.error('Failed to load settings', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בטעינת ההגדרות.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showAdaptiveMenu(phone, userId, { isError: true });
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
     }
   }
 
@@ -2781,12 +2746,12 @@ export class MessageRouter {
       await this.settingsService.updateLocale(userId, locale);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, `✅ השפה שונתה ל-${languageName}!`);
-      await this.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
     } catch (error) {
       logger.error('Failed to update language', { userId, locale, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בשינוי השפה.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showAdaptiveMenu(phone, userId, { isError: true });
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
     }
   }
 
@@ -2822,12 +2787,12 @@ export class MessageRouter {
       await this.settingsService.updateTimezone(userId, timezone);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, `✅ אזור הזמן שונה ל-${timezoneName}!`);
-      await this.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
     } catch (error) {
       logger.error('Failed to update timezone', { userId, timezone, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בשינוי אזור הזמן.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showAdaptiveMenu(phone, userId, { isError: true });
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
     }
   }
 
@@ -2863,12 +2828,12 @@ export class MessageRouter {
       await this.settingsService.updateMenuDisplayMode(userId, mode);
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.sendMessage(phone, `✅ מצב תצוגת תפריט שונה ל-${modeName}!`);
-      await this.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
     } catch (error) {
       logger.error('Failed to update menu display mode', { userId, mode, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בשינוי מצב תצוגת התפריט.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.showAdaptiveMenu(phone, userId, { isError: true });
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
     }
   }
 
@@ -2911,7 +2876,7 @@ export class MessageRouter {
           break;
 
         case '6': // Help
-          await this.showHelp(phone);
+          await this.commandRouter.handleCommand(phone, '/help');
           break;
       }
       return;
@@ -2953,100 +2918,6 @@ export class MessageRouter {
     await this.handleNLPMessage(phone, userId, text);
   }
 
-  private async showMainMenu(phone: string): Promise<void> {
-    const menu = `📋 תפריט ראשי
-
-📅 1) האירועים שלי
-➕ 2) הוסף אירוע
-⏰ 3) הוסף תזכורת
-✅ 4) משימות
-⚙️ 5) הגדרות
-❓ 6) עזרה
-
-💬 *פשוט כתוב מה שאתה רוצה!*
-לדוגמה: "מה יש לי היום", "הוסף פגישה מחר"
-
-או בחר מספר (1-6)`;
-
-    await this.sendMessage(phone, menu);
-  }
-
-  /**
-   * Show adaptive menu based on user proficiency and preferences
-   */
-  private async showAdaptiveMenu(
-    phone: string,
-    userId: string,
-    context: {
-      isError?: boolean;
-      isIdle?: boolean;
-      lastMessageTime?: Date;
-      isExplicitRequest?: boolean;
-      actionType?: 'event_created' | 'event_deleted' | 'reminder_created' | 'task_completed' | 'contact_added' | 'settings_updated';
-    }
-  ): Promise<void> {
-    // Get user preference
-    const menuPreference = await this.settingsService.getMenuDisplayMode(userId);
-
-    // Determine if menu should be shown
-    const menuDecision = await proficiencyTracker.shouldShowMenu(userId, menuPreference, {
-      isError: context.isError || false,
-      isIdle: context.isIdle || false,
-      lastMessageTime: context.lastMessageTime,
-      isExplicitRequest: context.isExplicitRequest || false,
-    });
-
-    if (!menuDecision.show) {
-      return; // Don't show menu
-    }
-
-    // Show full menu
-    if (menuDecision.type === 'full') {
-      await this.showMainMenu(phone);
-      return;
-    }
-
-    // Show contextual mini-menu
-    if (menuDecision.type === 'contextual' && context.actionType) {
-      await this.showContextualMenu(phone, context.actionType);
-      return;
-    }
-
-    // Fallback to full menu
-    await this.showMainMenu(phone);
-  }
-
-  /**
-   * Show contextual mini-menu based on recent action
-   */
-  private async showContextualMenu(phone: string, actionType: string): Promise<void> {
-    let menu = '';
-
-    switch (actionType) {
-      case 'event_created':
-        menu = `✅ האירוע נוסף!\n\nמה עוד?\n📅 ראה אירועים\n⏰ הוסף תזכורת\n➕ אירוע נוסף\n\n(או שלח /תפריט)`;
-        break;
-      case 'event_deleted':
-        menu = `✅ האירוע נמחק!\n\nמה עוד?\n📅 ראה אירועים\n➕ הוסף אירוע\n\n(או שלח /תפריט)`;
-        break;
-      case 'reminder_created':
-        menu = `✅ התזכורת נוספה!\n\nמה עוד?\n⏰ ראה תזכורות\n➕ תזכורת נוספת\n📅 הוסף אירוע\n\n(או שלח /תפריט)`;
-        break;
-      case 'task_completed':
-        menu = `✅ משימה הושלמה!\n\nמה עוד?\n✅ ראה משימות\n➕ משימה חדשה\n\n(או שלח /תפריט)`;
-        break;
-      case 'contact_added':
-        menu = `✅ איש הקשר נוסף!\n\nמה עוד?\n👨‍👩‍👧 ראה אנשי קשר\n📝 נסח הודעה\n\n(או שלח /תפריט)`;
-        break;
-      case 'settings_updated':
-        menu = `✅ ההגדרות עודכנו!\n\n⚙️ הגדרות נוספות\n📋 תפריט ראשי\n\n(או שלח /תפריט)`;
-        break;
-      default:
-        menu = `מה לעשות הלאה?\n\n📋 שלח /תפריט לתפריט מלא`;
-    }
-
-    await this.sendMessage(phone, menu);
-  }
 
   // ========== NLP HANDLERS ==========
 
@@ -3124,7 +2995,7 @@ export class MessageRouter {
       if (intent.confidence < requiredConfidence || intent.intent === 'unknown') {
         await proficiencyTracker.trackNLPFailure(userId);
         await this.sendMessage(phone, intent.clarificationNeeded || 'לא הבנתי. אנא נסה שוב או שלח /תפריט לתפריט ראשי');
-        await this.showAdaptiveMenu(phone, userId, { isError: true });
+        await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
         return;
       }
 
@@ -4138,39 +4009,6 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
     }
   }
 
-  private async showHelp(phone: string): Promise<void> {
-    const help = `עזרה - מדריך שימוש 📖
-
-🔹 פקודות מינימליות:
-/תפריט - חזרה לתפריט הראשי
-/ביטול - ביטול פעולה נוכחית
-/עזרה - הצגת עזרה זו
-/התנתק - יציאה מהחשבון
-
-🔹 תכונות פעילות:
-✅ ניהול אירועים (יצירה, רשימה, עריכה, מחיקה)
-✅ תזכורות (יצירה, תזמון אוטומטי)
-✅ משימות (מעקב והשלמה)
-✅ לוח אישי מעוצב (HTML)
-✅ הגדרות (שפה, אזור זמן)
-✅ NLP - שפה טבעית!
-
-💬 דוגמאות לשימוש בשפה טבעית:
-• "קבע פגישה עם דני מחר ב-3"
-• "תזכיר לי להתקשר לאמא ביום רביעי"
-• "מה יש לי מחר?"
-• "תן לי דף סיכום" / "רוצה לראות הכל"
-
-✨ פשוט דבר איתי כמו עם אדם - אני אבין!`;
-
-    await this.sendMessage(phone, help);
-  }
-
-  private async handleLogout(phone: string, userId: string): Promise<void> {
-    await this.authRouter.clearAuthState(phone);
-    await this.stateManager.clearState(userId);
-    await this.sendMessage(phone, 'התנתקת בהצלחה. להתראות! 👋');
-  }
 
   private async sendMessage(to: string, message: string): Promise<string> {
     try {
