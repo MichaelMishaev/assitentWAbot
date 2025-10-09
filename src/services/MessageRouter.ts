@@ -3195,8 +3195,8 @@ export class MessageRouter {
 
   private async handleNLPMessage(phone: string, userId: string, text: string): Promise<void> {
     try {
-      const { NLPService } = await import('./NLPService.js');
-      const nlp = new NLPService();
+      const { DualNLPService } = await import('./DualNLPService.js');
+      const nlp = new DualNLPService();
 
       const user = await this.authService.getUserByPhone(phone);
       const contacts = await this.contactService.getAllContacts(userId);
@@ -3251,7 +3251,7 @@ export class MessageRouter {
         }
       }
 
-      const intent = await nlp.parseIntent(contextEnhancedText, contacts, user?.timezone || 'Asia/Jerusalem', conversationHistory);
+      const intent = await nlp.parseIntent(contextEnhancedText, contacts, user?.timezone || 'Asia/Jerusalem', conversationHistory, userId);
 
       // Intent-specific confidence thresholds
       const isSearchIntent = intent.intent === 'search_event' || intent.intent === 'list_events';
@@ -4997,8 +4997,8 @@ ${dashboardUrl}
       });
 
       // Use NLP to parse the new time from user's text
-      const { NLPService } = await import('./NLPService.js');
-      const nlp = new NLPService();
+      const { DualNLPService } = await import('./DualNLPService.js');
+      const nlp = new DualNLPService();
       const contacts = await this.contactService.getAllContacts(userId);
       const timezone = 'Asia/Jerusalem'; // Default timezone
 
@@ -5011,7 +5011,8 @@ ${dashboardUrl}
         `עדכן את ${event.title} ל-${originalDate} ${normalizedText}`, // Include original date + new time
         contacts,
         timezone,
-        []
+        [],
+        userId
       );
 
       if (intent.intent === 'update_event' && intent.event?.date) {

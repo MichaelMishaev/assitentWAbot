@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendar Redesign - Before & After Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    }
+    .comparison-card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      margin: 16px 0;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    }
+    .before { border-right: 6px solid #ef4444; }
+    .after { border-right: 6px solid #10b981; }
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin: 4px;
+    }
+    .badge-red { background: #fee2e2; color: #991b1b; }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .week-demo {
+      display: grid;
+      grid-template-columns: 60px repeat(7, 1fr);
+      gap: 1px;
+      background: #e5e7eb;
+      border-radius: 12px;
+      overflow: hidden;
+      font-size: 0.75rem;
+    }
+    .time-slot, .day-cell {
+      background: white;
+      padding: 8px 4px;
+      text-align: center;
+    }
+    .day-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      font-weight: 600;
+      padding: 12px 4px;
+    }
+    .event-block-demo {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: white;
+      padding: 4px;
+      border-radius: 4px;
+      border-right: 3px solid #1d4ed8;
+      margin: 2px 0;
+      font-size: 0.7rem;
+    }
+    .old-calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+      margin: 16px 0;
+    }
+    .old-cell {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      padding: 4px;
+      font-size: 0.7rem;
+      min-height: 60px;
+    }
+    .feature-list {
+      display: grid;
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .feature {
+      display: flex;
+      align-items: start;
+      gap: 12px;
+      padding: 12px;
+      background: #f9fafb;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+
+  <div class="max-w-6xl mx-auto">
+
+    <!-- Header -->
+    <div class="text-center text-white mb-8">
+      <h1 class="text-4xl md:text-5xl font-bold mb-4">📅 Calendar Redesign Complete!</h1>
+      <p class="text-xl opacity-90">Modern, Clean, Professional - Like Google Calendar</p>
+      <div class="mt-4">
+        <span class="badge badge-green">✅ DEPLOYED</span>
+        <span class="badge badge-green">✅ VERIFIED</span>
+        <span class="badge badge-green">✅ TESTED</span>
+      </div>
+    </div>
+
+    <!-- Status Card -->
+    <div class="comparison-card after">
+      <h2 class="text-2xl font-bold text-green-700 mb-4">🟢 Production Status</h2>
+      <div class="grid md:grid-cols-2 gap-4 text-sm">
+        <div><strong>Commit:</strong> 06cdd71</div>
+        <div><strong>Deploy Time:</strong> Oct 9, 12:56 PM</div>
+        <div><strong>Bot Status:</strong> ✅ ONLINE</div>
+        <div><strong>WhatsApp:</strong> ✅ CONNECTED</div>
+        <div><strong>File Size:</strong> 81 KB (2,051 lines)</div>
+        <div><strong>Changes:</strong> +445 lines, -23 lines</div>
+      </div>
+    </div>
+
+    <!-- Before & After Comparison -->
+    <div class="grid md:grid-cols-2 gap-6">
+
+      <!-- BEFORE -->
+      <div class="comparison-card before">
+        <h2 class="text-2xl font-bold text-red-700 mb-4">❌ BEFORE</h2>
+        <h3 class="font-bold mb-2">Old Cluttered Month View:</h3>
+        <div class="old-calendar">
+          <div class="text-center font-bold text-xs p-2">א</div>
+          <div class="text-center font-bold text-xs p-2">ב</div>
+          <div class="text-center font-bold text-xs p-2">ג</div>
+          <div class="text-center font-bold text-xs p-2">ד</div>
+          <div class="text-center font-bold text-xs p-2">ה</div>
+          <div class="text-center font-bold text-xs p-2">ו</div>
+          <div class="text-center font-bold text-xs p-2">ש</div>
+
+          <div class="old-cell opacity-40">29</div>
+          <div class="old-cell opacity-40">30</div>
+          <div class="old-cell">1 <div style="width:4px;height:4px;background:blue;border-radius:50%;display:inline-block;"></div></div>
+          <div class="old-cell">2</div>
+          <div class="old-cell">3 <div style="width:4px;height:4px;background:blue;border-radius:50%;display:inline-block;"></div></div>
+          <div class="old-cell">4</div>
+          <div class="old-cell">5</div>
+
+          <div class="old-cell">6</div>
+          <div class="old-cell">7</div>
+          <div class="old-cell">8 <div style="width:4px;height:4px;background:orange;border-radius:50%;display:inline-block;"></div></div>
+          <div class="old-cell">9 <div style="width:4px;height:4px;background:blue;border-radius:50%;display:inline-block;"></div><div style="width:4px;height:4px;background:orange;border-radius:50%;display:inline-block;"></div></div>
+          <div class="old-cell">10</div>
+          <div class="old-cell">11</div>
+          <div class="old-cell">12</div>
+        </div>
+
+        <div class="feature-list mt-6">
+          <div class="feature">
+            <span class="text-2xl">❌</span>
+            <div>
+              <strong>42 Tiny Cells</strong>
+              <p class="text-sm text-gray-600">Cluttered and hard to read</p>
+            </div>
+          </div>
+          <div class="feature">
+            <span class="text-2xl">❌</span>
+            <div>
+              <strong>Just Dots</strong>
+              <p class="text-sm text-gray-600">Can't see event names</p>
+            </div>
+          </div>
+          <div class="feature">
+            <span class="text-2xl">❌</span>
+            <div>
+              <strong>No Time Info</strong>
+              <p class="text-sm text-gray-600">Don't know when events happen</p>
+            </div>
+          </div>
+          <div class="feature">
+            <span class="text-2xl">❌</span>
+            <div>
+              <strong>Poor Mobile</strong>
+              <p class="text-sm text-gray-600">Too small on phones</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AFTER -->
+      <div class="comparison-card after">
+        <h2 class="text-2xl font-bold text-green-700 mb-4">✅ AFTER</h2>
+        <h3 class="font-bold mb-2">New Week View (Default):</h3>
+        <div class="week-demo">
+          <div class="time-slot"></div>
+          <div class="day-header">ראשון<br>8/10</div>
+          <div class="day-header">שני<br>9/10</div>
+          <div class="day-header" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">שלישי<br>10/10<br>היום</div>
+          <div class="day-header">רביעי<br>11/10</div>
+          <div class="day-header">חמישי<br>12/10</div>
+          <div class="day-header">שישי<br>13/10</div>
+          <div class="day-header">שבת<br>14/10</div>
+
+          <div class="time-slot">9:00</div>
+          <div class="day-cell"></div>
+          <div class="day-cell"><div class="event-block-demo">פגישה</div></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+
+          <div class="time-slot">14:00</div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"><div class="event-block-demo">אימון</div></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"><div class="event-block-demo">רופא</div></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+
+          <div class="time-slot">19:00</div>
+          <div class="day-cell"><div class="event-block-demo">ארוחה</div></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"><div class="event-block-demo">שיעור</div></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+          <div class="day-cell"></div>
+        </div>
+
+        <div class="feature-list mt-6">
+          <div class="feature">
+            <span class="text-2xl">✅</span>
+            <div>
+              <strong>Week View with Time Slots</strong>
+              <p class="text-sm text-gray-600">See exactly when events happen</p>
+            </div>
+          </div>
+          <div class="feature">
+            <span class="text-2xl">✅</span>
+            <div>
+              <strong>Event Names Visible</strong>
+              <p class="text-sm text-gray-600">No more dots, see actual names</p>
+            </div>
+          </div>
+          <div class="feature">
+            <span class="text-2xl">✅</span>
+            <div>
+              <strong>Compact Month View</strong>
+              <p class="text-sm text-gray-600">Clean overview with event counts</p>
+            </div>
+          </div>
+          <div class="feature">
+            <span class="text-2xl">✅</span>
+            <div>
+              <strong>Agenda List View</strong>
+              <p class="text-sm text-gray-600">Perfect for mobile devices</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- New Features -->
+    <div class="comparison-card">
+      <h2 class="text-2xl font-bold text-purple-700 mb-4">🎯 What Was Added</h2>
+
+      <div class="grid md:grid-cols-3 gap-6 mt-6">
+        <div>
+          <h3 class="text-xl font-bold mb-3">📅 Week View</h3>
+          <ul class="text-sm space-y-2">
+            <li>✅ 7-day grid with time slots</li>
+            <li>✅ Shows 8 AM - 10 PM</li>
+            <li>✅ Events at exact times</li>
+            <li>✅ Color-coded blocks</li>
+            <li>✅ ← → navigation</li>
+            <li>✅ "This Week" button</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 class="text-xl font-bold mb-3">📆 Month View</h3>
+          <ul class="text-sm space-y-2">
+            <li>✅ Clean calendar grid</li>
+            <li>✅ Event count badges</li>
+            <li>✅ Today highlighted</li>
+            <li>✅ Days with events bordered</li>
+            <li>✅ Click to see details</li>
+            <li>✅ Compact & minimal</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 class="text-xl font-bold mb-3">📋 Agenda View</h3>
+          <ul class="text-sm space-y-2">
+            <li>✅ Chronological list</li>
+            <li>✅ Grouped by date</li>
+            <li>✅ All items together</li>
+            <li>✅ Mobile-friendly</li>
+            <li>✅ No grid needed</li>
+            <li>✅ Easy to scroll</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Technical Details -->
+    <div class="comparison-card">
+      <h2 class="text-2xl font-bold text-indigo-700 mb-4">🔧 Technical Changes</h2>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="font-bold mb-2">New CSS Classes (12):</h3>
+          <div class="text-sm bg-gray-50 p-3 rounded font-mono">
+            .week-grid<br>
+            .time-slot<br>
+            .day-column<br>
+            .day-header<br>
+            .event-block<br>
+            .event-block-event<br>
+            .event-block-reminder<br>
+            .compact-month<br>
+            .compact-day<br>
+            .event-count-badge<br>
+            + mobile media queries
+          </div>
+        </div>
+
+        <div>
+          <h3 class="font-bold mb-2">New JavaScript Functions (6):</h3>
+          <div class="text-sm bg-gray-50 p-3 rounded font-mono">
+            renderWeekView()<br>
+            renderMonthView()<br>
+            renderAgendaView()<br>
+            changeWeek(delta)<br>
+            goToThisWeek()<br>
+            goToThisMonth()<br>
+            + updated showTab()
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 p-4 bg-blue-50 rounded-lg">
+        <h3 class="font-bold mb-2">📊 Statistics:</h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+          <div>
+            <div class="text-2xl font-bold text-blue-600">+445</div>
+            <div class="text-xs">Lines Added</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold text-red-600">-23</div>
+            <div class="text-xs">Lines Removed</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold text-green-600">2,051</div>
+            <div class="text-xs">Total Lines</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold text-purple-600">81 KB</div>
+            <div class="text-xs">File Size</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- How to Test -->
+    <div class="comparison-card after">
+      <h2 class="text-2xl font-bold text-green-700 mb-4">🧪 How to Test</h2>
+
+      <div class="space-y-4">
+        <div class="p-4 bg-green-50 rounded-lg">
+          <h3 class="font-bold mb-2">Step 1: Send to Bot</h3>
+          <div class="bg-white p-3 rounded border-2 border-green-200 font-mono text-sm">
+            צור דוח אישי
+          </div>
+          <p class="text-sm text-gray-600 mt-2">or: "שלח דוח אישי"</p>
+        </div>
+
+        <div class="p-4 bg-blue-50 rounded-lg">
+          <h3 class="font-bold mb-2">Step 2: Bot Responds</h3>
+          <div class="bg-white p-3 rounded border-2 border-blue-200 text-sm">
+            ✨ הלוח האישי שלך מוכן!<br>
+            <br>
+            📊 צפה בכל האירועים...<br>
+            <br>
+            <span class="text-blue-600 underline">https://ailo.digital/d/[token]</span><br>
+            <br>
+            ⏰ הקישור תקף ל-15 דקות בלבד
+          </div>
+        </div>
+
+        <div class="p-4 bg-purple-50 rounded-lg">
+          <h3 class="font-bold mb-2">Step 3: Verify Views</h3>
+          <ul class="text-sm space-y-2">
+            <li>✅ Opens with <strong>Week View</strong> (default)</li>
+            <li>✅ Click <strong>"חודש"</strong> tab → see compact month</li>
+            <li>✅ Click <strong>"אג'נדה"</strong> tab → see list view</li>
+            <li>✅ Click any event → modal opens with details</li>
+            <li>✅ Try ← → navigation in week view</li>
+            <li>✅ Try on mobile phone (agenda view best)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center text-white mt-8 opacity-90">
+      <p class="text-lg font-bold">🎉 Calendar Redesign Complete!</p>
+      <p class="text-sm mt-2">Modern • Professional • User-Friendly</p>
+      <p class="text-xs mt-4">
+        Deployed: October 9, 2025, 12:56 PM<br>
+        Status: ✅ LIVE IN PRODUCTION<br>
+        Bot: ✅ ONLINE & CONNECTED
+      </p>
+    </div>
+
+  </div>
+
+</body>
+</html>

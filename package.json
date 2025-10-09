@@ -35,6 +35,7 @@
   "author": "Michael Mishaev",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@hapi/boom": "^10.0.1",
     "@types/qrcode": "^1.5.5",
     "@whiskeysockets/baileys": "^6.7.9",
