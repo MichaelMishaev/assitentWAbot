@@ -114,6 +114,102 @@
     .clickable-card:active {
       transform: scale(0.98);
     }
+    .week-grid {
+      display: grid;
+      grid-template-columns: 60px repeat(7, 1fr);
+      gap: 1px;
+      background: #e5e7eb;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .time-slot {
+      background: white;
+      padding: 8px;
+      font-size: 0.75rem;
+      color: #6b7280;
+      text-align: center;
+      border-right: 1px solid #e5e7eb;
+    }
+    .day-column {
+      background: white;
+      min-height: 60px;
+      position: relative;
+      padding: 4px;
+    }
+    .day-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 12px 8px;
+      text-align: center;
+      font-weight: 600;
+    }
+    .day-header.today {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    }
+    .event-block {
+      position: absolute;
+      left: 4px;
+      right: 4px;
+      padding: 4px 6px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      overflow: hidden;
+      z-index: 1;
+    }
+    .event-block:hover {
+      transform: scale(1.02);
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .event-block-event {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: white;
+      border-left: 3px solid #1d4ed8;
+    }
+    .event-block-reminder {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: white;
+      border-left: 3px solid #b45309;
+    }
+    .compact-month {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .compact-day {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: white;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      padding: 4px;
+    }
+    .compact-day:hover {
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+      transform: scale(1.05);
+    }
+    .compact-day.today {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      font-weight: bold;
+    }
+    .compact-day.has-events {
+      border: 2px solid #667eea;
+    }
+    .event-count-badge {
+      font-size: 0.65rem;
+      background: #667eea;
+      color: white;
+      border-radius: 10px;
+      padding: 2px 6px;
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body class="bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 min-h-screen">
@@ -192,11 +288,14 @@
     <!-- Tabs -->
     <div class="container mx-auto px-4 mb-6">
       <div class="glass rounded-2xl p-2 shadow-lg inline-flex gap-2 flex-wrap">
-        <button onclick="showTab('calendar')" id="tab-calendar" class="px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg">
-          📆 לוח שנה
+        <button onclick="showTab('week')" id="tab-week" class="px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg">
+          📅 שבוע
         </button>
-        <button onclick="showTab('events')" id="tab-events" class="px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100">
-          📅 אירועים
+        <button onclick="showTab('month')" id="tab-month" class="px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100">
+          📆 חודש
+        </button>
+        <button onclick="showTab('agenda')" id="tab-agenda" class="px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100">
+          📋 אג'נדה
         </button>
         <button onclick="showTab('reminders')" id="tab-reminders" class="px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100">
           ⏰ תזכורות
@@ -210,8 +309,77 @@
     <!-- Content Sections -->
     <div class="container mx-auto px-4 pb-12">
 
-      <!-- Calendar Section -->
-      <div id="section-calendar" class="fade-in">
+      <!-- Week View Section -->
+      <div id="section-week" class="fade-in">
+        <div class="glass rounded-2xl shadow-xl p-4 md:p-8">
+          <div class="flex items-center justify-between mb-6 flex-wrap gap-4">
+            <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
+              <span>📅</span>
+              <span>תצוגת שבוע</span>
+            </h2>
+            <div class="flex items-center gap-2">
+              <button onclick="changeWeek(-1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+                ←
+              </button>
+              <span id="week-range" class="text-lg font-bold text-gray-700 px-4"></span>
+              <button onclick="changeWeek(1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+                →
+              </button>
+              <button onclick="goToThisWeek()" class="bg-gradient-to-r from-purple-500 to-indigo-600 hover:shadow-lg text-white px-4 py-2 rounded-lg font-medium transition-all mr-2">
+                השבוע
+              </button>
+            </div>
+          </div>
+
+          <div id="week-view-content" class="overflow-x-auto">
+            <!-- Week grid will be generated here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Month View Section -->
+      <div id="section-month" class="hidden fade-in">
+        <div class="glass rounded-2xl shadow-xl p-4 md:p-8">
+          <div class="flex items-center justify-between mb-6 flex-wrap gap-4">
+            <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
+              <span>📆</span>
+              <span>תצוגת חודש</span>
+            </h2>
+            <div class="flex items-center gap-2">
+              <button onclick="changeMonth(-1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+                ←
+              </button>
+              <span id="month-name" class="text-lg font-bold text-gray-700 px-4"></span>
+              <button onclick="changeMonth(1)" class="bg-purple-100 hover:bg-purple-200 text-purple-700 px-4 py-2 rounded-lg font-medium transition-all">
+                →
+              </button>
+              <button onclick="goToThisMonth()" class="bg-gradient-to-r from-purple-500 to-indigo-600 hover:shadow-lg text-white px-4 py-2 rounded-lg font-medium transition-all mr-2">
+                החודש
+              </button>
+            </div>
+          </div>
+
+          <div id="month-view-content" class="overflow-x-auto">
+            <!-- Month grid will be generated here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Agenda View Section -->
+      <div id="section-agenda" class="hidden fade-in">
+        <div class="glass rounded-2xl shadow-xl p-4 md:p-8">
+          <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+            <span>📋</span>
+            <span>אג'נדה - כל האירועים והתזכורות</span>
+          </h2>
+          <div id="agenda-list" class="space-y-4">
+            <!-- Agenda items will be loaded here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Old Calendar Section - Remove -->
+      <div id="section-calendar" class="hidden fade-in">
         <div class="glass rounded-2xl shadow-xl p-4 md:p-8">
           <div class="flex items-center justify-between mb-6 flex-wrap gap-4">
             <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-3">
@@ -396,8 +564,8 @@
         renderReminders(data.reminders);
         renderTasks(data.tasks);
 
-        // Initialize calendar
-        initializeCalendar();
+        // Initialize week view (default)
+        renderWeekView();
 
         // Show content
         document.getElementById('loading').classList.add('hidden');
@@ -578,25 +746,30 @@
 
     function showTab(tab) {
       // Hide all sections
-      document.getElementById('section-calendar').classList.add('hidden');
-      document.getElementById('section-events').classList.add('hidden');
-      document.getElementById('section-reminders').classList.add('hidden');
-      document.getElementById('section-tasks').classList.add('hidden');
+      const sections = ['week', 'month', 'agenda', 'calendar', 'events', 'reminders', 'tasks'];
+      sections.forEach(section => {
+        const el = document.getElementById(`section-${section}`);
+        if (el) el.classList.add('hidden');
+      });
 
       // Reset all tab buttons
-      document.getElementById('tab-calendar').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
-      document.getElementById('tab-events').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
-      document.getElementById('tab-reminders').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
-      document.getElementById('tab-tasks').className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
+      const tabs = ['week', 'month', 'agenda', 'calendar', 'events', 'reminders', 'tasks'];
+      tabs.forEach(t => {
+        const el = document.getElementById(`tab-${t}`);
+        if (el) el.className = 'px-6 py-3 rounded-xl font-medium transition-all text-gray-700 hover:bg-gray-100';
+      });
 
       // Show selected section and activate tab
-      document.getElementById(`section-${tab}`).classList.remove('hidden');
-      document.getElementById(`tab-${tab}`).className = 'px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg';
+      const section = document.getElementById(`section-${tab}`);
+      const tabBtn = document.getElementById(`tab-${tab}`);
+      if (section) section.classList.remove('hidden');
+      if (tabBtn) tabBtn.className = 'px-6 py-3 rounded-xl font-medium transition-all bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg';
 
-      // If calendar tab is shown, render the calendar
-      if (tab === 'calendar') {
-        renderCalendar();
-      }
+      // Render specific views
+      if (tab === 'week') renderWeekView();
+      if (tab === 'month') renderMonthView();
+      if (tab === 'agenda') renderAgendaView();
+      if (tab === 'calendar') renderCalendar();
     }
 
     function showError(message) {
@@ -935,6 +1108,255 @@
       currentMonth = today.getMonth();
       currentYear = today.getFullYear();
       renderCalendar();
+    }
+
+    // Week view state and functions
+    let currentWeekStart = new Date();
+    currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());  // Start of week (Sunday)
+
+    function changeWeek(delta) {
+      currentWeekStart.setDate(currentWeekStart.getDate() + (delta * 7));
+      renderWeekView();
+    }
+
+    function goToThisWeek() {
+      currentWeekStart = new Date();
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      renderWeekView();
+    }
+
+    function renderWeekView() {
+      const weekEnd = new Date(currentWeekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+
+      // Update week range display
+      const rangeText = `${currentWeekStart.getDate()}/${currentWeekStart.getMonth()+1} - ${weekEnd.getDate()}/${weekEnd.getMonth()+1}`;
+      document.getElementById('week-range').textContent = rangeText;
+
+      const container = document.getElementById('week-view-content');
+      const today = new Date();
+      const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
+      // Build 7-day grid with time slots
+      const timeSlots = [];
+      for (let hour = 8; hour <= 22; hour++) {
+        timeSlots.push(`${hour}:00`);
+      }
+
+      let html = '<div class="week-grid">';
+
+      // Header row
+      html += '<div class="time-slot"></div>'; // Empty corner
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(currentWeekStart);
+        date.setDate(date.getDate() + i);
+        const isToday = date.toDateString() === today.toDateString();
+        html += `<div class="day-header ${isToday ? 'today' : ''}">${dayNames[i]}<br><span class="text-sm">${date.getDate()}/${date.getMonth()+1}</span></div>`;
+      }
+
+      // Time slot rows
+      timeSlots.forEach((time, rowIndex) => {
+        html += `<div class="time-slot">${time}</div>`;
+
+        for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+          const date = new Date(currentWeekStart);
+          date.setDate(date.getDate() + dayIndex);
+          const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+
+          html += `<div class="day-column" id="day-${dayIndex}-${rowIndex}">`;
+
+          // Add events/reminders for this day/time
+          const dayItems = getItemsForDate(dateStr);
+          let eventIndex = 0;
+
+          dayItems.events.forEach((event, idx) => {
+            const eventTime = new Date(event.startTsUtc);
+            const eventHour = eventTime.getHours();
+            if (eventHour === parseInt(time.split(':')[0])) {
+              const top = ((eventTime.getMinutes() / 60) * 60);
+              html += `<div class="event-block event-block-event" style="top: ${top}px; height: 54px;" onclick="showEventModal(${data.events.indexOf(event)}, 'event')">
+                ${escapeHtml(event.title.substring(0, 20))}${event.title.length > 20 ? '...' : ''}
+              </div>`;
+            }
+          });
+
+          dayItems.reminders.forEach((reminder, idx) => {
+            const reminderTime = new Date(reminder.dueTsUtc);
+            const reminderHour = reminderTime.getHours();
+            if (reminderHour === parseInt(time.split(':')[0])) {
+              const top = ((reminderTime.getMinutes() / 60) * 60);
+              html += `<div class="event-block event-block-reminder" style="top: ${top}px; height: 54px;" onclick="showEventModal(${data.reminders.indexOf(reminder)}, 'reminder')">
+                ⏰ ${escapeHtml(reminder.title.substring(0, 18))}${reminder.title.length > 18 ? '...' : ''}
+              </div>`;
+            }
+          });
+
+          html += '</div>';
+        }
+      });
+
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function changeMonth(delta) {
+      currentMonth += delta;
+      if (currentMonth < 0) {
+        currentMonth = 11;
+        currentYear--;
+      } else if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
+      renderMonthView();
+    }
+
+    function goToThisMonth() {
+      const today = new Date();
+      currentMonth = today.getMonth();
+      currentYear = today.getFullYear();
+      renderMonthView();
+    }
+
+    function renderMonthView() {
+      const monthNames = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+      document.getElementById('month-name').textContent = `${monthNames[currentMonth]} ${currentYear}`;
+
+      const container = document.getElementById('month-view-content');
+      const today = new Date();
+      const firstDay = new Date(currentYear, currentMonth, 1);
+      const lastDay = new Date(currentYear, currentMonth + 1, 0);
+      const daysInMonth = lastDay.getDate();
+      const startingDayOfWeek = firstDay.getDay();
+
+      const dayNames = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+
+      let html = '<div class="mb-4 grid grid-cols-7 gap-2 text-center text-sm font-bold text-gray-700">';
+      dayNames.forEach(day => html += `<div>${day}</div>`);
+      html += '</div><div class="compact-month">';
+
+      // Empty cells before month starts
+      for (let i = 0; i < startingDayOfWeek; i++) {
+        html += '<div class="compact-day opacity-30"></div>';
+      }
+
+      // Days of the month
+      for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(currentYear, currentMonth, day);
+        const dateStr = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        const isToday = date.toDateString() === today.toDateString();
+        const dayItems = getItemsForDate(dateStr);
+        const totalItems = dayItems.events.length + dayItems.reminders.length + dayItems.tasks.length;
+
+        html += `<div class="compact-day ${isToday ? 'today' : ''} ${totalItems > 0 ? 'has-events' : ''}" onclick="showDayDetails('${dateStr}', ${day}, ${currentMonth}, ${currentYear})">
+          <div class="text-lg">${day}</div>
+          ${totalItems > 0 ? `<div class="event-count-badge">${totalItems}</div>` : ''}
+        </div>`;
+      }
+
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function renderAgendaView() {
+      const container = document.getElementById('agenda-list');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Combine and sort all items by date
+      const allItems = [];
+
+      data.events.forEach((event, index) => {
+        allItems.push({
+          type: 'event',
+          index: index,
+          date: new Date(event.startTsUtc),
+          data: event
+        });
+      });
+
+      data.reminders.filter(r => r.isActive).forEach((reminder, index) => {
+        allItems.push({
+          type: 'reminder',
+          index: index,
+          date: new Date(reminder.dueTsUtc),
+          data: reminder
+        });
+      });
+
+      data.tasks.filter(t => t.status !== 'completed' && t.dueTsUtc).forEach((task, index) => {
+        allItems.push({
+          type: 'task',
+          index: index,
+          date: new Date(task.dueTsUtc),
+          data: task
+        });
+      });
+
+      // Sort by date
+      allItems.sort((a, b) => a.date - b.date);
+
+      // Group by date
+      const grouped = {};
+      allItems.forEach(item => {
+        const dateKey = item.date.toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        if (!grouped[dateKey]) grouped[dateKey] = [];
+        grouped[dateKey].push(item);
+      });
+
+      let html = '';
+      Object.entries(grouped).forEach(([dateKey, items]) => {
+        html += `<div class="mb-6">
+          <h3 class="text-lg font-bold text-gray-800 mb-3 border-b-2 border-purple-200 pb-2">${dateKey}</h3>
+          <div class="space-y-3">`;
+
+        items.forEach(item => {
+          const time = formatTime(item.date);
+          if (item.type === 'event') {
+            html += `<div onclick="showEventModal(${item.index}, 'event')" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border-r-4 border-blue-500 cursor-pointer hover:shadow-lg transition-all">
+              <div class="flex items-center gap-3">
+                <div class="text-2xl">📅</div>
+                <div class="flex-1">
+                  <div class="font-bold text-gray-800">${escapeHtml(item.data.title)}</div>
+                  <div class="text-sm text-gray-600">${time}${item.data.location ? ` • ${escapeHtml(item.data.location)}` : ''}</div>
+                </div>
+              </div>
+            </div>`;
+          } else if (item.type === 'reminder') {
+            html += `<div onclick="showEventModal(${item.index}, 'reminder')" class="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 border-r-4 border-amber-500 cursor-pointer hover:shadow-lg transition-all">
+              <div class="flex items-center gap-3">
+                <div class="text-2xl">⏰</div>
+                <div class="flex-1">
+                  <div class="font-bold text-gray-800">${escapeHtml(item.data.title)}</div>
+                  <div class="text-sm text-gray-600">${time}${item.data.recurrence ? ` • ${item.data.recurrence}` : ''}</div>
+                </div>
+              </div>
+            </div>`;
+          } else {
+            const priorityEmoji = { urgent: '🔴', high: '🟠', normal: '🔵', low: '🟢' }[item.data.priority] || '🔵';
+            html += `<div onclick="showEventModal(${item.index}, 'task')" class="bg-white rounded-xl p-4 border-r-4 border-green-500 cursor-pointer hover:shadow-lg transition-all">
+              <div class="flex items-center gap-3">
+                <div class="text-2xl">${priorityEmoji}</div>
+                <div class="flex-1">
+                  <div class="font-bold text-gray-800">${escapeHtml(item.data.title)}</div>
+                  <div class="text-sm text-gray-600">${getPriorityText(item.data.priority)}</div>
+                </div>
+              </div>
+            </div>`;
+          }
+        });
+
+        html += '</div></div>';
+      });
+
+      if (html === '') {
+        html = `<div class="text-center py-12">
+          <div class="text-6xl mb-4">📋</div>
+          <p class="text-gray-600 text-lg">אין פריטים קרובים</p>
+        </div>`;
+      }
+
+      container.innerHTML = html;
     }
 
     // Modal functions
