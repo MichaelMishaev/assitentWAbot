@@ -19,10 +19,12 @@ export interface NLPIntent {
   event?: {
     title: string;
     date?: string; // ISO 8601 datetime
+    dateText?: string; // Hebrew date text for parsing (e.g., "השבוע", "ימי ראשון")
     endDate?: string; // ISO 8601 datetime for multi-day events
     location?: string;
     contactName?: string;
     notes?: string;
+    deleteAll?: boolean; // For bulk delete operations
   };
   reminder?: {
     title: string;
