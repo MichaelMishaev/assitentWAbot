@@ -58,6 +58,67 @@ const detailedFormat = winston.format.printf(({ timestamp, level, message, opera
   return logMessage;
 });
 
+// Determine if we're running in test environment
+const isTestEnvironment = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+
+// Configure transports
+const transports: winston.transport[] = [];
+
+// Only add console transport if NOT in test environment
+if (!isTestEnvironment) {
+  transports.push(
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        detailedFormat
+      ),
+    })
+  );
+}
+
+// Always add file transports (for both test and production)
+transports.push(
+  // All logs file (with detailed format) - 10 days retention
+  new winston.transports.File({
+    filename: path.join(logsDir, 'all.log'),
+    format: winston.format.combine(
+      winston.format.json()
+    ),
+    maxsize: 10485760, // 10MB
+    maxFiles: 10, // 10 days of logs
+  }),
+  // Error logs file - 10 days retention
+  new winston.transports.File({
+    filename: path.join(logsDir, 'error.log'),
+    level: 'error',
+    format: winston.format.combine(
+      winston.format.json()
+    ),
+    maxsize: 10485760, // 10MB
+    maxFiles: 10, // 10 days
+  }),
+  // Operations log (user actions) - 10 days retention
+  new winston.transports.File({
+    filename: path.join(logsDir, 'operations.log'),
+    level: 'info',
+    format: winston.format.combine(
+      winston.format.json()
+    ),
+    maxsize: 10485760, // 10MB
+    maxFiles: 10, // 10 days
+  }),
+  // WhatsApp connection log - Track QR codes, disconnections, etc
+  new winston.transports.File({
+    filename: path.join(logsDir, 'whatsapp-connection.log'),
+    level: 'info',
+    format: winston.format.combine(
+      winston.format.json()
+    ),
+    maxsize: 5242880, // 5MB
+    maxFiles: 10, // 10 days
+  })
+);
+
 const logger = winston.createLogger({
   level: logLevel,
   format: winston.format.combine(
@@ -66,54 +127,8 @@ const logger = winston.createLogger({
     winston.format.splat()
   ),
   defaultMeta: { service: 'whatsapp-bot' },
-  transports: [
-    // Console output with colors and detailed format
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        detailedFormat
-      ),
-    }),
-    // All logs file (with detailed format) - 10 days retention
-    new winston.transports.File({
-      filename: path.join(logsDir, 'all.log'),
-      format: winston.format.combine(
-        winston.format.json()
-      ),
-      maxsize: 10485760, // 10MB
-      maxFiles: 10, // 10 days of logs
-    }),
-    // Error logs file - 10 days retention
-    new winston.transports.File({
-      filename: path.join(logsDir, 'error.log'),
-      level: 'error',
-      format: winston.format.combine(
-        winston.format.json()
-      ),
-      maxsize: 10485760, // 10MB
-      maxFiles: 10, // 10 days
-    }),
-    // Operations log (user actions) - 10 days retention
-    new winston.transports.File({
-      filename: path.join(logsDir, 'operations.log'),
-      level: 'info',
-      format: winston.format.combine(
-        winston.format.json()
-      ),
-      maxsize: 10485760, // 10MB
-      maxFiles: 10, // 10 days
-    }),
-    // WhatsApp connection log - Track QR codes, disconnections, etc
-    new winston.transports.File({
-      filename: path.join(logsDir, 'whatsapp-connection.log'),
-      level: 'info',
-      format: winston.format.combine(
-        winston.format.json()
-      ),
-      maxsize: 5242880, // 5MB
-      maxFiles: 10, // 10 days
-    }),
-  ],
+  transports,
+  silent: isTestEnvironment, // Suppress all logging in test environment
 });
 
 // Helper functions for structured logging

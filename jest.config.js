@@ -4,6 +4,7 @@ export default {
   extensionsToTreatAsEsm: ['.ts'],
   roots: ['<rootDir>/tests'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  testPathIgnorePatterns: ['/node_modules/', '/tests/e2e/'],
   transform: {
     '^.+\\.ts$': ['ts-jest', {
       useESM: true,
