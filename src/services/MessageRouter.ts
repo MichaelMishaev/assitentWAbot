@@ -14,6 +14,7 @@ import logger from '../utils/logger.js';
 import { prodMessageLogger } from '../utils/productionMessageLogger.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
 import { safeParseDate, extractDateFromIntent } from '../utils/dateValidator.js';
+import { AuthRouter } from '../routing/AuthRouter.js';
 import {
   formatEventComments,
   formatCommentAdded,
@@ -231,8 +232,7 @@ async function resetFailureCount(userId: string, state: ConversationState): Prom
  * All handlers fully implemented with service integration
  */
 export class MessageRouter {
-  private readonly AUTH_STATE_PREFIX = 'auth:state:';
-  private readonly AUTH_STATE_TTL = 48 * 60 * 60; // 48 hours in seconds (172,800)
+  private authRouter: AuthRouter;
 
   constructor(
     private stateManager: StateManager,
@@ -243,7 +243,20 @@ export class MessageRouter {
     private settingsService: SettingsService,
     private taskService: TaskService,
     private messageProvider: IMessageProvider
-  ) {}
+  ) {
+    // Initialize AuthRouter with required dependencies
+    this.authRouter = new AuthRouter(
+      authService,
+      stateManager,
+      messageProvider,
+      redis
+    );
+
+    // Set callback for showing menu after authentication
+    this.authRouter.setShowMenuCallback(async (phone: string) => {
+      await this.showMainMenu(phone);
+    });
+  }
 
   /**
    * Main routing function
@@ -362,10 +375,10 @@ export class MessageRouter {
         return;
       }
 
-      const authState = await this.getAuthState(from);
+      const authState = await this.authRouter.getAuthState(from);
 
       if (authState && !authState.authenticated) {
-        await this.handleAuthFlow(from, text, authState);
+        await this.authRouter.handleAuthFlow(from, text, authState);
         // Mark as processed
         if (messageId) {
           await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
@@ -375,7 +388,7 @@ export class MessageRouter {
       }
 
       if (!user) {
-        await this.startRegistration(from);
+        await this.authRouter.startRegistration(from);
         // Mark as processed
         if (messageId) {
           await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
@@ -385,7 +398,7 @@ export class MessageRouter {
       }
 
       if (!authState || !authState.authenticated) {
-        await this.startLogin(from);
+        await this.authRouter.startLogin(from);
         // Mark as processed
         if (messageId) {
           await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
@@ -444,7 +457,7 @@ export class MessageRouter {
     if (!cmd.startsWith('/') && this.isCommand(command)) {
       cmd = '/' + cmd;
     }
-    const authState = await this.getAuthState(from);
+    const authState = await this.authRouter.getAuthState(from);
     const userId = authState?.userId;
 
     switch (cmd) {
@@ -2859,162 +2872,6 @@ export class MessageRouter {
     }
   }
 
-  // ========== AUTH HANDLERS (unchanged from original) ==========
-
-  private async handleAuthFlow(
-    from: string,
-    text: string,
-    authState: AuthState
-  ): Promise<void> {
-    if (authState.registrationStep === 'name') {
-      await this.handleRegistrationName(from, text, authState);
-    } else if (authState.registrationStep === 'pin') {
-      await this.handleRegistrationPin(from, text, authState);
-    } else {
-      await this.handleLoginPin(from, text, authState);
-    }
-  }
-
-  private async startRegistration(from: string): Promise<void> {
-    const authState: AuthState = {
-      userId: null,
-      phone: from,
-      authenticated: false,
-      failedAttempts: 0,
-      lockoutUntil: null,
-      registrationStep: 'name',
-      tempData: {}
-    };
-
-    await this.setAuthState(from, authState);
-    await this.sendMessage(from, 'ברוך הבא! 👋\n\nבואו נתחיל ברישום.\nמה השם שלך?');
-  }
-
-  private async handleRegistrationName(
-    from: string,
-    text: string,
-    authState: AuthState
-  ): Promise<void> {
-    const name = text.trim();
-
-    if (name.length < 2) {
-      await this.sendMessage(from, 'השם קצר מדי. אנא הזן שם בן 2 תווים לפחות.');
-      return;
-    }
-
-    if (name.length > 50) {
-      await this.sendMessage(from, 'השם ארוך מדי. אנא הזן שם קצר יותר.');
-      return;
-    }
-
-    authState.tempData = { name };
-    authState.registrationStep = 'pin';
-    await this.setAuthState(from, authState);
-
-    await this.sendMessage(
-      from,
-      `נעים להכיר, ${name}! 😊\n\nעכשיו בחר קוד PIN בן 4 ספרות לאבטחה.\n(לדוגמה: 1234)`
-    );
-  }
-
-  private async handleRegistrationPin(
-    from: string,
-    text: string,
-    authState: AuthState
-  ): Promise<void> {
-    const pin = text.trim();
-
-    if (!/^\d{4}$/.test(pin)) {
-      await this.sendMessage(from, 'PIN חייב להיות 4 ספרות בדיוק. נסה שוב.');
-      return;
-    }
-
-    const name = authState.tempData?.name;
-    if (!name) {
-      await this.startRegistration(from);
-      return;
-    }
-
-    try {
-      const user = await this.authService.registerUser(from, name, pin);
-      authState.userId = user.id;
-      authState.authenticated = true;
-      authState.registrationStep = 'complete';
-      authState.tempData = {};
-      await this.setAuthState(from, authState);
-      await this.stateManager.setState(user.id, ConversationState.MAIN_MENU);
-
-      await this.sendMessage(from, `🎉 הרישום הושלם בהצלחה!\n\nברוך הבא, ${name}!`);
-      await this.showMainMenu(from);
-
-    } catch (error) {
-      logger.error('Registration failed', { from, error });
-      await this.sendMessage(from, 'אירעה שגיאה ברישום. אנא נסה שוב מאוחר יותר.');
-      await this.clearAuthState(from);
-    }
-  }
-
-  private async startLogin(from: string): Promise<void> {
-    const isLockedOut = await this.authService.checkLockout(from);
-    if (isLockedOut) {
-      await this.sendMessage(from, 'החשבון נעול זמנית. אנא נסה שוב בעוד 5 דקות.');
-      return;
-    }
-
-    const authState: AuthState = {
-      userId: null,
-      phone: from,
-      authenticated: false,
-      failedAttempts: 0,
-      lockoutUntil: null
-    };
-
-    await this.setAuthState(from, authState);
-    await this.sendMessage(from, 'ברוך הבא! 👋\n\nאנא הזן את קוד ה-PIN שלך (4 ספרות):');
-  }
-
-  private async handleLoginPin(
-    from: string,
-    text: string,
-    authState: AuthState
-  ): Promise<void> {
-    const pin = text.trim();
-
-    if (!/^\d{4}$/.test(pin)) {
-      await this.sendMessage(from, 'PIN חייב להיות 4 ספרות בדיוק. נסה שוב.');
-      return;
-    }
-
-    try {
-      const user = await this.authService.loginUser(from, pin);
-
-      if (!user) {
-        // User doesn't exist
-        await this.sendMessage(from, 'משתמש לא קיים. נסה להירשם תחילה.');
-        return;
-      }
-
-      authState.userId = user.id;
-      authState.authenticated = true;
-      await this.setAuthState(from, authState);
-      await this.stateManager.setState(user.id, ConversationState.MAIN_MENU);
-
-      await this.sendMessage(from, `שלום, ${user.name}! 😊`);
-      await this.showMainMenu(from);
-
-    } catch (error: any) {
-      // AuthService throws errors for wrong PIN (with attempts info) and lockout
-      logger.error('Login failed', { from, error: error.message || error, stack: error.stack });
-      const errorMessage = error.message || 'אירעה שגיאה בהתחברות. אנא נסה שוב.';
-      await this.sendMessage(from, errorMessage);
-
-      // If account is locked, clear auth state
-      if (errorMessage.includes('נעול')) {
-        await this.clearAuthState(from);
-      }
-    }
-  }
-
   // ========== MENU & HELPERS ==========
 
   private async handleMainMenuChoice(
@@ -4310,7 +4167,7 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
   }
 
   private async handleLogout(phone: string, userId: string): Promise<void> {
-    await this.clearAuthState(phone);
+    await this.authRouter.clearAuthState(phone);
     await this.stateManager.clearState(userId);
     await this.sendMessage(phone, 'התנתקת בהצלחה. להתראות! 👋');
   }
@@ -4324,7 +4181,7 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
 
       // Track assistant message in conversation history
       try {
-        const authState = await this.getAuthState(to);
+        const authState = await this.authRouter.getAuthState(to);
         if (authState?.userId) {
           await this.stateManager.addToHistory(authState.userId, 'assistant', message);
 
@@ -4368,38 +4225,6 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       logger.error('Failed to react to last message', { userId, error });
       // Don't throw - reactions are non-critical
     }
-  }
-
-  // Auth state helpers
-  private async getAuthState(phone: string): Promise<AuthState | null> {
-    try {
-      const key = this.getAuthStateKey(phone);
-      const data = await redis.get(key);
-      if (!data) return null;
-
-      const authState: AuthState = JSON.parse(data);
-      if (authState.lockoutUntil) {
-        authState.lockoutUntil = new Date(authState.lockoutUntil);
-      }
-      return authState;
-    } catch (error) {
-      logger.error('Failed to get auth state', { phone, error });
-      return null;
-    }
-  }
-
-  private async setAuthState(phone: string, authState: AuthState): Promise<void> {
-    const key = this.getAuthStateKey(phone);
-    await redis.setex(key, this.AUTH_STATE_TTL, JSON.stringify(authState));
-  }
-
-  private async clearAuthState(phone: string): Promise<void> {
-    const key = this.getAuthStateKey(phone);
-    await redis.del(key);
-  }
-
-  private getAuthStateKey(phone: string): string {
-    return `${this.AUTH_STATE_PREFIX}${phone}`;
   }
 
   // ============================================================================
