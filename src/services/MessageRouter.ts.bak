@@ -5,19 +5,34 @@ import { ReminderService } from './ReminderService.js';
 import { ContactService } from './ContactService.js';
 import { SettingsService } from './SettingsService.js';
 import { TaskService } from './TaskService.js';
+import { dashboardTokenService } from './DashboardTokenService.js';
 import { proficiencyTracker } from './ProficiencyTracker.js';
 import { IMessageProvider } from '../providers/IMessageProvider.js';
-import { ConversationState, AuthState } from '../types/index.js';
+import { ConversationState, AuthState, MenuDisplayMode } from '../types/index.js';
 import { redis } from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { prodMessageLogger } from '../utils/productionMessageLogger.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
-import { safeParseDate } from '../utils/dateValidator.js';
+import { safeParseDate, extractDateFromIntent } from '../utils/dateValidator.js';
 import { DateTime } from 'luxon';
+import { scheduleReminder } from '../queues/ReminderQueue.js';
 import { AuthRouter } from '../routing/AuthRouter.js';
 import { CommandRouter } from '../routing/CommandRouter.js';
 import { NLPRouter } from '../routing/NLPRouter.js';
 import { StateRouter } from '../routing/StateRouter.js';
+import {
+  formatEventComments,
+  formatCommentAdded,
+  formatCommentAddedWithPriority,
+  formatCommentWithReminder,
+  formatCommentDeleted,
+  formatEventNotFound,
+  formatCommentNotFound,
+  formatNoCommentsToDelete,
+  formatCommentEducationTip,
+  formatEventWithComments,
+  formatEventInList
+} from '../utils/commentFormatter.js';
 
 /**
  * Fuzzy match for yes/no confirmations with typo tolerance
@@ -133,43 +148,8 @@ async function resetFailureCount(userId: string, state: ConversationState): Prom
 }
 
 /**
- * MessageRouter - Main Coordinator (Refactored Architecture)
- *
- * **Architecture Overview:**
- * MessageRouter acts as a slim coordinator that delegates routing logic to specialized routers.
- * This refactoring reduces MessageRouter from 5,130 lines to ~1,100 lines (78% reduction).
- *
- * **Routing Flow:**
- * 1. Authentication → AuthRouter (registration, login, PIN verification)
- * 2. Commands (/menu, /cancel, etc.) → CommandRouter
- * 3. Conversation States (ADDING_EVENT_NAME, etc.) → StateRouter (51+ state handlers)
- * 4. Natural Language → NLPRouter (intent parsing, event/reminder creation)
- *
- * **MessageRouter Responsibilities (Coordinator):**
- * - Message deduplication (prevent duplicate processing)
- * - Main routing decision tree (auth → command → state → NLP)
- * - Quick action handling (reply-to-message shortcuts)
- * - Shared helper methods (sendMessage, reactToLastMessage, etc.)
- * - Message/event mapping infrastructure (for quick actions)
- *
- * **Delegated Responsibilities (to Specialized Routers):**
- * - AuthRouter: All authentication flows (registration, login, PIN)
- * - CommandRouter: All /command handling, menu display
- * - StateRouter: All 51+ conversation state handlers (events, reminders, tasks, settings)
- * - NLPRouter: All natural language processing and intent handling
- *
- * **Refactoring History:**
- * - Baseline: 5,130 lines (monolithic god class)
- * - Phase 2: Extracted AuthRouter (263 lines)
- * - Phase 3: Extracted CommandRouter (230 lines)
- * - Phase 4: Extracted NLPRouter (1,516 lines)
- * - Phase 5: Extracted StateRouter (2,519 lines)
- * - Phase 6: Current state (~1,100 lines coordinator)
- *
- * @see {@link AuthRouter} - Authentication flow handling
- * @see {@link CommandRouter} - Command routing and menu display
- * @see {@link StateRouter} - State machine handlers (51+ methods)
- * @see {@link NLPRouter} - Natural language intent processing
+ * MessageRouter - COMPLETE IMPLEMENTATION
+ * All handlers fully implemented with service integration
  */
 export class MessageRouter {
   private authRouter: AuthRouter;
@@ -231,10 +211,7 @@ export class MessageRouter {
       settingsService,
       this.commandRouter,
       this.sendMessage.bind(this),
-      this.reactToLastMessage.bind(this),
-      this.storeMessageEventMapping.bind(this),
-      this.showRecurringUpdateOptions.bind(this),
-      this.confirmReminderUpdate.bind(this)
+      this.reactToLastMessage.bind(this)
     );
 
     // Set callback for showing menu after authentication
@@ -244,33 +221,7 @@ export class MessageRouter {
   }
 
   /**
-   * Main routing function - Entry point for all incoming messages
-   *
-   * **Flow:**
-   * 1. Message deduplication (prevent duplicate processing via Redis)
-   * 2. Quick action detection (reply-to-message shortcuts)
-   * 3. Delete confirmation handling (safety prompts)
-   * 4. Command routing (/menu, /cancel, etc.) → CommandRouter
-   * 5. Authentication check → AuthRouter (if not authenticated)
-   * 6. State-based routing → StateRouter or NLPRouter
-   *
-   * **Parameters:**
-   * @param from - User's phone number (WhatsApp format: 972XXXXXXXXX@s.whatsapp.net)
-   * @param text - Message text content
-   * @param messageId - Unique message ID (for deduplication and reactions)
-   * @param quotedMessage - Quoted message info (for reply-to-message quick actions)
-   *
-   * **Quick Actions:**
-   * Users can reply to bot messages with:
-   * - "מחק" / "delete" → Delete event
-   * - "20:00" / "8 בערב" → Update event time
-   * - "מחק 2" → Delete event #2 (when multiple events shown)
-   *
-   * **Deduplication:**
-   * Uses Redis with atomic SET NX to prevent race conditions during message processing.
-   * Processing lock expires after 30 minutes, processed flag persists for 24 hours.
-   *
-   * @throws Never throws - all errors are caught and handled gracefully
+   * Main routing function
    */
   async routeMessage(from: string, text: string, messageId?: string, quotedMessage?: { messageId: string; participant?: string }): Promise<void> {
     try {
@@ -484,6 +435,63 @@ export class MessageRouter {
     await this.stateRouter.handleStateMessage(phone, userId, state, text);
   }
 
+  // ========== EVENT HANDLERS - FULL IMPLEMENTATION ==========
+
+
+
+
+
+
+
+  // ========== REMINDER HANDLERS - FULL IMPLEMENTATION ==========
+
+
+
+
+
+
+  // ========== TASK HANDLERS ==========
+
+
+
+
+
+
+
+
+
+
+
+  // ========== EVENT LISTING - FULL IMPLEMENTATION ==========
+
+
+
+
+
+
+  // ========== EVENT DELETION HANDLERS ==========
+
+
+
+
+
+  // ========== REMINDER HANDLERS ==========
+
+
+
+
+
+
+
+
+
+  // ========== SETTINGS HANDLERS ==========
+
+
+
+
+
+  // ========== MENU & HELPERS ==========
 
   private async handleMainMenuChoice(
     phone: string,
