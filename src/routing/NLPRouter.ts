@@ -26,6 +26,7 @@ import { DateTime } from 'luxon';
 import { scheduleReminder } from '../queues/ReminderQueue.js';
 import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';
 import { CommandRouter } from './CommandRouter.js';
+import { parseHebrewDate } from '../utils/hebrewDateParser.js';
 
 /**
  * Date query type - single date vs range
@@ -60,7 +61,6 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
     const monthKeywords = ['חודש', 'החודש', 'בחודש'];
     const isMonthQuery = monthKeywords.some(keyword => dateText.includes(keyword));
 
-    const { parseHebrewDate } = require('../utils/hebrewDateParser.js');
     const hebrewResult = parseHebrewDate(event.dateText);
     if (hebrewResult.success && hebrewResult.date) {
       logger.info('Parsed Hebrew date from NLP', {

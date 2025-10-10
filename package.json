@@ -19,6 +19,7 @@
     "test:playwright:ui": "playwright test --ui",
     "test:playwright:headed": "playwright test --headed",
     "test:nlp": "ts-node src/test-nlp.ts",
+    "test:conversations": "tsx run-test-conversations.ts",
     "migrate:up": "node-pg-migrate up",
     "migrate:down": "node-pg-migrate down",
     "migrate:create": "node-pg-migrate create",

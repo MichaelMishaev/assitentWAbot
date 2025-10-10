@@ -22,7 +22,10 @@ pool.on('connect', () => {
 
 pool.on('error', (err) => {
   console.error('❌ Unexpected error on idle PostgreSQL client', err);
-  process.exit(-1);
+  // Don't exit process in test mode
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(-1);
+  }
 });
 
 // Graceful shutdown
