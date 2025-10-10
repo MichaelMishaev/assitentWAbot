@@ -116,7 +116,12 @@ export class NLPComparisonLogger {
           AVG(gemini_response_time) as avg_gemini_time,
           AVG(CASE WHEN gpt_response_time < gemini_response_time THEN 1 ELSE 0 END) as gpt_faster_rate
         FROM (
-          SELECT * FROM nlp_comparisons
+          SELECT
+            intent_match,
+            confidence_diff,
+            gpt_response_time,
+            gemini_response_time
+          FROM nlp_comparisons
           ORDER BY created_at DESC
           LIMIT $1
         ) recent_comparisons`,
@@ -126,12 +131,12 @@ export class NLPComparisonLogger {
       const row = result.rows[0];
 
       return {
-        totalComparisons: parseInt(row.total),
-        intentMatchRate: parseFloat(row.match_rate) * 100,
-        avgConfidenceDiff: parseFloat(row.avg_confidence_diff),
-        avgGptTime: parseFloat(row.avg_gpt_time),
-        avgGeminiTime: parseFloat(row.avg_gemini_time),
-        gptFasterPercent: parseFloat(row.gpt_faster_rate) * 100
+        totalComparisons: parseInt(row.total) || 0,
+        intentMatchRate: (parseFloat(row.match_rate) || 0) * 100,
+        avgConfidenceDiff: parseFloat(row.avg_confidence_diff) || 0,
+        avgGptTime: parseFloat(row.avg_gpt_time) || 0,
+        avgGeminiTime: parseFloat(row.avg_gemini_time) || 0,
+        gptFasterPercent: (parseFloat(row.gpt_faster_rate) || 0) * 100
       };
     } catch (error) {
       logger.error('Failed to get NLP comparison stats', { error });

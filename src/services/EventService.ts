@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { pool } from '../config/database.js';
 import logger from '../utils/logger.js';
 import { DateTime } from 'luxon';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as isUUID } from 'uuid';
 import { EventComment } from '../types/index.js';
 
 export interface Event {
@@ -107,6 +107,12 @@ export class EventService {
    */
   async getEventById(eventId: string, userId: string): Promise<Event | null> {
     try {
+      // Validate UUID format
+      if (!isUUID(eventId)) {
+        logger.warn('Invalid event ID format', { eventId, userId });
+        return null;
+      }
+
       const query = `
         SELECT * FROM events
         WHERE id = $1 AND user_id = $2
@@ -214,9 +220,21 @@ export class EventService {
     update: UpdateEventInput
   ): Promise<Event | null> {
     try {
+      // Validate UUID format
+      if (!isUUID(eventId)) {
+        logger.warn('Invalid event ID format in update', { eventId, userId });
+        throw new Error('Invalid event ID format');
+      }
+
+      // Validate update fields
+      if (update.title !== undefined && update.title.trim() === '') {
+        throw new Error('Event title cannot be empty');
+      }
+
       // Check if event exists and belongs to user
       const existingEvent = await this.getEventById(eventId, userId);
       if (!existingEvent) {
+        logger.warn('Unauthorized event update attempt', { eventId, userId });
         throw new Error('Event not found or unauthorized');
       }
 
@@ -281,9 +299,16 @@ export class EventService {
    */
   async deleteEvent(eventId: string, userId: string): Promise<boolean> {
     try {
+      // Validate UUID format
+      if (!isUUID(eventId)) {
+        logger.warn('Invalid event ID format in delete', { eventId, userId });
+        throw new Error('Invalid event ID format');
+      }
+
       // Check if event exists and belongs to user
       const existingEvent = await this.getEventById(eventId, userId);
       if (!existingEvent) {
+        logger.warn('Unauthorized event delete attempt', { eventId, userId });
         throw new Error('Event not found or unauthorized');
       }
 

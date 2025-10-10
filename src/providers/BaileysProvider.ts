@@ -44,6 +44,8 @@ export class BaileysProvider implements IMessageProvider {
   private shouldReconnect: boolean = true;
   private authFailureCount: number = 0;
   private readonly MAX_AUTH_FAILURES = 3;
+  private reconnectAttempts: number = 0;
+  private readonly MAX_RECONNECT_DELAY = 60000; // 60 seconds max
 
   constructor(sessionPath?: string) {
     this.sessionPath = sessionPath || process.env.SESSION_PATH || './sessions';
@@ -134,8 +136,9 @@ export class BaileysProvider implements IMessageProvider {
 
       if (connection === 'open') {
         logger.info('✅ WhatsApp connection established');
-        // Reset auth failure counter on successful connection
+        // Reset counters on successful connection
         this.authFailureCount = 0;
+        this.reconnectAttempts = 0;
         logWhatsAppConnection('connected', { authFailures: 0 });
         this.updateConnectionState({ status: 'connected' });
       } else if (connection === 'close') {
@@ -232,16 +235,23 @@ export class BaileysProvider implements IMessageProvider {
       return;
     }
 
-    logger.info('Reconnecting in 5 seconds...');
+    // Exponential backoff: 5s, 10s, 20s, 40s, 60s (max)
+    this.reconnectAttempts++;
+    const delay = Math.min(
+      5000 * Math.pow(2, this.reconnectAttempts - 1),
+      this.MAX_RECONNECT_DELAY
+    );
+
+    logger.info(`Reconnecting in ${delay / 1000} seconds... (attempt ${this.reconnectAttempts})`);
     logWhatsAppReconnect();
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
       await this.initialize();
     } catch (error) {
       logger.error('Reconnection failed:', error);
       logWhatsAppDisconnect('Reconnection failed', 0);
-      // Will retry on next disconnect
+      // Will retry on next disconnect with increased backoff
     }
   }
 
