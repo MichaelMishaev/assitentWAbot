@@ -42,6 +42,37 @@ That's it. Everything else is optional.
 
 ---
 
+## 🐛 Developer Comment System
+
+This bot has a built-in **async bug reporting** system for developers:
+
+**In WhatsApp Chat:**
+```
+# Bug: Reminder feature doesn't show date correctly
+# Feature request: Link reminder to event
+# Issue: Date format recognizes time wrong
+```
+
+**How it works:**
+- Any message starting with `#` is logged to `logs/dev-comments.log`
+- Bot **silently acknowledges** (no response to avoid clutter)
+- Comments are searchable with special formatting
+- 30-day retention for historical tracking
+
+**View comments:**
+```bash
+# Interactive viewer (local or production)
+./scripts/view-dev-comments.sh
+
+# Or SSH directly
+ssh root@167.71.145.9
+cat /root/wAssitenceBot/logs/dev-comments.log
+```
+
+**Use case:** Document bugs as they happen in real-time, then batch-fix them later by asking Claude to analyze all `#` comments.
+
+---
+
 ## 📊 Tech Stack
 
 ```

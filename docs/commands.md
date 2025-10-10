@@ -1,10 +1,10 @@
-# =à Development Commands Reference
+# =ï¿½ Development Commands Reference
 
 Complete guide for running, managing, and deploying the WhatsApp Assistant Bot.
 
 ---
 
-## =æ Installation
+## =ï¿½ Installation
 
 ### First Time Setup
 
@@ -22,7 +22,7 @@ cp .env.example .env
 
 ---
 
-## =€ Running the Application
+## =ï¿½ Running the Application
 
 ### Development Mode (Local)
 
@@ -52,7 +52,7 @@ npm start
 ```
 
 **What it does:**
-- Compiles `src/` ’ `dist/` folder
+- Compiles `src/` ï¿½ `dist/` folder
 - Runs compiled JavaScript: `node dist/index.js`
 - No auto-reload (restart manually after changes)
 
@@ -65,7 +65,7 @@ npm run type-check
 
 ---
 
-## =Ä Database Management
+## =ï¿½ Database Management
 
 ### Running Migrations
 
@@ -146,13 +146,13 @@ railway run redis-cli -u $REDIS_URL
 # Check Redis keys
 redis-cli KEYS "*"
 
-# Clear all Redis data (  use carefully!)
+# Clear all Redis data (ï¿½ use carefully!)
 redis-cli FLUSHALL
 ```
 
 ---
 
-## >ê Testing
+## >ï¿½ Testing
 
 ```bash
 # Run all tests
@@ -167,7 +167,7 @@ npm run test:coverage
 
 ---
 
-## <× Building & Deployment
+## <ï¿½ Building & Deployment
 
 ### Build for Production
 
@@ -232,6 +232,29 @@ railway logs --follow
 railway logs --tail 100
 ```
 
+### ğŸ› Developer Comment System (NEW)
+
+**View `#` comments from WhatsApp:**
+```bash
+# Interactive viewer (local or production)
+./scripts/view-dev-comments.sh
+
+# Or SSH to production
+ssh root@167.71.145.9
+cat /root/wAssitenceBot/logs/dev-comments.log
+
+# Search for specific keyword
+grep -i "reminder" /root/wAssitenceBot/logs/dev-comments.log
+```
+
+**How it works:**
+- Send messages starting with `#` in WhatsApp
+- Bot logs them silently to `dev-comments.log`
+- 30-day retention for bug tracking
+- Use for async bug reporting: "# Bug: reminder doesn't work"
+
+**See:** [docs/LOGGING.md](LOGGING.md#-developer-comment-system-new)
+
 ### Health Check Endpoint
 
 ```bash
@@ -268,7 +291,7 @@ railway run redis-cli -u $REDIS_URL PING
 
 ---
 
-## =Ñ Preventing Duplicate Server Instances
+## =ï¿½ Preventing Duplicate Server Instances
 
 ### Problem: Multiple Processes Running
 
@@ -308,7 +331,7 @@ PORT=3001 npm run dev
 ### Solution 3: Stop All Node Processes
 
 ```bash
-# Kill ALL node processes (  stops everything!)
+# Kill ALL node processes (ï¿½ stops everything!)
 pkill -9 node
 
 # Then restart
@@ -505,7 +528,7 @@ railway up
 
 ---
 
-## =Ë Quick Reference
+## =ï¿½ Quick Reference
 
 | Task | Command |
 |------|---------|
@@ -525,7 +548,7 @@ railway up
 
 ---
 
-## =¦ Startup Checklist
+## =ï¿½ Startup Checklist
 
 Before running the app, ensure:
 
@@ -544,7 +567,7 @@ npm run dev
 
 ---
 
-## <¯ Development Workflow
+## <ï¿½ Development Workflow
 
 ```bash
 # 1. Start services (local)
@@ -575,7 +598,7 @@ railway logs --follow
 
 ---
 
-## =¡ Pro Tips
+## =ï¿½ Pro Tips
 
 1. **Use `railway run` to test with production env locally:**
    ```bash

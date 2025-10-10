@@ -18,8 +18,88 @@ All logs are stored in: `/root/wAssitenceBot/logs/`
 | `error.log` | Errors only | 10 days | 10MB/file |
 | `operations.log` | User operations (events, reminders) | 10 days | 10MB/file |
 | `whatsapp-connection.log` | WhatsApp connection tracking | 10 days | 5MB/file |
+| **`dev-comments.log`** 🆕 | **Developer comments (# messages)** | **30 days** | **10MB/file** |
 
 **Format:** All logs are stored in JSON format for easy parsing and analysis.
+
+---
+
+## 🐛 Developer Comment System (NEW)
+
+### What is it?
+A dedicated logging system for **async bug reporting** in WhatsApp. Any message starting with `#` is treated as a developer note/bug report.
+
+### How to use:
+
+**In WhatsApp:**
+```
+# Bug: Reminder doesn't show date correctly
+# Feature request: Link reminder to event
+# Issue: Date format recognizes time wrong
+```
+
+**Bot behavior:**
+- ✅ Logs the comment to `dev-comments.log`
+- ✅ **Silent acknowledgment** (no response to avoid clutter)
+- ✅ Marks message as processed
+- ✅ Does NOT parse as normal message
+
+### Log format:
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 DEV COMMENT DETECTED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🕐 Timestamp: 2025-10-10 17:13:23
+👤 User ID: abc123...
+📱 Phone: 972544****
+📋 Message ID: ACDE3FF30...
+🔄 State: MAIN_MENU
+
+💬 Comment:
+# Bug: Reminder doesn't show date correctly
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### View comments:
+
+**Interactive viewer:**
+```bash
+# Local or remote
+./scripts/view-dev-comments.sh
+```
+
+**Menu options:**
+1. View all comments (local)
+2. View all comments (production)
+3. Search by keyword (local)
+4. Search by keyword (production)
+5. Count comments
+6. View last 24 hours
+7. Clear local comments
+
+**Manual queries:**
+```bash
+# SSH to production
+ssh root@167.71.145.9
+
+# View all comments
+cat /root/wAssitenceBot/logs/dev-comments.log
+
+# Search for specific keyword
+grep -i "reminder" /root/wAssitenceBot/logs/dev-comments.log
+
+# Count comments
+grep -c "DEV COMMENT DETECTED" /root/wAssitenceBot/logs/dev-comments.log
+
+# View recent comments (last 24 hours)
+grep "2025-10-10" /root/wAssitenceBot/logs/dev-comments.log
+```
+
+### Use case:
+1. **Document bugs as they happen** in WhatsApp (real-time)
+2. **Batch-fix later** by asking Claude: "Check my # comments and fix all bugs"
+3. **Historical tracking** - 30-day retention vs 10 days for normal logs
 
 ---
 
