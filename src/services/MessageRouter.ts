@@ -11,6 +11,7 @@ import { ConversationState, AuthState } from '../types/index.js';
 import { redis } from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { prodMessageLogger } from '../utils/productionMessageLogger.js';
+import { logDevComment, isDevComment } from '../utils/devCommentLogger.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
 import { safeParseDate } from '../utils/dateValidator.js';
 import { DateTime } from 'luxon';
@@ -275,6 +276,33 @@ export class MessageRouter {
   async routeMessage(from: string, text: string, messageId?: string, quotedMessage?: { messageId: string; participant?: string }): Promise<void> {
     try {
       logger.info('Routing message', { from, text, messageId, quotedMessage });
+
+      // DEVELOPER COMMENT DETECTION: Check if message is a dev comment (starts with #)
+      // These are treated as notes/bug reports and logged separately for later analysis
+      if (isDevComment(text)) {
+        // Get user info if available
+        let user = await this.authService.getUserByPhone(from);
+        const session = user ? await this.stateManager.getState(user.id) : null;
+
+        // Log the dev comment to dedicated log file
+        logDevComment(
+          user?.id,
+          from,
+          text,
+          messageId,
+          session?.state || 'UNAUTHENTICATED'
+        );
+
+        // Acknowledge the comment silently (no response to user)
+        // The bot will NOT respond to # comments - they're just logged
+        logger.info('Dev comment logged', { userId: user?.id, phone: from, commentLength: text.length });
+
+        // Mark as processed and exit early (don't process as normal message)
+        if (messageId) {
+          await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+        }
+        return;
+      }
 
       // CRITICAL: Message deduplication - prevent processing same message twice
       // WhatsApp can send duplicates during network issues or reconnections
