@@ -268,6 +268,10 @@ export class NLPRouter {
           await this.handleNLPDeleteComment(phone, userId, intent);
           break;
 
+        case 'update_comment':
+          await this.handleNLPUpdateComment(phone, userId, intent);
+          break;
+
         case 'generate_dashboard':
           await this.handleGenerateDashboard(phone, userId);
           break;
@@ -1261,44 +1265,65 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       );
 
       // Check if user wants a reminder from this comment
-      if (comment.reminderTime) {
-        const reminderDate = safeParseDate(comment.reminderTime, 'handleNLPAddComment');
+      let reminderDate: Date | null = null;
+
+      // CRITICAL FIX: Support offset-based reminders (e.g., "remind me 1 hour before event")
+      if (comment.reminderOffset && typeof comment.reminderOffset === 'number') {
+        // Calculate reminder time based on event time + offset (offset is negative, e.g., -60 for 1 hour before)
+        const eventTime = event.startTsUtc.getTime();
+        const offsetMs = comment.reminderOffset * 60 * 1000; // Convert minutes to milliseconds
+        reminderDate = new Date(eventTime + offsetMs);
+
+        logger.info('Created offset-based reminder', {
+          eventTitle: event.title,
+          eventTime: event.startTsUtc.toISOString(),
+          offsetMinutes: comment.reminderOffset,
+          reminderTime: reminderDate.toISOString()
+        });
+      } else if (comment.reminderTime) {
+        // Absolute reminder time provided
+        reminderDate = safeParseDate(comment.reminderTime, 'handleNLPAddComment');
+      }
+
+      // If we have a valid reminder date, create the reminder
+      if (reminderDate && !isNaN(reminderDate.getTime())) {
         // CRITICAL FIX: Validate reminderDate is valid before creating reminder
         // Prevents Invalid Date from being stored and displayed to user
-        if (reminderDate && !isNaN(reminderDate.getTime())) {
-          // Create reminder and link it to comment
-          const reminder = await this.reminderService.createReminder({
-            userId,
-            title: comment.text,
-            dueTsUtc: reminderDate,
-          });
 
-          // Update comment with reminderId
-          await this.eventService.updateComment(event.id, userId, newComment.id, {
-            reminderId: reminder.id,
-          });
+        // Create reminder and link it to comment
+        const reminder = await this.reminderService.createReminder({
+          userId,
+          title: comment.text || `תזכורת: ${event.title}`,
+          dueTsUtc: reminderDate,
+          eventId: event.id,
+        });
 
-          // Schedule reminder
-          await scheduleReminder({
-            reminderId: reminder.id,
-            userId,
-            title: comment.text,
-            phone,
-          }, reminderDate);
+        // Update comment with reminderId
+        await this.eventService.updateComment(event.id, userId, newComment.id, {
+          reminderId: reminder.id,
+        });
 
-          // Send confirmation with reminder
-          const message = formatCommentWithReminder(newComment, event, reminderDate);
-          await this.sendMessage(phone, message);
-          return;
-        } else {
-          // Invalid reminder time - log and skip reminder creation
-          logger.warn('Invalid reminder time in add comment', {
-            userId,
-            reminderTime: comment.reminderTime,
-            eventTitle: event.title
-          });
-          // Fall through to regular comment confirmation (no reminder)
-        }
+        // Schedule reminder
+        await scheduleReminder({
+          reminderId: reminder.id,
+          userId,
+          title: reminder.title,
+          phone,
+        }, reminderDate);
+
+        // Send confirmation with reminder
+        const message = formatCommentWithReminder(newComment, event, reminderDate);
+        await this.sendMessage(phone, message);
+        return;
+      } else if (comment.reminderTime || comment.reminderOffset) {
+        // Invalid reminder time - log and skip reminder creation
+        logger.warn('Invalid reminder time in add comment', {
+          userId,
+          reminderTime: comment.reminderTime,
+          reminderOffset: comment.reminderOffset,
+          eventTitle: event.title
+        });
+        // Fall through to regular comment confirmation (no reminder)
       }
 
       // Send confirmation based on priority
@@ -1458,6 +1483,100 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
     } catch (error) {
       logger.error('Failed to delete comment', { userId, comment, error });
       await this.sendMessage(phone, '❌ שגיאה במחיקת הערה. נסה שוב מאוחר יותר.');
+    }
+  }
+
+  /**
+   * Handle updating a comment via NLP
+   */
+  private async handleNLPUpdateComment(phone: string, userId: string, intent: any): Promise<void> {
+    const { comment } = intent;
+
+    if (!comment?.commentIndex || !comment?.text) {
+      await this.sendMessage(phone, 'לא זיהיתי איזו הערה לעדכן או מה השינוי.\n\nדוגמה: עדכן הערה 1 להביא פספורט');
+      return;
+    }
+
+    try {
+      // Find the event - if eventTitle is provided, search for it
+      let event: any = null;
+
+      if (comment.eventTitle) {
+        const events = await this.eventService.searchEvents(userId, comment.eventTitle);
+        const matchedEvents = filterByFuzzyMatch(events, comment.eventTitle, (e) => e.title);
+
+        if (matchedEvents.length === 0) {
+          await this.sendMessage(phone, formatEventNotFound(comment.eventTitle));
+          return;
+        }
+
+        if (matchedEvents.length > 1) {
+          const eventList = matchedEvents.slice(0, 5).map((e, idx) => {
+            const dt = DateTime.fromJSDate(e.startTsUtc).setZone('Asia/Jerusalem');
+            return `${idx + 1}. ${e.title} - ${dt.toFormat('dd/MM/yyyy HH:mm')}`;
+          }).join('\n');
+
+          await this.sendMessage(phone, `נמצאו ${matchedEvents.length} אירועים:\n\n${eventList}\n\nאנא פרט יותר את שם האירוע.`);
+          return;
+        }
+
+        event = matchedEvents[0];
+      } else {
+        // No event specified - find the most recent event with comments
+        const recentEvents = await this.eventService.getUpcomingEvents(userId, 50);
+        const eventsWithComments = recentEvents.filter(e => e.notes && e.notes.length > 0);
+
+        if (eventsWithComments.length === 0) {
+          await this.sendMessage(phone, '❌ לא נמצאו אירועים עם הערות.');
+          return;
+        }
+
+        event = eventsWithComments[0];
+      }
+
+      // Get the comments
+      const comments = await this.eventService.getComments(event.id, userId);
+      const commentIndex = comment.commentIndex - 1; // Convert to 0-based
+
+      if (commentIndex < 0 || commentIndex >= comments.length) {
+        await this.sendMessage(phone, `❌ הערה ${comment.commentIndex} לא קיימת.\n\nיש ${comments.length} הערות לאירוע זה.`);
+        return;
+      }
+
+      const existingComment = comments[commentIndex];
+
+      // Update the comment
+      const updatedComment = await this.eventService.updateComment(
+        event.id,
+        userId,
+        existingComment.id,
+        {
+          text: comment.text,
+          priority: comment.priority || existingComment.priority,
+        }
+      );
+
+      if (!updatedComment) {
+        await this.sendMessage(phone, '❌ שגיאה בעדכון ההערה. נסה שוב.');
+        return;
+      }
+
+      // Send confirmation
+      const dt = DateTime.fromJSDate(event.startTsUtc).setZone('Asia/Jerusalem');
+      const priorityIcon = updatedComment.priority === 'urgent' ? '🔴' : updatedComment.priority === 'high' ? '🟡' : '';
+
+      const message = `✅ הערה ${comment.commentIndex} עודכנה!
+
+📌 ${event.title}
+📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}
+
+${priorityIcon} הערה ${comment.commentIndex}: ${updatedComment.text}`;
+
+      await this.sendMessage(phone, message);
+
+    } catch (error) {
+      logger.error('Failed to update comment', { userId, comment, error });
+      await this.sendMessage(phone, '❌ שגיאה בעדכון ההערה. נסה שוב מאוחר יותר.');
     }
   }
 

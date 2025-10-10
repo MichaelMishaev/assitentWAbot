@@ -13,7 +13,7 @@ interface Contact {
 }
 
 export interface NLPIntent {
-  intent: 'create_event' | 'create_reminder' | 'search_event' | 'list_events' | 'list_reminders' | 'delete_event' | 'delete_reminder' | 'update_event' | 'update_reminder' | 'complete_task' | 'send_message' | 'add_contact' | 'add_comment' | 'view_comments' | 'delete_comment' | 'generate_dashboard' | 'unknown';
+  intent: 'create_event' | 'create_reminder' | 'search_event' | 'list_events' | 'list_reminders' | 'delete_event' | 'delete_reminder' | 'update_event' | 'update_reminder' | 'complete_task' | 'send_message' | 'add_contact' | 'add_comment' | 'view_comments' | 'delete_comment' | 'update_comment' | 'generate_dashboard' | 'unknown';
   confidence: number;
   urgency?: 'urgent' | 'important' | 'normal'; // NEW: Emotional context
   event?: {
@@ -44,10 +44,12 @@ export interface NLPIntent {
     relation?: string;
   };
   comment?: {
-    eventTitle: string; // Which event to add/view/delete comment from
-    text?: string; // Comment text (for add_comment)
+    eventTitle: string; // Which event to add/view/delete/update comment from
+    text?: string; // Comment text (for add_comment/update_comment)
     priority?: 'normal' | 'high' | 'urgent'; // Comment priority
     reminderTime?: string; // ISO 8601 datetime if user wants reminder from comment
+    reminderOffset?: number; // Offset in minutes BEFORE event (e.g., -60 for 1 hour before)
+    commentIndex?: number; // Comment number to update (for update_comment, 1-based)
     deleteBy?: 'index' | 'last' | 'text'; // How to identify comment to delete
     deleteValue?: string | number; // Index number or text to search
   };
@@ -103,7 +105,7 @@ User contacts: ${JSON.stringify(contactNames, null, 2)}
 
 Parse the message and return JSON with this structure:
 {
-  "intent": "create_event|create_reminder|search_event|list_events|list_reminders|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|generate_dashboard|unknown",
+  "intent": "create_event|create_reminder|search_event|list_events|list_reminders|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|update_comment|generate_dashboard|unknown",
   "confidence": 0.0-1.0,
   "urgency": "urgent|important|normal (optional)",
   "event": {
@@ -135,9 +137,11 @@ Parse the message and return JSON with this structure:
   },
   "comment": {
     "eventTitle": "event name/title",
-    "text": "comment text (for add_comment)",
+    "text": "comment text (for add_comment/update_comment)",
     "priority": "normal|high|urgent (optional, default: normal)",
     "reminderTime": "ISO 8601 datetime if user wants reminder (optional)",
+    "reminderOffset": "offset in minutes BEFORE event (optional, e.g., -60 for 1 hour before)",
+    "commentIndex": "comment number to update (for update_comment, 1-based)",
     "deleteBy": "index|last|text (for delete_comment)",
     "deleteValue": "index number or text to search (for delete_comment)"
   },

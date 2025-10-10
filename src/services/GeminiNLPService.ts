@@ -60,7 +60,7 @@ User contacts: ${JSON.stringify(contactNames, null, 2)}
 
 Parse the message and return JSON with this structure:
 {
-  "intent": "create_event|create_reminder|search_event|list_events|list_reminders|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|generate_dashboard|unknown",
+  "intent": "create_event|create_reminder|search_event|list_events|list_reminders|delete_event|delete_reminder|update_event|update_reminder|complete_task|send_message|add_contact|add_comment|view_comments|delete_comment|update_comment|generate_dashboard|unknown",
   "confidence": 0.0-1.0,
   "urgency": "urgent|important|normal (optional)",
   "event": {
@@ -92,9 +92,11 @@ Parse the message and return JSON with this structure:
   },
   "comment": {
     "eventTitle": "event name/title",
-    "text": "comment text (for add_comment)",
+    "text": "comment text (for add_comment/update_comment)",
     "priority": "normal|high|urgent (optional, default: normal)",
     "reminderTime": "ISO 8601 datetime if user wants reminder (optional)",
+    "reminderOffset": "offset in minutes BEFORE event (optional, e.g., -60 for 1 hour before)",
+    "commentIndex": "comment number to update (for update_comment, 1-based)",
     "deleteBy": "index|last|text (for delete_comment)",
     "deleteValue": "index number or text to search (for delete_comment)"
   },
@@ -131,7 +133,14 @@ REMINDERS (CRITICAL - separate from events!):
 - English: "show my reminders", "what reminders", "list my reminders"
 → list_reminders
 
-UPDATE/EDIT (CRITICAL - Distinguish between reminders and events):
+UPDATE/EDIT (CRITICAL - Distinguish between comments, reminders and events):
+COMMENT Updates (use update_comment - HIGHEST PRIORITY):
+- If message contains "הערה" + number → update_comment
+- "עדכן הערה [מספר]", "שנה הערה [מספר]" → update_comment with commentIndex
+- "עדכן הערה [מספר] ל[טקסט חדש]" → update_comment with commentIndex and new text
+- "עדכן הערה 1 בפגישה עם דני ל[טקסט]" → update_comment with eventTitle, commentIndex, text
+- CRITICAL: "הערה" + number ALWAYS means update_comment, NOT update_event or update_reminder!
+
 REMINDER Updates (use update_reminder):
 - If message contains "תזכורת" → update_reminder
 - If updating recurring item (mentions "ימי X", "כל X") → likely update_reminder
@@ -142,7 +151,7 @@ REMINDER Updates (use update_reminder):
 EVENT Updates (use update_event):
 - If message contains "אירוע", "פגישה", "meeting" → update_event
 - "עדכן פגישה", "שנה אירוע" → update_event
-- If not explicitly a reminder → default to update_event
+- If not explicitly a reminder or comment → default to update_event
 
 - "עדכן", "שנה", "תשנה", "תעדכן", "דחה", "הזז", "update", "change", "edit", "modify", "reschedule", "postpone", "move"
 
@@ -169,7 +178,13 @@ ADD COMMENT:
 - "הוסף הערה ל[אירוע]: [טקסט]", "רשום ב[אירוע]: [טקסט]", "add comment to [event]: [text]" → add_comment
 - With priority: "הוסף הערה דחוף/חשוב ל[אירוע]: [טקסט]" → add_comment with priority: urgent/high
 - With reminder: "הוסף הערה ל[אירוע] והזכר לי [זמן]: [טקסט]" → add_comment with reminderTime
-- Examples: "הוסף הערה לרופא שיניים: תזכיר על הביק", "רשום בפגישה דחוף: להביא מסמכים"
+- With offset reminder: "תזכיר לי שעה לפני [אירוע]", "תזכיר לי 2 שעות לפני פגישה" → add_comment with reminderOffset: -60 (in minutes)
+- Examples: "הוסף הערה לרופא שיניים: תזכיר על הביק", "רשום בפגישה דחוף: להביא מסמכים", "תזכיר לי שעה לפני פגישה עם אשתי"
+
+UPDATE COMMENT:
+- By index: "עדכן הערה [מספר] ל[טקסט חדש]", "שנה הערה [מספר]" → update_comment with commentIndex and new text
+- With event: "עדכן הערה [מספר] ב[אירוע] ל[טקסט]" → update_comment with eventTitle, commentIndex, text
+- Examples: "עדכן הערה 1 להביא פספורט", "שנה הערה 2 בפגישה עם דני לנושא חדש"
 
 VIEW COMMENTS:
 - "הצג הערות [אירוע]", "מה רשום ב[אירוע]", "הערות של [אירוע]", "show comments for [event]" → view_comments
@@ -268,6 +283,9 @@ KEY EXAMPLES (cover all intents):
 10. URGENCY: "דחוף! פגישה עם הבוס מחר ב-9" → {"intent":"create_event","confidence":0.95,"urgency":"urgent","event":{"title":"פגישה עם הבוס","date":"2025-11-12T09:00:00+02:00","dateText":"מחר ב-9"}}
 11. UNKNOWN/CLARIFY: "קבע משהו" → {"intent":"unknown","confidence":0.3,"clarificationNeeded":"מה תרצה לקבוע? אירוע או תזכורת?"}
 12. ADD CONTACT: "הוסף קשר דני 052-1234567 חבר שלי" → {"intent":"add_contact","confidence":0.95,"contact":{"name":"דני","phone":"0521234567","relation":"חבר"}}
+13. ADD COMMENT WITH OFFSET REMINDER: "תזכיר לי שעה לפני פגישה עם אשתי" → {"intent":"add_comment","confidence":0.9,"comment":{"eventTitle":"פגישה עם אשתי","text":"תזכורת לפני פגישה","reminderOffset":-60}} (CRITICAL: -60 = 60 minutes BEFORE event)
+14. ADD COMMENT WITH 2 HOUR OFFSET: "תזכיר לי שעתיים לפני" → {"intent":"add_comment","confidence":0.85,"comment":{"text":"תזכורת","reminderOffset":-120}} (CRITICAL: -120 = 120 minutes BEFORE)
+15. UPDATE COMMENT: "עדכן הערה 1 להביא פספורט" → {"intent":"update_comment","confidence":0.9,"comment":{"commentIndex":1,"text":"להביא פספורט"}} (CRITICAL: update_comment, NOT update_event!)
 
 CONVERSATION CONTEXT:
 - If conversation history is provided, use it to understand references like "this", "that", "it"

@@ -99,7 +99,7 @@ router.get('/api/dashboard/:token', async (req: Request, res: Response) => {
 
     const [events, allReminders, allTasks] = await Promise.all([
       eventService.getUpcomingEvents(userId, 50), // Get next 50 events
-      reminderService.getActiveReminders(userId, 50),
+      reminderService.getRemindersForToday(userId),
       taskService.getAllTasks(userId, true), // Include completed for stats
     ]);
 
@@ -148,8 +148,8 @@ router.get('/api/dashboard/:token', async (req: Request, res: Response) => {
           id: r.id,
           title: r.title,
           dueTsUtc: r.dueTsUtc,
-          recurrence: r.recurrence,
-          isActive: r.isActive,
+          recurrence: r.rrule,
+          status: r.status,
         })),
         tasks: activeTasks.map((t: any) => ({
           id: t.id,
