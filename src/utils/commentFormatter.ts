@@ -160,9 +160,13 @@ export function formatCommentWithReminder(
   const eventDate = DateTime.fromJSDate(event.startTsUtc)
     .setZone(timezone)
     .toFormat('dd/MM/yyyy HH:mm');
-  const reminderTime = DateTime.fromJSDate(reminderDate)
-    .setZone(timezone)
-    .toFormat('dd/MM/yyyy HH:mm');
+
+  // CRITICAL FIX: Validate reminderDate before formatting
+  // Prevents "Invalid DateTime" string from showing to user
+  const reminderDateTime = DateTime.fromJSDate(reminderDate).setZone(timezone);
+  const reminderTime = reminderDateTime.isValid
+    ? reminderDateTime.toFormat('dd/MM/yyyy HH:mm')
+    : 'תאריך לא תקין';
 
   let output = `✅ הערה ותזכורת נקבעו!\n\n`;
   output += `📝 ${comment.text}\n`;

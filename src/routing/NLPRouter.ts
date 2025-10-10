@@ -1263,7 +1263,9 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       // Check if user wants a reminder from this comment
       if (comment.reminderTime) {
         const reminderDate = safeParseDate(comment.reminderTime, 'handleNLPAddComment');
-        if (reminderDate) {
+        // CRITICAL FIX: Validate reminderDate is valid before creating reminder
+        // Prevents Invalid Date from being stored and displayed to user
+        if (reminderDate && !isNaN(reminderDate.getTime())) {
           // Create reminder and link it to comment
           const reminder = await this.reminderService.createReminder({
             userId,
@@ -1288,6 +1290,14 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
           const message = formatCommentWithReminder(newComment, event, reminderDate);
           await this.sendMessage(phone, message);
           return;
+        } else {
+          // Invalid reminder time - log and skip reminder creation
+          logger.warn('Invalid reminder time in add comment', {
+            userId,
+            reminderTime: comment.reminderTime,
+            eventTitle: event.title
+          });
+          // Fall through to regular comment confirmation (no reminder)
         }
       }
 
