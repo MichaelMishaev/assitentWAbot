@@ -1089,25 +1089,24 @@
 
       switch(cardType) {
         case 'events':
-          title = 'אירועים עתידיים';
+          title = 'כל האירועים';
           icon = '📅';
           headerColor = 'from-blue-500 to-indigo-600';
           const now = new Date();
-          items = data.events
-            .filter(event => new Date(event.startTsUtc) >= today) // Only future and today events
-            .map((event, index) => {
-              const date = new Date(event.startTsUtc);
-              const isToday = isDateToday(date);
-              return {
-                index: data.events.indexOf(event), // Use original index
-                type: 'event',
-                title: event.title,
-                subtitle: `${formatDate(date)} • ${formatTime(date)}`,
-                location: event.location,
-                isToday,
-                isPast: false
-              };
-            });
+          items = data.events.map((event, index) => {
+            const date = new Date(event.startTsUtc);
+            const isToday = isDateToday(date);
+            const isPast = date < now; // Check if event has already passed
+            return {
+              index,
+              type: 'event',
+              title: event.title,
+              subtitle: `${formatDate(date)} • ${formatTime(date)}`,
+              location: event.location,
+              isToday,
+              isPast
+            };
+          });
           break;
 
         case 'today':
@@ -1117,11 +1116,11 @@
           const currentTime = new Date();
           const todayEvents = data.events.filter(e => {
             const eventDate = new Date(e.startTsUtc);
-            return isDateToday(eventDate) && eventDate >= currentTime; // Only current/future events today
+            return isDateToday(eventDate); // All events today (past and future)
           });
           const todayReminders = data.reminders.filter(r => {
             const reminderDate = new Date(r.dueTsUtc);
-            return r.status !== 'cancelled' && isDateToday(reminderDate) && reminderDate >= currentTime;
+            return r.status !== 'cancelled' && isDateToday(reminderDate); // All reminders today
           });
           const todayTasks = data.tasks.filter(t => {
             const taskDate = t.dueTsUtc ? new Date(t.dueTsUtc) : null;
@@ -1129,58 +1128,66 @@
           });
 
           items = [
-            ...todayEvents.map((event) => ({
-              index: data.events.indexOf(event),
-              type: 'event',
-              title: event.title,
-              subtitle: `${formatTime(new Date(event.startTsUtc))}${event.location ? ' • ' + event.location : ''}`,
-              icon: '📅',
-              isToday: true
-            })),
-            ...todayReminders.map((reminder) => ({
-              index: data.reminders.indexOf(reminder),
-              type: 'reminder',
-              title: reminder.title,
-              subtitle: formatTime(new Date(reminder.dueTsUtc)),
-              icon: '⏰',
-              isToday: true
-            })),
+            ...todayEvents.map((event) => {
+              const eventTime = new Date(event.startTsUtc);
+              return {
+                index: data.events.indexOf(event),
+                type: 'event',
+                title: event.title,
+                subtitle: `${formatTime(eventTime)}${event.location ? ' • ' + event.location : ''}`,
+                icon: '📅',
+                isToday: true,
+                isPast: eventTime < currentTime
+              };
+            }),
+            ...todayReminders.map((reminder) => {
+              const reminderTime = new Date(reminder.dueTsUtc);
+              return {
+                index: data.reminders.indexOf(reminder),
+                type: 'reminder',
+                title: reminder.title,
+                subtitle: formatTime(reminderTime),
+                icon: '⏰',
+                isToday: true,
+                isPast: reminderTime < currentTime
+              };
+            }),
             ...todayTasks.map((task) => ({
               index: data.tasks.indexOf(task),
               type: 'task',
               title: task.title,
               subtitle: getPriorityText(task.priority),
               icon: '✅',
-              isToday: true
+              isToday: true,
+              isPast: false
             }))
           ];
           break;
 
         case 'reminders':
         case 'upcoming':
-          title = cardType === 'upcoming' ? 'תזכורות קרובות' : 'תזכורות עתידיות';
+          title = cardType === 'upcoming' ? 'תזכורות קרובות' : 'כל התזכורות';
           icon = '⏰';
           headerColor = 'from-amber-500 to-orange-600';
-          const reminders = data.reminders.filter(r => {
-            const dueDate = new Date(r.dueTsUtc);
-            return r.status !== 'cancelled' && dueDate >= today; // Only future and today
-          });
+          const currentTimeForReminders = new Date();
+          const reminders = data.reminders.filter(r => r.status !== 'cancelled');
           items = (cardType === 'upcoming'
             ? reminders.filter(r => {
                 const dueDate = new Date(r.dueTsUtc);
                 const daysUntil = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-                return daysUntil <= 7;
+                return daysUntil <= 7 && daysUntil >= 0;
               })
             : reminders
           ).map((reminder) => {
             const date = new Date(reminder.dueTsUtc);
             return {
-              index: data.reminders.indexOf(reminder), // Use original index
+              index: data.reminders.indexOf(reminder),
               type: 'reminder',
               title: reminder.title,
               subtitle: `${formatDate(date)} • ${formatTime(date)}`,
               recurrence: reminder.recurrence,
-              isToday: isDateToday(date)
+              isToday: isDateToday(date),
+              isPast: date < currentTimeForReminders
             };
           });
           break;
@@ -1257,10 +1264,12 @@
         items.forEach((item, idx) => {
           let badge = '';
 
-          if (item.isToday) {
+          if (item.isPast) {
+            // Past items get "עבר" badge (higher priority)
+            badge = '<span class="bg-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded-full font-medium">עבר</span>';
+          } else if (item.isToday) {
+            // Today items that haven't passed yet get "היום" badge
             badge = '<span class="bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs px-3 py-1.5 rounded-full font-bold shadow-sm animate-pulse">היום</span>';
-          } else if (item.isPast) {
-            badge = '<span class="bg-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full font-medium">עבר</span>';
           }
 
           let cardColor = 'bg-gray-50';
