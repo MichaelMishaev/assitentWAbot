@@ -16,7 +16,7 @@ import { MultiEventPhase } from '../phases/phase2-multi-event/MultiEventPhase.js
 import { HebrewCalendarPhase } from '../phases/phase4-hebrew-calendar/HebrewCalendarPhase.js';
 import { UserProfilePhase } from '../phases/phase5-user-profiles/UserProfilePhase.js';
 import { UpdateDeletePhase } from '../phases/phase6-update-delete/UpdateDeletePhase.js';
-import { RecurrencePhase } from '../phases/phase7-recurrence/RecurrencePhase.js';
+// import { RecurrencePhase } from '../phases/phase7-recurrence/RecurrencePhase.js';  // DISABLED: RRule import issue
 import { CommentPhase } from '../phases/phase8-comments/CommentPhase.js';
 import { ParticipantPhase } from '../phases/phase9-participants/ParticipantPhase.js';
 
@@ -98,8 +98,10 @@ export async function initializePipeline(): Promise<void> {
 
     // Phase 7: Recurrence Pattern (order: 7)
     // Generates RRULE for recurring events
-    const recurrencePhase = new RecurrencePhase();
-    pipelineOrchestrator.registerPhase(recurrencePhase);
+    // DISABLED: RRule import issue in ES modules
+    // const recurrencePhase = new RecurrencePhase();
+    // pipelineOrchestrator.registerPhase(recurrencePhase);
+    logger.info('⚠️  Recurrence Phase temporarily disabled (RRule import issue)');
 
     // Phase 8: Comment System (order: 8)
     // Detects and manages event comments
