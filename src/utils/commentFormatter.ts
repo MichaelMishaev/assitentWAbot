@@ -38,6 +38,55 @@ export function getPriorityLabel(priority: EventComment['priority']): string {
 }
 
 /**
+ * Hebrew day names mapping
+ */
+const hebrewDayNames: Record<number, string> = {
+  0: 'ראשון',   // Sunday
+  1: 'שני',      // Monday
+  2: 'שלישי',    // Tuesday
+  3: 'רביעי',    // Wednesday
+  4: 'חמישי',    // Thursday
+  5: 'שישי',     // Friday
+  6: 'שבת',      // Saturday
+};
+
+/**
+ * Check if a date is tomorrow
+ */
+function isTomorrow(date: DateTime, timezone: string = 'Asia/Jerusalem'): boolean {
+  const now = DateTime.now().setZone(timezone);
+  const tomorrow = now.plus({ days: 1 });
+  return date.hasSame(tomorrow, 'day');
+}
+
+/**
+ * Check if a date is within the next 7 days
+ */
+function isWithinWeek(date: DateTime, timezone: string = 'Asia/Jerusalem'): boolean {
+  const now = DateTime.now().setZone(timezone);
+  const weekFromNow = now.plus({ days: 7 });
+  return date >= now && date <= weekFromNow;
+}
+
+/**
+ * Format date with contextual "מחר" for tomorrow and day names for upcoming week
+ */
+function formatDateWithContext(dt: DateTime, format: string, timezone: string = 'Asia/Jerusalem'): string {
+  if (isTomorrow(dt, timezone)) {
+    return `מחר (${dt.toFormat(format)})`;
+  }
+
+  // For dates within the next week, show day name
+  if (isWithinWeek(dt, timezone)) {
+    const dayOfWeek = dt.weekday % 7; // Convert Luxon's Monday=1 to Sunday=0
+    const dayName = hebrewDayNames[dayOfWeek];
+    return `יום ${dayName} (${dt.toFormat(format)})`;
+  }
+
+  return dt.toFormat(format);
+}
+
+/**
  * Format timestamp for display
  */
 export function formatCommentTimestamp(timestamp: string, timezone: string = 'Asia/Jerusalem'): string {
@@ -290,7 +339,7 @@ export function formatEventInList(
     output += ` ⚠️ (במקביל: ${parallelTitles.join(', ')})`;
   }
 
-  output += `\n   📅 ${dt.toFormat(dateFormat)}`;
+  output += `\n   📅 ${formatDateWithContext(dt, dateFormat, timezone)}`;
 
   if (event.location) {
     output += `\n   📍 ${event.location}`;
@@ -319,7 +368,7 @@ export function formatEventWithComments(
   const dt = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
 
   let output = `📌 ${event.title}\n`;
-  output += `📅 ${dt.toFormat('dd/MM/yyyy HH:mm')}`;
+  output += `📅 ${formatDateWithContext(dt, 'dd/MM/yyyy HH:mm', timezone)}`;
 
   if (event.location) {
     output += `\n📍 ${event.location}`;

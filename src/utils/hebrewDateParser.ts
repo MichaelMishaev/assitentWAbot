@@ -50,13 +50,63 @@ export function parseHebrewDate(
     'בחודש הבא': () => now.plus({ months: 1 }).startOf('month'),
   };
 
-  // Extract time from input (HH:MM or "בשעה HH:MM" or "ב-HH:MM")
+  // Extract time from input (HH:MM or "בשעה HH:MM" or "ב-HH:MM" or natural language)
   let extractedTime: { hour: number; minute: number } | null = null;
   let dateInput = trimmedInput;
 
-  // Match time patterns: "14:00", "בשעה 14:00", "ב-14:00", ", בשעה 14:00"
-  const timeMatch = trimmedInput.match(/(?:,?\s*(?:בשעה|ב-?)\s*)?(\d{1,2}):(\d{2})/);
-  if (timeMatch) {
+  // FIRST: Match natural language time patterns: "3 אחרי הצהריים", "8 בערב", "10 בבוקר", "12 בלילה"
+  const naturalTimeMatch = trimmedInput.match(/(?:,?\s*(?:בשעה|ב-?)?\s*)?(\d{1,2})\s*(אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר)/);
+  if (naturalTimeMatch) {
+    const hour = parseInt(naturalTimeMatch[1], 10);
+    const period = naturalTimeMatch[2];
+
+    let adjustedHour = hour;
+
+    // Convert to 24-hour format
+    if (period === 'אחרי הצהריים' || period === 'אחה"צ' || period === 'אחה״צ') {
+      // Afternoon: PM hours (12:00-18:00)
+      if (hour >= 1 && hour <= 11) {
+        adjustedHour = hour + 12; // 1-11 → 13-23
+      } else if (hour === 12) {
+        adjustedHour = 12; // noon stays 12
+      }
+    } else if (period === 'בערב') {
+      // Evening: 6 PM onwards
+      if (hour >= 1 && hour <= 11) {
+        adjustedHour = hour + 12; // 1-11 → 13-23
+      } else if (hour === 12) {
+        adjustedHour = 0; // midnight
+      }
+    } else if (period === 'בלילה') {
+      // Night: midnight or late night
+      if (hour === 12) {
+        adjustedHour = 0; // midnight
+      } else if (hour >= 1 && hour <= 3) {
+        adjustedHour = hour; // early morning 1-3 AM stays as is
+      } else if (hour >= 4 && hour <= 11) {
+        adjustedHour = hour + 12; // late night 4-11 → 16-23
+      }
+    } else if (period === 'בבוקר') {
+      // Morning: AM hours
+      if (hour >= 1 && hour <= 11) {
+        adjustedHour = hour; // 1-11 stays as is
+      } else if (hour === 12) {
+        adjustedHour = 12; // noon
+      }
+    }
+
+    // Validate hour
+    if (adjustedHour >= 0 && adjustedHour <= 23) {
+      extractedTime = { hour: adjustedHour, minute: 0 };
+      // Remove natural time from input for date parsing
+      dateInput = trimmedInput.replace(/(?:,?\s*(?:בשעה|ב-?)?\s*)?\d{1,2}\s*(?:אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר)/, '').trim();
+    }
+  }
+
+  // SECOND: Match standard time patterns: "14:00", "בשעה 14:00", "ב-14:00", ", בשעה 14:00"
+  if (!extractedTime) {
+    const timeMatch = trimmedInput.match(/(?:,?\s*(?:בשעה|ב-?)\s*)?(\d{1,2}):(\d{2})/);
+    if (timeMatch) {
     const hour = parseInt(timeMatch[1], 10);
     const minute = parseInt(timeMatch[2], 10);
     if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
@@ -87,6 +137,7 @@ export function parseHebrewDate(
       }
     }
   }
+  } // Close if (!extractedTime)
 
   // Check for direct keyword match
   if (keywords[dateInput]) {

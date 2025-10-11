@@ -568,7 +568,13 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
             });
             dateDescription = 'היום (אירועים עתידיים)';
           } else {
-            dateDescription = `ב-${queryDate.toFormat('dd/MM/yyyy')}`;
+            // Check if it's tomorrow
+            const tomorrow = now.plus({ days: 1 });
+            if (queryDate.hasSame(tomorrow, 'day')) {
+              dateDescription = `מחר (${queryDate.toFormat('dd/MM/yyyy')})`;
+            } else {
+              dateDescription = `ב-${queryDate.toFormat('dd/MM/yyyy')}`;
+            }
           }
         }
       } else if (titleFilter) {

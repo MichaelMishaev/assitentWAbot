@@ -43,6 +43,7 @@ logs/
 *.dump
 *.sql.gz
 *.backup
+backups/
 
 # Documentation with secrets
 DEPLOYMENT_CHECKLIST.md
