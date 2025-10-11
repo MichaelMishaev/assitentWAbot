@@ -11,6 +11,7 @@ export interface Reminder {
   rrule: string | null;
   status: 'pending' | 'completed' | 'cancelled';
   eventId: string | null;
+  notes: string | null;
   createdAt: Date;
 }
 
@@ -20,6 +21,7 @@ export interface CreateReminderInput {
   dueTsUtc: Date;
   rrule?: string;
   eventId?: string;
+  notes?: string;
 }
 
 export interface UpdateReminderInput {
@@ -27,6 +29,7 @@ export interface UpdateReminderInput {
   dueTsUtc?: Date;
   rrule?: string;
   status?: 'pending' | 'completed' | 'cancelled';
+  notes?: string;
 }
 
 export class ReminderService {
@@ -38,8 +41,8 @@ export class ReminderService {
   async createReminder(input: CreateReminderInput): Promise<Reminder> {
     try {
       const query = `
-        INSERT INTO reminders (user_id, title, due_ts_utc, rrule, status, event_id)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO reminders (user_id, title, due_ts_utc, rrule, status, event_id, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
       `;
 
@@ -50,6 +53,7 @@ export class ReminderService {
         input.rrule || null,
         'pending',
         input.eventId || null,
+        input.notes || null,
       ];
 
       const result = await this.dbPool.query(query, values);
@@ -191,6 +195,10 @@ export class ReminderService {
         updateFields.push(`status = $${paramIndex++}`);
         values.push(update.status);
       }
+      if (update.notes !== undefined) {
+        updateFields.push(`notes = $${paramIndex++}`);
+        values.push(update.notes);
+      }
 
       if (updateFields.length === 0) {
         return await this.getReminderById(reminderId, userId);
@@ -294,6 +302,7 @@ export class ReminderService {
       rrule: row.rrule,
       status: row.status,
       eventId: row.event_id,
+      notes: row.notes,
       createdAt: row.created_at,
     };
   }

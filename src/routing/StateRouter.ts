@@ -803,7 +803,7 @@ export class StateRouter {
     await this.reactToLastMessage(userId, '✅');
 
     const session = await this.stateManager.getState(userId);
-    const { title, dueDate, dueTsUtc, rrule } = session?.context || {};
+    const { title, dueDate, dueTsUtc, rrule, notes } = session?.context || {};
 
     // Support both dueDate (from manual flow) and dueTsUtc (from NLP flow)
     const reminderDueDate = dueTsUtc || dueDate;
@@ -821,7 +821,8 @@ export class StateRouter {
         userId,
         title,
         dueTsUtc: new Date(reminderDueDate),
-        rrule: rrule || undefined
+        rrule: rrule || undefined,
+        notes: notes || undefined
       });
 
       // Schedule with BullMQ

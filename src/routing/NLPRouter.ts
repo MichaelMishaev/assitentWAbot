@@ -501,6 +501,7 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       title: reminder.title,
       dueTsUtc: dueDate,
       rrule: reminder.recurrence || null, // ✅ FIX: Pass RRULE to context
+      notes: reminder.notes || null, // ✅ NEW: Pass notes to context
       fromNLP: true
     });
   }

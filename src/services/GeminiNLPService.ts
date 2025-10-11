@@ -79,7 +79,8 @@ Parse the message and return JSON with this structure:
     "date": "ISO 8601 datetime (alias for dueDate, use for updates)",
     "dateText": "Hebrew date text (optional, e.g., 'מחר', 'יום ראשון')",
     "time": "Time string HH:MM (optional, for update_reminder without full date)",
-    "recurrence": "RRULE format (optional)"
+    "recurrence": "RRULE format (optional)",
+    "notes": "additional notes (optional)"
   },
   "message": {
     "recipient": "contact name",

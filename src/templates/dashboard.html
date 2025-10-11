@@ -1042,14 +1042,13 @@
           }
         },
         'reminders': () => {
-          showTab('reminders');
+          showTab('agenda', 'reminder');
         },
         'upcoming': () => {
-          showTab('reminders');
-          // Could filter to show only upcoming reminders
+          showTab('agenda', 'reminder');
         },
         'tasks': () => {
-          showTab('tasks');
+          showTab('agenda', 'task');
         },
         'completed': () => {
           showTab('tasks');
@@ -1063,7 +1062,7 @@
       }
     }
 
-    function showTab(tab) {
+    function showTab(tab, priorityFilter = null) {
       // Hide all sections
       const sections = ['week', 'month', 'agenda', 'calendar', 'events', 'reminders', 'tasks'];
       sections.forEach(section => {
@@ -1087,7 +1086,7 @@
       // Render specific views
       if (tab === 'week') renderWeekView();
       if (tab === 'month') renderMonthView();
-      if (tab === 'agenda') renderAgendaView();
+      if (tab === 'agenda') renderAgendaView(priorityFilter);
       if (tab === 'calendar') renderCalendar();
     }
 
@@ -1599,7 +1598,7 @@
       container.innerHTML = html;
     }
 
-    function renderAgendaView() {
+    function renderAgendaView(priorityFilter = null) {
       const container = document.getElementById('agenda-list');
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -1645,8 +1644,36 @@
         grouped[dateKey].push(item);
       });
 
+      // If priorityFilter is set, sort groups to show filtered items first
+      let sortedGroups = Object.entries(grouped);
+      if (priorityFilter) {
+        sortedGroups.sort(([dateKeyA, itemsA], [dateKeyB, itemsB]) => {
+          // Check if groups contain filtered items
+          const aHasFiltered = itemsA.some(item => item.type === priorityFilter);
+          const bHasFiltered = itemsB.some(item => item.type === priorityFilter);
+
+          if (aHasFiltered && !bHasFiltered) return -1;
+          if (!aHasFiltered && bHasFiltered) return 1;
+
+          // If both have or both don't have filtered items, maintain date order
+          // Compare dates of first items in each group
+          return itemsA[0].date - itemsB[0].date;
+        });
+      }
+
       let html = '';
-      Object.entries(grouped).forEach(([dateKey, items]) => {
+      sortedGroups.forEach(([dateKey, items]) => {
+        // Within each date group, sort filtered items first
+        if (priorityFilter) {
+          items.sort((a, b) => {
+            const aMatch = a.type === priorityFilter;
+            const bMatch = b.type === priorityFilter;
+            if (aMatch && !bMatch) return -1;
+            if (!aMatch && bMatch) return 1;
+            return a.date - b.date;
+          });
+        }
+
         html += `<div class="mb-6">
           <h3 class="text-lg font-bold text-gray-800 mb-3 border-b-2 border-purple-200 pb-2">${dateKey}</h3>
           <div class="space-y-3">`;
