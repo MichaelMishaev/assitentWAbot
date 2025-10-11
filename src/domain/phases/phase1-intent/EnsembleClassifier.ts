@@ -117,26 +117,58 @@ export class EnsembleClassifier extends BasePhase {
    * Classify with GPT-4o-mini
    */
   private async classifyWithGPT(prompt: string, context: PhaseContext): Promise<ModelVote> {
-    // Use existing NLPService temporarily (will integrate properly later)
-    return {
-      model: 'gpt-4o-mini',
-      intent: 'unknown',
-      confidence: 0.5,
-      reasoning: 'Temporary placeholder - integrate with NLPService'
-    };
+    try {
+      // Import existing NLPService
+      const { NLPService } = await import('../../../services/NLPService.js');
+      const nlpService = new NLPService();
+
+      // Parse intent using existing service
+      const result = await nlpService.parseIntent(
+        context.processedText,
+        [], // No contacts for intent classification
+        context.userTimezone
+      );
+
+      return {
+        model: 'gpt-4o-mini',
+        intent: result.intent,
+        confidence: result.confidence,
+        reasoning: `GPT classified as ${result.intent}`
+      };
+
+    } catch (error) {
+      logger.error('GPT classification failed', { error });
+      throw error;
+    }
   }
 
   /**
-   * Classify with Gemini
+   * Classify with Gemini Flash
    */
   private async classifyWithGemini(prompt: string, context: PhaseContext): Promise<ModelVote> {
-    // Use existing GeminiNLPService temporarily
-    return {
-      model: 'gemini-1.5-flash',
-      intent: 'unknown',
-      confidence: 0.5,
-      reasoning: 'Temporary placeholder - integrate with GeminiNLPService'
-    };
+    try {
+      // Import existing GeminiNLPService
+      const { GeminiNLPService } = await import('../../../services/GeminiNLPService.js');
+      const geminiService = new GeminiNLPService();
+
+      // Parse intent using existing service
+      const result = await geminiService.parseIntent(
+        context.processedText,
+        [], // No contacts for intent classification
+        context.userTimezone
+      );
+
+      return {
+        model: 'gemini-2.0-flash-exp',
+        intent: result.intent,
+        confidence: result.confidence,
+        reasoning: `Gemini classified as ${result.intent}`
+      };
+
+    } catch (error) {
+      logger.error('Gemini classification failed', { error });
+      throw error;
+    }
   }
 
   /**
@@ -273,23 +305,43 @@ export class EnsembleClassifier extends BasePhase {
   }
 
   /**
-   * Build classification prompt
+   * Build simplified classification prompt for Claude
+   * Uses same format as GPT/Gemini for consistency
    */
   private buildClassificationPrompt(message: string, context: PhaseContext): string {
     return `You are a Hebrew/English intent classifier for a WhatsApp bot.
 
 User message: "${message}"
 
-Classify the intent. Respond with JSON:
+Classify the intent into one of these categories:
+- create_event: Creating a new event/appointment
+- create_reminder: Creating a reminder
+- search_event: Searching for a specific event
+- list_events: Listing all events
+- list_reminders: Listing all reminders
+- delete_event: Deleting an event
+- delete_reminder: Deleting a reminder
+- update_event: Updating an event
+- update_reminder: Updating a reminder
+- add_comment: Adding a comment to an event
+- view_comments: Viewing event comments
+- delete_comment: Deleting a comment
+- update_comment: Updating a comment
+- generate_dashboard: Generating a summary/dashboard
+- unknown: Cannot determine intent
+
+Respond with JSON:
 {
-  "intent": "create_event|create_reminder|search_event|list_events|delete_event|update_event|unknown",
+  "intent": "create_event|create_reminder|search_event|list_events|list_reminders|delete_event|delete_reminder|update_event|update_reminder|add_comment|view_comments|delete_comment|update_comment|generate_dashboard|unknown",
   "confidence": 0.0-1.0,
   "reasoning": "brief explanation in English"
 }
 
 Examples:
-- "קבע פגישה מחר" → {"intent":"create_event","confidence":0.95,"reasoning":"Clear event creation"}
+- "קבע פגישה מחר" → {"intent":"create_event","confidence":0.95,"reasoning":"Clear event creation with date"}
 - "תזכיר לי" → {"intent":"create_reminder","confidence":0.9,"reasoning":"Reminder request"}
-- "מה יש לי" → {"intent":"list_events","confidence":0.9,"reasoning":"Query for events"}`;
+- "מה יש לי" → {"intent":"list_events","confidence":0.9,"reasoning":"Query for events"}
+- "מחק פגישה" → {"intent":"delete_event","confidence":0.9,"reasoning":"Delete event command"}
+- "עדכן תזכורת" → {"intent":"update_reminder","confidence":0.9,"reasoning":"Update reminder command"}`;
   }
 }
