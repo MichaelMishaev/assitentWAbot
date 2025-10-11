@@ -61,6 +61,9 @@ jobs:
         run: |
           PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1733086800000_initial-schema.sql
           PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1733176800000_add_event_comments_jsonb.sql
+          PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1739000000000_add-cost-tracking.sql
+          PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1739100000000_add-user-profiles.sql
+          PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1739200000000_add-event-participants.sql
 
       - name: 🧪 Run tests
         run: npm test
