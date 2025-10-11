@@ -1089,51 +1089,64 @@
 
       switch(cardType) {
         case 'events':
-          title = 'כל האירועים';
+          title = 'אירועים עתידיים';
           icon = '📅';
           headerColor = 'from-blue-500 to-indigo-600';
-          items = data.events.map((event, index) => {
-            const date = new Date(event.startTsUtc);
-            const isToday = isDateToday(date);
-            return {
-              index,
-              type: 'event',
-              title: event.title,
-              subtitle: `${formatDate(date)} • ${formatTime(date)}`,
-              location: event.location,
-              isToday,
-              isPast: date < new Date()
-            };
-          });
+          const now = new Date();
+          items = data.events
+            .filter(event => new Date(event.startTsUtc) >= today) // Only future and today events
+            .map((event, index) => {
+              const date = new Date(event.startTsUtc);
+              const isToday = isDateToday(date);
+              return {
+                index: data.events.indexOf(event), // Use original index
+                type: 'event',
+                title: event.title,
+                subtitle: `${formatDate(date)} • ${formatTime(date)}`,
+                location: event.location,
+                isToday,
+                isPast: false
+              };
+            });
           break;
 
         case 'today':
           title = 'האירועים של היום';
           icon = '🗓️';
           headerColor = 'from-purple-500 to-pink-600';
-          const todayEvents = data.events.filter(e => isDateToday(new Date(e.startTsUtc)));
-          const todayReminders = data.reminders.filter(r => r.status !== 'cancelled' && isDateToday(new Date(r.dueTsUtc)));
-          const todayTasks = data.tasks.filter(t => t.status !== 'completed' && t.dueTsUtc && isDateToday(new Date(t.dueTsUtc)));
+          const currentTime = new Date();
+          const todayEvents = data.events.filter(e => {
+            const eventDate = new Date(e.startTsUtc);
+            return isDateToday(eventDate) && eventDate >= currentTime; // Only current/future events today
+          });
+          const todayReminders = data.reminders.filter(r => {
+            const reminderDate = new Date(r.dueTsUtc);
+            return r.status !== 'cancelled' && isDateToday(reminderDate) && reminderDate >= currentTime;
+          });
+          const todayTasks = data.tasks.filter(t => {
+            const taskDate = t.dueTsUtc ? new Date(t.dueTsUtc) : null;
+            return t.status !== 'completed' && taskDate && isDateToday(taskDate);
+          });
 
           items = [
-            ...todayEvents.map((event, index) => ({
-              index,
+            ...todayEvents.map((event) => ({
+              index: data.events.indexOf(event),
               type: 'event',
               title: event.title,
               subtitle: `${formatTime(new Date(event.startTsUtc))}${event.location ? ' • ' + event.location : ''}`,
               icon: '📅',
               isToday: true
             })),
-            ...todayReminders.map((reminder, index) => ({
-              index,
+            ...todayReminders.map((reminder) => ({
+              index: data.reminders.indexOf(reminder),
               type: 'reminder',
               title: reminder.title,
               subtitle: formatTime(new Date(reminder.dueTsUtc)),
               icon: '⏰',
               isToday: true
             })),
-            ...todayTasks.map((task, index) => ({
-              index,
+            ...todayTasks.map((task) => ({
+              index: data.tasks.indexOf(task),
               type: 'task',
               title: task.title,
               subtitle: getPriorityText(task.priority),
@@ -1145,21 +1158,24 @@
 
         case 'reminders':
         case 'upcoming':
-          title = cardType === 'upcoming' ? 'תזכורות קרובות' : 'כל התזכורות';
+          title = cardType === 'upcoming' ? 'תזכורות קרובות' : 'תזכורות עתידיות';
           icon = '⏰';
           headerColor = 'from-amber-500 to-orange-600';
-          const reminders = data.reminders.filter(r => r.status !== 'cancelled');
+          const reminders = data.reminders.filter(r => {
+            const dueDate = new Date(r.dueTsUtc);
+            return r.status !== 'cancelled' && dueDate >= today; // Only future and today
+          });
           items = (cardType === 'upcoming'
             ? reminders.filter(r => {
                 const dueDate = new Date(r.dueTsUtc);
                 const daysUntil = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-                return daysUntil <= 7 && daysUntil >= 0;
+                return daysUntil <= 7;
               })
             : reminders
-          ).map((reminder, index) => {
+          ).map((reminder) => {
             const date = new Date(reminder.dueTsUtc);
             return {
-              index,
+              index: data.reminders.indexOf(reminder), // Use original index
               type: 'reminder',
               title: reminder.title,
               subtitle: `${formatDate(date)} • ${formatTime(date)}`,
