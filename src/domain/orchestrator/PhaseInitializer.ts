@@ -49,12 +49,11 @@ export async function initializePipeline(): Promise<void> {
 
     // Register ClaudeClient (Ensemble AI)
     const claudeClient = new ClaudeClient();
-    await claudeClient.initialize({
+    await pluginManager.registerPlugin(claudeClient, {
       apiKey: process.env.ANTHROPIC_API_KEY!,
       model: 'claude-3-haiku-20240307',
       maxTokens: 1024
     });
-    await pluginManager.registerPlugin(claudeClient);
     logger.info('✅ ClaudeClient registered');
 
     // ===== Step 2: Register All Phases =====
