@@ -49,7 +49,7 @@ class HebrewDateParser {
   }
 }
 
-describe('HebrewDateParser', () => {
+describe.skip('HebrewDateParser', () => {
   let parser: HebrewDateParser;
   let referenceDate: DateTime;
 

@@ -12,7 +12,7 @@ import { pluginManager } from '../../src/plugins/PluginManager';
 import { HebcalClient } from '../../src/infrastructure/external/hebcal/HebcalClient';
 import { DateTime } from 'luxon';
 
-describe.skip('QA Test Suite - Hebrew Conversations', () => {
+describe('QA Test Suite - Hebrew Conversations', () => {
   beforeAll(async () => {
     // Initialize plugins
     const hebcalClient = new HebcalClient();
@@ -42,7 +42,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-1-1',
         from: '+972501234567',
         content: { text: 'קבע פגישה עם רופא שיניים ביום שלישי בשעה 15:00' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -59,7 +59,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-1-2',
         from: '+972501234567',
         content: { text: 'קבע פגישה עם המנכ"ל מחר בשעה 10' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -75,7 +75,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-1-3',
         from: '+972501234567',
         content: { text: 'קבע פגישה עם הצוות ביום רביעי ב-14:00 במשרד' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -92,7 +92,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-yom-kippur',
         from: '+972501234567',
         content: { text: 'קבע פגישה ב-12/10/2025 בשעה 10' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -110,7 +110,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-shabbat',
         from: '+972501234567',
         content: { text: 'קבע פגישה ב-18/10/2025 בשעה 10' }, // Saturday
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -126,7 +126,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-friday-evening',
         from: '+972501234567',
         content: { text: 'קבע פגישה ב-17/10/2025 בשעה 18:00' }, // Friday 6 PM
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -144,7 +144,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-regular-day',
         from: '+972501234567',
         content: { text: 'קבע פגישה ב-14/10/2025 בשעה 10' }, // Tuesday, regular day
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -161,7 +161,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-2-1',
         from: '+972501234567',
         content: { text: 'תזכיר לי כל יום בשעה 17:00 לעדכן סטטוס' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -177,7 +177,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-2-2',
         from: '+972501234567',
         content: { text: 'תזכיר לי כל יום ראשון בשעה 8:00 לשים זבל' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -194,7 +194,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-3-1',
         from: '+972501234567',
         content: { text: 'מה יש לי השבוע?' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -209,7 +209,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-3-7',
         from: '+972501234567',
         content: { text: 'מתי הפגישה עם המנכ"ל?' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -228,7 +228,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-7-1',
         from: '+972501234567',
         content: { text: 'קבעפגושה מצר בשעה 2' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -244,7 +244,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-7-6',
         from: '+972501234567',
         content: { text: 'קבע פגישה אתמול בשעה 10' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
@@ -261,7 +261,7 @@ describe.skip('QA Test Suite - Hebrew Conversations', () => {
         messageId: 'test-perf',
         from: '+972501234567',
         content: { text: 'קבע פגישה מחר בשעה 10' },
-        timestamp: Date.now(),
+        timestamp: new Date(),
         isFromMe: false
       };
 
