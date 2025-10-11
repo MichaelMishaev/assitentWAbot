@@ -191,6 +191,9 @@ export interface ExtractedEntities {
   // Multi-event
   isMultiEvent?: boolean;
   splitEvents?: Array<Partial<ExtractedEntities>>;
+
+  // Event operations (update/delete)
+  eventId?: string; // ID of event being updated/deleted
 }
 
 /**

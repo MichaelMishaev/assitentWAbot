@@ -7,6 +7,7 @@
 
 export interface MessageContent {
   text: string;
+  isVoice?: boolean; // True if this is a voice message transcription
   // Future: support for media, location, etc.
 }
 

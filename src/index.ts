@@ -7,6 +7,7 @@ import { BaileysProvider } from './providers/index.js';
 import { IncomingMessage } from './providers/IMessageProvider.js';
 import { createMessageRouter } from './services/MessageRouter.js';
 import { ReminderWorker } from './queues/ReminderWorker.js';
+import { initializePipeline, shutdownPipeline } from './domain/orchestrator/PhaseInitializer.js';
 import type { MessageRouter } from './services/MessageRouter.js';
 
 // Load environment variables
@@ -40,6 +41,10 @@ async function main() {
     logger.info('Starting health check API...');
     startHealthCheck();
 
+    // Initialize V2 Pipeline (10 Phases)
+    logger.info('Initializing V2 Pipeline (10 phases + plugins)...');
+    await initializePipeline();
+
     // Initialize WhatsApp (Baileys)
     logger.info('Initializing WhatsApp connection...');
     whatsappProvider = new BaileysProvider();
@@ -71,6 +76,7 @@ async function main() {
     logger.info('📋 Status:');
     logger.info('  ✅ Database connected');
     logger.info('  ✅ Redis connected');
+    logger.info('  ✅ V2 Pipeline initialized (10 phases)');
     logger.info('  ✅ MessageRouter initialized');
     logger.info('  ✅ ReminderWorker started');
     logger.info('  ⏳ WhatsApp initializing (scan QR code if needed)');
@@ -128,6 +134,7 @@ process.on('uncaughtException', (error) => {
 async function shutdown() {
   logger.info('👋 Shutting down gracefully...');
   await stopHealthCheck();
+  await shutdownPipeline();
   if (reminderWorker) {
     await reminderWorker.close();
   }

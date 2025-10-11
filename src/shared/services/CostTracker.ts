@@ -10,7 +10,7 @@
  */
 
 import logger from '../../utils/logger.js';
-import { query } from '../../config/database.js';
+import { pool } from '../../config/database.js';
 
 export interface CostEntry {
   userId: string;
@@ -61,7 +61,7 @@ export class CostTracker {
   async trackCost(entry: CostEntry): Promise<void> {
     try {
       // Store in database
-      await query(
+      await pool.query(
         `INSERT INTO ai_cost_log (user_id, model, operation, cost_usd, tokens_used, created_at)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [entry.userId, entry.model, entry.operation, entry.costUsd, entry.tokensUsed || null, entry.timestamp]
@@ -102,7 +102,7 @@ export class CostTracker {
    */
   async getDailyCost(): Promise<CostSummary> {
     try {
-      const result = await query(
+      const result = await pool.query(
         `SELECT
            SUM(cost_usd) as total_cost,
            model,
@@ -143,7 +143,7 @@ export class CostTracker {
    */
   async getMonthlyCost(): Promise<CostSummary> {
     try {
-      const result = await query(
+      const result = await pool.query(
         `SELECT
            SUM(cost_usd) as total_cost,
            model,

@@ -47,7 +47,7 @@ export class HebcalClient extends BasePlugin<Date, HolidayCheckResult, HebcalCon
   readonly type = 'external-api' as const;
   readonly description = 'Hebrew calendar and holiday checker';
 
-  private defaultLocation: Location;
+  private defaultLocation!: Location; // Initialized in initialize()
   private includeMinorHolidays: boolean = false;
   private candleLightingMins: number = 18;
 
