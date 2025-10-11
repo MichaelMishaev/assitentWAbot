@@ -1026,8 +1026,7 @@
       // Map card types to actions
       const cardActions = {
         'events': () => {
-          showTab('agenda');
-          document.getElementById('filter-events').click();
+          showTab('agenda', 'event');
         },
         'today': () => {
           // Show today's overview panel and scroll to it
