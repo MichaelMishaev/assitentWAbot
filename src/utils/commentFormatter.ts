@@ -301,8 +301,8 @@ export function formatEventInList(
     output += `\n   💬 ${event.notes.length} הערות:`;
     event.notes.forEach((comment, idx) => {
       const priority = getPriorityIndicator(comment.priority);
-      // Use proper numbering for RTL (Right-To-Left) Hebrew display
-      output += `\n      ${idx + 1}.\u200E ${comment.text}${priority ? ' ' + priority : ''}`;
+      // CRITICAL FIX (Issue #5): Use LEFT-TO-RIGHT EMBEDDING to force number directionality in RTL context
+      output += `\n      \u202A${idx + 1}.\u202C ${comment.text}${priority ? ' ' + priority : ''}`;
     });
   }
 
@@ -331,8 +331,8 @@ export function formatEventWithComments(
     event.notes.forEach((comment, idx) => {
       const priority = getPriorityIndicator(comment.priority);
       const time = formatCommentTimestamp(comment.timestamp, timezone);
-      // Use proper numbering for RTL (Right-To-Left) Hebrew display
-      output += `${idx + 1}.\u200E ${comment.text}${priority ? ' ' + priority : ''}\n`;
+      // CRITICAL FIX (Issue #5): Use LEFT-TO-RIGHT EMBEDDING to force number directionality in RTL context
+      output += `\u202A${idx + 1}.\u202C ${comment.text}${priority ? ' ' + priority : ''}\n`;
       output += `   🕐 ${time}\n`;
     });
   }

@@ -377,6 +377,11 @@ export class NLPRouter {
         await this.eventService.addComment(newEvent.id, userId, `עם ${event.contactName}`, { priority: 'normal' });
       }
 
+      // CRITICAL FIX (Issue #8): Reload event from database to get fresh data with comments
+      // User feedback: "#i asked to add a comment in prompt, I do not see it. Bug"
+      const reloadedEvent = await this.eventService.getEventById(newEvent.id, userId);
+      const eventToShow = reloadedEvent || newEvent;
+
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
       // React to user's original message with thumbs up
@@ -391,9 +396,8 @@ export class NLPRouter {
         await this.sendMessage(phone, `⚠️ אזהרה: יש לך אירוע נוסף באותה שעה!\n📌 ${conflictTitles}\n\nשני האירועים נשמרו.`);
       }
 
-      // Send success message
-      const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
-      const successMessage = `✅ ${event.title} - ${displayDate}${event.location ? `\n📍 ${event.location}` : ''}${event.contactName ? `\n👤 ${event.contactName}` : ''}`;
+      // CRITICAL FIX (Issue #8): Use formatEventWithComments to show event with all comments
+      const successMessage = `✅ אירוע נוסף בהצלחה!\n\n${formatEventWithComments(eventToShow)}`;
 
       const sentMessageId = await this.sendMessage(phone, successMessage);
 
@@ -551,7 +555,21 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         } else {
           // Single date query
           events = await this.eventService.getEventsByDate(userId, dateQuery.date!);
-          dateDescription = `ב-${DateTime.fromJSDate(dateQuery.date).setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy')}`;
+
+          // CRITICAL FIX: If querying for today, filter out past events
+          const now = DateTime.now().setZone('Asia/Jerusalem');
+          const queryDate = DateTime.fromJSDate(dateQuery.date!).setZone('Asia/Jerusalem');
+
+          if (queryDate.hasSame(now, 'day')) {
+            // This is today - only show future events
+            events = events.filter(e => {
+              const eventTime = DateTime.fromJSDate(e.startTsUtc).setZone('Asia/Jerusalem');
+              return eventTime >= now;
+            });
+            dateDescription = 'היום (אירועים עתידיים)';
+          } else {
+            dateDescription = `ב-${queryDate.toFormat('dd/MM/yyyy')}`;
+          }
         }
       } else if (titleFilter) {
         // CRITICAL FIX: User only specified title, no date - search recent events (past and future) by title
@@ -866,6 +884,29 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         if (event.date || event.dateText) {
           const dateQuery = parseDateFromNLP(event, 'handleNLPUpdateEvent-newValue');
           newDate = dateQuery.date || undefined;
+
+          // CRITICAL FIX (Issue #4): If new date has no time (midnight), preserve original event's time
+          if (newDate) {
+            const newDt = DateTime.fromJSDate(newDate).setZone('Asia/Jerusalem');
+            const hasTime = newDt.hour !== 0 || newDt.minute !== 0;
+
+            if (!hasTime) {
+              // No time specified - preserve the original event's time
+              const originalDt = DateTime.fromJSDate(eventToUpdate.startTsUtc).setZone('Asia/Jerusalem');
+              newDate = newDt.set({
+                hour: originalDt.hour,
+                minute: originalDt.minute,
+                second: 0,
+                millisecond: 0
+              }).toJSDate();
+
+              logger.info('Preserved original time when updating date', {
+                originalTime: originalDt.toFormat('HH:mm'),
+                newDate: newDt.toFormat('dd/MM/yyyy'),
+                finalDateTime: DateTime.fromJSDate(newDate).toFormat('dd/MM/yyyy HH:mm')
+              });
+            }
+          }
         }
 
         // Apply the update
@@ -1171,16 +1212,40 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
 
   private async handleNLPListReminders(phone: string, userId: string, intent: any): Promise<void> {
     try {
+      // CRITICAL FIX (Issue #7a): Filter reminders by title if specified
+      // User feedback: "#whybshow me all reminders? I asked only about water drink"
+      const { reminder } = intent;
+      const titleFilter = reminder?.title;
+
       // Get all active reminders for user
-      const reminders = await this.reminderService.getActiveReminders(userId, 50);
+      let reminders = await this.reminderService.getActiveReminders(userId, 50);
+
+      // CRITICAL FIX (Issue #7b): Don't show past reminders
+      // User feedback: "2. Do not show past reminders."
+      const now = DateTime.now().setZone('Asia/Jerusalem');
+      reminders = reminders.filter(r => {
+        const reminderTime = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
+        return reminderTime >= now;
+      });
 
       if (reminders.length === 0) {
         await this.sendMessage(phone, '📭 אין לך תזכורות פעילות.\n\nשלח /תפריט לחזרה לתפריט');
         return;
       }
 
+      // CRITICAL FIX (Issue #7a): Filter by title if provided (fuzzy matching)
+      if (titleFilter && reminders.length > 0) {
+        reminders = filterByFuzzyMatch(reminders, titleFilter, (r: any) => r.title, 0.45);
+
+        if (reminders.length === 0) {
+          await this.sendMessage(phone, `❌ לא נמצאו תזכורות עבור "${titleFilter}".\n\nשלח /תפריט לחזרה לתפריט`);
+          return;
+        }
+      }
+
       // Format reminders list
-      let message = `⏰ התזכורות שלך (${reminders.length}):\n\n`;
+      const titleDescription = titleFilter ? ` עבור "${titleFilter}"` : '';
+      let message = `⏰ התזכורות שלך${titleDescription} (${reminders.length}):\n\n`;
 
       reminders.forEach((reminder, index) => {
         const dt = DateTime.fromJSDate(reminder.dueTsUtc).setZone('Asia/Jerusalem');

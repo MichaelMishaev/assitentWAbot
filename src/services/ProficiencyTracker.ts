@@ -216,12 +216,10 @@ export class ProficiencyTracker {
       return { show: true, type: 'full' };
     }
 
-    // For 'errors_only' mode, only show on errors
+    // CRITICAL FIX (Issue #6): For 'errors_only' mode, ONLY show on errors (not on idle)
+    // User feedback: "#should not show menu be config I asked, only on error, why I see it??"
     if (userMenuPreference === 'errors_only') {
-      // Show if idle for too long
-      if (context.isIdle) {
-        return { show: true, type: 'full' };
-      }
+      // Don't show menu even if idle - respect user's preference for errors only
       return { show: false, type: 'none' };
     }
 
