@@ -395,8 +395,14 @@ REDIS_PORT=6379
 REDIS_PASSWORD=your_redis_password
 REDIS_URL=redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT}
 
-# OpenAI API
+# OpenAI API (GPT-4o-mini for Ensemble)
 OPENAI_API_KEY=sk-proj-your-openai-key-here
+
+# Gemini API (Gemini 2.0 Flash for Ensemble)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Anthropic Claude API (Claude 3 Haiku for Ensemble)
+ANTHROPIC_API_KEY=sk-ant-api03-your-anthropic-key-here
 
 # Security
 SESSION_TIMEOUT_MINUTES=15

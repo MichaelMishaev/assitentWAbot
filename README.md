@@ -121,23 +121,35 @@ whatsapp-bot/
 ## ⚡ Setup
 
 ```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
 # Clone & setup
 git clone <repo>
 cd whatsapp-bot
 npm install
 
-# Configure Railway
-railway login
-railway init
-railway add postgresql
-railway add redis
+# Configure environment (.env file)
+cp .env.example .env
+# Add your API keys:
+# - OPENAI_API_KEY (from https://platform.openai.com/api-keys)
+# - GEMINI_API_KEY (from https://aistudio.google.com/apikey)
+# - ANTHROPIC_API_KEY (from https://console.anthropic.com/settings/keys)
+
+# Setup database & Redis
+# Option 1: Railway CLI
+railway login && railway init && railway add postgresql && railway add redis
+
+# Option 2: Local Docker
+docker-compose up -d
 
 # Start development
 npm run dev
 ```
+
+**⚠️ REQUIRED API Keys for Ensemble AI:**
+- OpenAI (GPT-4o-mini)
+- Google Gemini (Gemini 2.0 Flash)
+- Anthropic Claude (Claude 3 Haiku)
+
+All 3 keys are **required** for the bot to work properly.
 
 ---
 
