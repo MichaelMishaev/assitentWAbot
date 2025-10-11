@@ -409,17 +409,22 @@
     <!-- Header -->
     <header class="gradient-bg text-white shadow-lg">
       <div class="container mx-auto px-4 py-6">
-        <div class="flex items-center justify-between flex-wrap gap-4">
-          <div>
+        <div class="flex flex-col gap-3">
+          <!-- Title Section -->
+          <div class="flex items-center justify-center md:justify-start">
             <h1 class="text-3xl md:text-4xl font-bold flex items-center gap-3">
               <span>📊</span>
               <span>הלוח האישי שלי</span>
             </h1>
-            <p class="text-purple-100 mt-2" id="currentDate"></p>
           </div>
-          <div class="flex items-center gap-3 bg-white/20 px-4 py-2 rounded-full">
-            <span class="text-sm">⏰</span>
-            <span class="text-sm font-medium" id="expiryTimer">טוען...</span>
+
+          <!-- Date and Timer Section -->
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <p class="text-purple-100 text-sm md:text-base" id="currentDate"></p>
+            <div class="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg">
+              <span class="text-sm">⏰</span>
+              <span class="text-xs md:text-sm font-medium whitespace-nowrap" id="expiryTimer">טוען...</span>
+            </div>
           </div>
         </div>
       </div>
