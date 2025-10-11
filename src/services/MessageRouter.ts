@@ -672,13 +672,13 @@ export class MessageRouter {
   /**
    * Store mapping between sent message ID and event ID(s)
    * Allows users to reply to event messages for quick actions
-   * TTL: 24 hours (same-day interactions only)
+   * TTL: 7 days (extended from 24h to prevent "event not found" errors)
    */
   private async storeMessageEventMapping(messageId: string, eventIds: string | string[]): Promise<void> {
     try {
       const key = `msg:event:${messageId}`;
       const value = Array.isArray(eventIds) ? JSON.stringify(eventIds) : eventIds;
-      await redis.setex(key, 86400, value); // 24h TTL
+      await redis.setex(key, 604800, value); // 7 days TTL (was 24h - user feedback: events not found after 1 day)
       logger.debug('Stored message-event mapping', { messageId, eventIds });
     } catch (error) {
       logger.error('Failed to store message-event mapping', { messageId, eventIds, error });
@@ -1133,6 +1133,9 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
 
         // Delete the event
         await this.eventService.deleteEvent(eventId, userId);
+
+        // Send success message with event title (UX improvement from user feedback)
+        await this.sendMessage(phone, `✅ האירוע "${eventTitle}" נמחק בהצלחה`);
 
         // React with ✅ (deletion successful - green checkmark for completed action)
         await this.reactToLastMessage(userId, '✅');

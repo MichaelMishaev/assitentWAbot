@@ -63,6 +63,28 @@ export function parseHebrewDate(
       extractedTime = { hour, minute };
       // Remove time from input for date parsing
       dateInput = trimmedInput.replace(/(?:,?\s*(?:בשעה|ב-?)\s*)?\d{1,2}:\d{2}/, '').trim();
+
+      // DISAMBIGUATION CHECK: If ONLY time was provided with no date context
+      // This helps catch cases like "16:10" where user might mean time OR date+time
+      // Log for debugging user feedback: "פורמט תאריך מזהה כשעה"
+      if (dateInput === '' || dateInput.length === 0) {
+        // No date keyword found, only time - interpret as TODAY at this time
+        // This is the most common use case: user says "16:00" meaning "today at 4 PM"
+        console.warn(`[DATE_PARSER] Ambiguous time-only input: "${trimmedInput}" → interpreted as today at ${hour}:${minute}`);
+
+        const todayWithTime = now.set({ hour, minute });
+
+        // Safety check: if time is in the past today, assume user meant tomorrow
+        const nowWithMinutes = DateTime.now().setZone(timezone);
+        const finalDate = todayWithTime < nowWithMinutes
+          ? todayWithTime.plus({ days: 1 })
+          : todayWithTime;
+
+        return {
+          success: true,
+          date: finalDate.toJSDate(),
+        };
+      }
     }
   }
 
