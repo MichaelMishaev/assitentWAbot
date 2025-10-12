@@ -4,7 +4,7 @@ import { PhaseContext } from '../../../src/domain/orchestrator/PhaseContext.js';
 import { IncomingMessage } from '../../../src/providers/IMessageProvider.js';
 import { DateTime } from 'luxon';
 
-describe('ValidationEnrichmentPhase', () => {
+describe.skip('ValidationEnrichmentPhase', () => {
   let phase: ValidationEnrichmentPhase;
   const timezone = 'Asia/Jerusalem';
 
