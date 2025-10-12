@@ -1,0 +1,23 @@
+# ESSENTIAL FILES TO KEEP:
+
+## Core Documentation (KEEP)
+- README.md (main project docs)
+- commands.md (slash commands reference)
+- DEPLOYMENT.md (deployment guide)
+- LOGGING.md (logging system)
+
+## Current Work (KEEP)
+- ENSEMBLE_AI.md (V2 Pipeline)
+- IMPLEMENTATION_STATUS.md (current status)
+- REWRITE_V2_PLAN.md (V2 architecture)
+
+## QA & Testing (KEEP)
+- qa-hebrew-conversations.md (production test cases)
+- TESTING_GUIDE.md (how to test)
+
+## Everything else (ARCHIVE - 55+ files)
+- All old bug fix reports
+- All old deployment reports
+- All old test reports
+- All old implementation summaries
+- All old architecture documents
