@@ -135,7 +135,9 @@ export class HebcalClient extends BasePlugin<Date, HolidayCheckResult, HebcalCon
       });
 
       const isHoliday = majorHolidays.length > 0;
-      const holidayName = majorHolidays[0]?.render('he');
+      const holidayEvent = majorHolidays[0];
+      const holidayName = holidayEvent?.render('he');
+      const holidayDesc = holidayEvent?.getDesc(); // English description for severity matching
 
       // Check if it's Shabbat
       const isShabbat = hDate.getDay() === 6; // Saturday
@@ -154,7 +156,7 @@ export class HebcalClient extends BasePlugin<Date, HolidayCheckResult, HebcalCon
       let message: string | undefined;
 
       if (isHoliday) {
-        severity = this.getHolidaySeverity(holidayName);
+        severity = this.getHolidaySeverity(holidayDesc || holidayName);
         message = `⚠️ ${holidayName} - רוב המקומות סגורים`;
       } else if (isShabbat) {
         severity = 'warn';
