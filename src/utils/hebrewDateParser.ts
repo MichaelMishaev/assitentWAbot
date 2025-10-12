@@ -154,6 +154,7 @@ export function parseHebrewDate(
 
   // Hebrew day names (Sunday=0 to Saturday=6)
   const hebrewDays: Record<string, number> = {
+    // Full names
     'ראשון': 0,
     'שני': 1,
     'שלישי': 2,
@@ -161,6 +162,13 @@ export function parseHebrewDate(
     'חמישי': 4,
     'שישי': 5,
     'שבת': 6,
+    // Abbreviated forms (יום א = Sunday, etc.)
+    'א': 0,  // יום א
+    'ב': 1,  // יום ב
+    'ג': 2,  // יום ג
+    'ד': 3,  // יום ד
+    'ה': 4,  // יום ה
+    'ו': 5,  // יום ו
   };
 
   // Check for plural day names (e.g., "ימי ראשון" = "on Sundays")

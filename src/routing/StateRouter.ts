@@ -431,8 +431,23 @@ export class StateRouter {
     }
 
     if (text.trim().toLowerCase() !== 'דלג') {
+      let normalizedText = text.trim();
+
+      // ✅ FIX: State-aware parsing - "שעה 18" → "18:00"
+      // When user is in ADDING_EVENT_TIME state and says "שעה 18" or just "18", it's clearly about time
+      const hourOnlyMatch = normalizedText.match(/^(?:שעה\s*)?(\d{1,2})$/);
+      if (hourOnlyMatch) {
+        const hour = hourOnlyMatch[1];
+        normalizedText = `${hour}:00`;
+        logger.info('State-aware hour parsing', {
+          original: text,
+          normalized: normalizedText,
+          state: 'ADDING_EVENT_TIME'
+        });
+      }
+
       // Parse time (HH:MM format)
-      const timeMatch = text.trim().match(/^(\d{1,2}):(\d{2})$/);
+      const timeMatch = normalizedText.match(/^(\d{1,2}):(\d{2})$/);
 
       if (!timeMatch) {
         await this.sendMessage(phone, '❌ פורמט שעה לא תקין.\n\nהזן שעה בפורמט HH:MM (למשל: 14:30)\n\nאו שלח "דלג"');

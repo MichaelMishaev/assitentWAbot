@@ -400,7 +400,13 @@ export class NLPRouter {
         dateText: event?.dateText
       });
 
-      await this.sendMessage(phone, `📌 ${event.title}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן שעה (למשל: 14:00)\n\nאו שלח /ביטול`);
+      // ✅ FIX: Smart time suggestions based on event type
+      const timeSuggestions = this.suggestTimeForEvent(event.title);
+      const suggestionsText = timeSuggestions.length > 0
+        ? `\n\n💡 הצעות: ${timeSuggestions.join(', ')}`
+        : '';
+
+      await this.sendMessage(phone, `📌 ${event.title}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן שעה (למשל: 14:00)${suggestionsText}\n\nאו שלח /ביטול`);
       await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_TIME, {
         title: event.title,
         date: eventDate.toISOString(),
@@ -432,7 +438,8 @@ export class NLPRouter {
         userId,
         title: event.title,
         startTsUtc: eventDate,
-        location: event.location || undefined
+        location: event.location || undefined,
+        rrule: event.recurrence || undefined // ✅ FIX: Pass recurrence RRULE from RecurrencePhase
       });
 
       // If contact name exists, add it as a comment
@@ -1713,6 +1720,62 @@ ${priorityIcon} הערה ${comment.commentIndex}: ${updatedComment.text}`;
       logger.error('Failed to update comment', { userId, comment, error });
       await this.sendMessage(phone, '❌ שגיאה בעדכון ההערה. נסה שוב מאוחר יותר.');
     }
+  }
+
+  /**
+   * Suggest times based on event type/title keywords
+   * Returns array of suggested times (e.g., ["7:00", "8:00"])
+   */
+  private suggestTimeForEvent(title: string): string[] {
+    const lowerTitle = title.toLowerCase();
+
+    // Blood tests / medical labs - early morning
+    if (lowerTitle.includes('בדיקת דם') || lowerTitle.includes('מעבדה') || lowerTitle.includes('דם')) {
+      return ['7:00', '8:00', '9:00'];
+    }
+
+    // Doctor appointments - morning/afternoon
+    if (lowerTitle.includes('רופא') || lowerTitle.includes('רופאה') || lowerTitle.includes('קופת חולים')) {
+      return ['9:00', '10:00', '14:00'];
+    }
+
+    // Dentist
+    if (lowerTitle.includes('שיניים') || lowerTitle.includes('רופא שיניים')) {
+      return ['9:00', '10:00', '16:00'];
+    }
+
+    // Gym / workout
+    if (lowerTitle.includes('אימון') || lowerTitle.includes('חדר כושר') || lowerTitle.includes('ספורט') || lowerTitle.includes('כושר')) {
+      return ['6:00', '17:00', '18:00'];
+    }
+
+    // Business meetings
+    if (lowerTitle.includes('פגישה') || lowerTitle.includes('ישיבה') || lowerTitle.includes('פגישת עבודה')) {
+      return ['9:00', '10:00', '14:00'];
+    }
+
+    // Dinner / meal
+    if (lowerTitle.includes('ארוחת ערב') || lowerTitle.includes('ארוחה') || lowerTitle.includes('מסעדה')) {
+      return ['19:00', '20:00', '21:00'];
+    }
+
+    // Breakfast
+    if (lowerTitle.includes('ארוחת בוקר') || lowerTitle.includes('בוקר')) {
+      return ['8:00', '9:00', '10:00'];
+    }
+
+    // Classes / courses
+    if (lowerTitle.includes('חוג') || lowerTitle.includes('קורס') || lowerTitle.includes('שיעור')) {
+      return ['17:00', '18:00', '19:00'];
+    }
+
+    // Haircut / beauty
+    if (lowerTitle.includes('תספורת') || lowerTitle.includes('מספרה') || lowerTitle.includes('יופי')) {
+      return ['10:00', '14:00', '16:00'];
+    }
+
+    // No specific suggestions
+    return [];
   }
 
   /**
