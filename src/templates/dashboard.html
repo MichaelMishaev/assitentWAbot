@@ -188,6 +188,18 @@
       border: 1px solid #d1d5db;
       border-radius: 4px;
       overflow: hidden;
+      min-width: 100%;
+    }
+    /* Mobile: ensure week grid is wide enough to show all 7 days */
+    @media (max-width: 768px) {
+      .week-grid {
+        min-width: 800px; /* 60px time + ~105px per day column = 7*105 = 735 + 60 = 795 */
+        grid-template-columns: 60px repeat(7, minmax(100px, 1fr));
+      }
+      #week-view-content {
+        -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+        scroll-behavior: smooth;
+      }
     }
     .time-slot {
       background: #f9fafb;
@@ -215,6 +227,18 @@
       font-size: 0.85rem;
       border-left: 1px solid #d1d5db;
       border-bottom: 2px solid #d1d5db;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60px;
+    }
+    @media (max-width: 768px) {
+      .day-header {
+        font-size: 0.75rem;
+        padding: 6px 2px;
+        min-height: 50px;
+      }
     }
     .day-header.today {
       background: #dbeafe;
@@ -1936,7 +1960,10 @@
         const date = new Date(currentWeekStart);
         date.setDate(date.getDate() + i);
         const isToday = date.toDateString() === today.toDateString();
-        html += `<div class="day-header ${isToday ? 'today' : ''}">${dayNames[i]}<br><span style="font-size: 0.75rem; font-weight: 400;">${date.getDate()}/${date.getMonth()+1}</span></div>`;
+        html += `<div class="day-header ${isToday ? 'today' : ''}">
+          <div style="font-weight: 600;">${dayNames[i]}</div>
+          <div style="font-size: 0.75rem; font-weight: 400; margin-top: 2px;">${date.getDate()}/${date.getMonth()+1}</div>
+        </div>`;
       }
 
       // Time slot rows
