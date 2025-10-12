@@ -305,7 +305,9 @@ KEY EXAMPLES (cover all intents):
 3. COMPLEX EVENT WITH ALL DETAILS: "משחק כדורגל נתניה סכנין יום ראשון 5 באוקטובר 20:00 אצטדיון נתניה" → {"intent":"create_event","confidence":0.95,"event":{"title":"משחק כדורגל נתניה סכנין","date":"2025-10-05T20:00:00+03:00","dateText":"יום ראשון 5 באוקטובר 20:00","location":"אצטדיון נתניה"}} (CRITICAL: Extract ALL details - title, date with time, and location!)
 4. CREATE REMINDER: "תזכיר לי בעוד שעתיים להתקשר לאמא" → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"התקשר לאמא","dueDate":"<now+2h ISO>"}}
 5. SEARCH BY TITLE: "מתי רופא שיניים?" → {"intent":"search_event","confidence":0.95,"event":{"title":"רופא שיניים"}} (CRITICAL: "מתי" = search, NOT create!)
-6. LIST EVENTS: "מה יש לי השבוע?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"השבוע"}} (use dateText for Hebrew relative dates)
+6. LIST EVENTS TODAY: "מה יש לי היום?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"היום"}} (CRITICAL: ALWAYS extract "היום" to dateText!)
+6b. LIST EVENTS TODAY (PAST TENSE): "מה היה לי היום?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"היום"}} (CRITICAL: "היה" = past tense, still means TODAY!)
+7. LIST EVENTS THIS WEEK: "מה יש לי השבוע?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"השבוע"}} (use dateText for Hebrew relative dates)
 7. DELETE WITH TITLE: "תבטל בדיקת דם" → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}} (CRITICAL: partial title, fuzzy match)
 8. DELETE ALL: "מחק את כל הפגישות" → {"intent":"delete_event","confidence":0.95,"event":{"deleteAll":true}} (CRITICAL: set deleteAll flag for bulk operations!)
 9. UPDATE EVENT: "עדכן פגישה עם דני ל-5 אחרי הצהריים" → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today 17:00 ISO>","dateText":"5 אחרי הצהריים"}}

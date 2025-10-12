@@ -13,12 +13,14 @@ import { pluginManager } from '../../plugins/PluginManager.js';
 import { VoiceNormalizerPhase } from '../phases/phase10-voice/VoiceNormalizerPhase.js';
 import { EnsembleClassifier } from '../phases/phase1-intent/EnsembleClassifier.js';
 import { MultiEventPhase } from '../phases/phase2-multi-event/MultiEventPhase.js';
+import { EntityExtractionPhase } from '../phases/phase3-entity-extraction/EntityExtractionPhase.js';
 import { HebrewCalendarPhase } from '../phases/phase4-hebrew-calendar/HebrewCalendarPhase.js';
 import { UserProfilePhase } from '../phases/phase5-user-profiles/UserProfilePhase.js';
 import { UpdateDeletePhase } from '../phases/phase6-update-delete/UpdateDeletePhase.js';
 import { RecurrencePhase } from '../phases/phase7-recurrence/RecurrencePhase.js';  // ENABLED: RRule import issue fixed
 import { CommentPhase } from '../phases/phase8-comments/CommentPhase.js';
 import { ParticipantPhase } from '../phases/phase9-participants/ParticipantPhase.js';
+import { ValidationEnrichmentPhase } from '../phases/phase10-validation/ValidationEnrichmentPhase.js';
 
 // Import plugins
 import { HebcalClient } from '../../infrastructure/external/hebcal/HebcalClient.js';
@@ -75,9 +77,10 @@ export async function initializePipeline(): Promise<void> {
     pipelineOrchestrator.registerPhase(multiEventPhase);
 
     // Phase 3: Entity Extraction (order: 3)
-    // NOTE: This phase should be implemented separately
-    // It extracts dates, times, titles, locations from text
-    logger.info('⚠️  Entity Extraction Phase not yet implemented');
+    // Extracts dates, times, titles, locations from text
+    const entityExtractionPhase = new EntityExtractionPhase();
+    pipelineOrchestrator.registerPhase(entityExtractionPhase);
+    logger.info('✅ Entity Extraction Phase enabled');
 
     // Phase 4: Hebrew Calendar (order: 4)
     // Checks for holidays and Shabbat conflicts
@@ -113,9 +116,10 @@ export async function initializePipeline(): Promise<void> {
     pipelineOrchestrator.registerPhase(participantPhase);
 
     // Phase 10: Validation & Enrichment (order: 10)
-    // NOTE: This phase should be implemented separately
-    // It validates all extracted data and enriches with additional info
-    logger.info('⚠️  Validation & Enrichment Phase not yet implemented');
+    // Final quality gate - validates and enriches data
+    const validationEnrichmentPhase = new ValidationEnrichmentPhase();
+    pipelineOrchestrator.registerPhase(validationEnrichmentPhase);
+    logger.info('✅ Validation & Enrichment Phase enabled');
 
     logger.info('✅ All phases registered successfully');
 
