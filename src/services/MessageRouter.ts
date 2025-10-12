@@ -1070,10 +1070,9 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
         return `${hour}:${minute}`;
       });
 
-      // Use NLP to parse the new time from user's text
-      const { DualNLPService } = await import('./DualNLPService.js');
-      const nlp = new DualNLPService();
-      const contacts = await this.contactService.getAllContacts(userId);
+      // Use V2 Pipeline to parse the new time from user's text
+      const { pipelineOrchestrator } = await import('../domain/orchestrator/PipelineOrchestrator.js');
+
       const timezone = 'Asia/Jerusalem'; // Default timezone
 
       // Get original event date in Israel timezone
@@ -1081,17 +1080,23 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       const originalDt = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
       const originalDate = originalDt.toFormat('dd/MM/yyyy'); // e.g., "08/10/2025"
 
-      const intent = await nlp.parseIntent(
-        `עדכן את ${event.title} ל-${originalDate} ${normalizedText}`, // Include original date + new time
-        contacts,
-        timezone,
-        [],
-        userId
-      );
+      // Create IncomingMessage for V2 Pipeline
+      const incomingMessage = {
+        from: phone,
+        messageId: `quick-time-${Date.now()}`,
+        timestamp: Date.now(),
+        content: {
+          text: `עדכן את ${event.title} ל-${originalDate} ${normalizedText}` // Include original date + new time
+        },
+        isFromMe: false
+      };
 
-      if (intent.intent === 'update_event' && intent.event?.date) {
+      // Execute V2 Pipeline
+      const result = await pipelineOrchestrator.execute(incomingMessage, userId, timezone);
+
+      if (result.intent === 'update_event' && result.entities?.date) {
         // Parse the new date/time
-        const dateQuery = this.parseDateFromNLP(intent.event, 'quickTimeUpdate');
+        const dateQuery = this.parseDateFromNLP({ date: result.entities.date, dateText: result.entities.dateText }, 'quickTimeUpdate');
 
         if (dateQuery.date) {
           await this.eventService.updateEvent(eventId, userId, {

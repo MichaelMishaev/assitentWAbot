@@ -5,7 +5,7 @@ import { ReminderService } from '../services/ReminderService.js';
 import { ContactService } from '../services/ContactService.js';
 import { dashboardTokenService } from '../services/DashboardTokenService.js';
 import { proficiencyTracker } from '../services/ProficiencyTracker.js';
-import { IMessageProvider } from '../providers/IMessageProvider.js';
+import { IMessageProvider, IncomingMessage } from '../providers/IMessageProvider.js';
 import { ConversationState } from '../types/index.js';
 import { redis } from '../config/redis.js';
 import logger from '../utils/logger.js';
@@ -27,6 +27,7 @@ import { scheduleReminder } from '../queues/ReminderQueue.js';
 import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';
 import { CommandRouter } from './CommandRouter.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
+import { pipelineOrchestrator } from '../domain/orchestrator/PipelineOrchestrator.js';
 
 /**
  * Date query type - single date vs range
@@ -130,9 +131,6 @@ export class NLPRouter {
 
   async handleNLPMessage(phone: string, userId: string, text: string): Promise<void> {
     try {
-      const { DualNLPService } = await import('../services/DualNLPService.js');
-      const nlp = new DualNLPService();
-
       const user = await this.authService.getUserByPhone(phone);
       const contacts = await this.contactService.getAllContacts(userId);
 
@@ -186,22 +184,87 @@ export class NLPRouter {
         }
       }
 
-      const intent = await nlp.parseIntent(contextEnhancedText, contacts, user?.timezone || 'Asia/Jerusalem', conversationHistory, userId);
+      // ===== V2 PIPELINE: Use PipelineOrchestrator (10 phases + Ensemble AI) =====
+      logger.info('🚀 Using V2 Pipeline for NLP processing', { userId, text: contextEnhancedText.substring(0, 100) });
+
+      // Create IncomingMessage for V2 Pipeline
+      const incomingMessage: IncomingMessage = {
+        from: phone,
+        messageId: `nlp-${Date.now()}`, // Generate a unique message ID
+        timestamp: Date.now(),
+        content: {
+          text: contextEnhancedText
+        },
+        isFromMe: false
+      };
+
+      // Execute V2 Pipeline (10 phases)
+      const result = await pipelineOrchestrator.execute(
+        incomingMessage,
+        userId,
+        user?.timezone || 'Asia/Jerusalem'
+      );
+
+      logger.info('✅ V2 Pipeline completed', {
+        userId,
+        intent: result.intent,
+        confidence: result.confidence,
+        success: result.success,
+        hasEntities: Object.keys(result.entities).length > 0
+      });
+
+      // ===== ADAPTER: Convert V2 entities to old format for backward compatibility =====
+      // This allows us to reuse existing handler methods without rewriting them
+      const entities = result.entities as any; // Use type assertion for extended properties
+      const adaptedResult = {
+        intent: result.intent,
+        confidence: result.confidence,
+        clarificationNeeded: result.clarificationQuestion,
+        // Wrap entities in appropriate containers based on intent type
+        event: {
+          title: entities.title,
+          date: entities.date,
+          dateText: entities.dateText,
+          location: entities.location,
+          contactName: entities.contactName,
+          notes: entities.notes,
+          deleteAll: entities.deleteAll,
+        },
+        reminder: {
+          title: entities.title,
+          dueDate: entities.date,
+          dateText: entities.dateText,
+          time: entities.time,
+          date: entities.date,
+          recurrence: entities.recurrence?.rrule,
+          notes: entities.notes,
+        },
+        comment: {
+          eventTitle: entities.title,
+          text: entities.comments?.[0] || entities.notes,
+          priority: entities.priority,
+          reminderTime: entities.date,
+          reminderOffset: entities.reminderOffset,
+          deleteBy: entities.deleteBy,
+          deleteValue: entities.deleteValue,
+          commentIndex: entities.commentIndex,
+        },
+      };
 
       // Intent-specific confidence thresholds
-      const isSearchIntent = intent.intent === 'search_event' || intent.intent === 'list_events';
-      const isCreateIntent = intent.intent === 'create_event' || intent.intent === 'create_reminder';
-      const isDestructiveIntent = intent.intent === 'delete_event' || intent.intent === 'delete_reminder';
+      const isSearchIntent = adaptedResult.intent === 'search_event' || adaptedResult.intent === 'list_events';
+      const isCreateIntent = adaptedResult.intent === 'create_event' || adaptedResult.intent === 'create_reminder';
+      const isDestructiveIntent = adaptedResult.intent === 'delete_event' || adaptedResult.intent === 'delete_reminder';
 
       // Lower threshold for search/list (0.5) - non-destructive operations
       // Higher threshold for create (0.7) - user can confirm
       // Highest threshold for delete (0.6) - destructive but confirmable
       const requiredConfidence = isSearchIntent ? 0.5 : (isCreateIntent ? 0.7 : 0.6);
 
-      // If confidence is too low, ask for clarification
-      if (intent.confidence < requiredConfidence || intent.intent === 'unknown') {
+      // If confidence is too low or needs clarification, ask for clarification
+      if (adaptedResult.confidence < requiredConfidence || adaptedResult.intent === 'unknown' || result.needsClarification) {
         await proficiencyTracker.trackNLPFailure(userId);
-        await this.sendMessage(phone, intent.clarificationNeeded || 'לא הבנתי. אנא נסה שוב או שלח /תפריט לתפריט ראשי');
+        await this.sendMessage(phone, adaptedResult.clarificationNeeded || 'לא הבנתי. אנא נסה שוב או שלח /תפריט לתפריט ראשי');
         await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
         return;
       }
@@ -210,38 +273,38 @@ export class NLPRouter {
       await proficiencyTracker.trackNLPSuccess(userId);
 
       // Handle different intents
-      switch (intent.intent) {
+      switch (adaptedResult.intent) {
         case 'create_event':
-          await this.handleNLPCreateEvent(phone, userId, intent);
+          await this.handleNLPCreateEvent(phone, userId, adaptedResult);
           break;
 
         case 'create_reminder':
-          await this.handleNLPCreateReminder(phone, userId, intent);
+          await this.handleNLPCreateReminder(phone, userId, adaptedResult);
           break;
 
         case 'search_event':
         case 'list_events':
-          await this.handleNLPSearchEvents(phone, userId, intent);
+          await this.handleNLPSearchEvents(phone, userId, adaptedResult);
           break;
 
         case 'list_reminders':
-          await this.handleNLPListReminders(phone, userId, intent);
+          await this.handleNLPListReminders(phone, userId, adaptedResult);
           break;
 
         case 'delete_event':
-          await this.handleNLPDeleteEvent(phone, userId, intent);
+          await this.handleNLPDeleteEvent(phone, userId, adaptedResult);
           break;
 
         case 'delete_reminder':
-          await this.handleNLPDeleteReminder(phone, userId, intent);
+          await this.handleNLPDeleteReminder(phone, userId, adaptedResult);
           break;
 
         case 'update_event':
-          await this.handleNLPUpdateEvent(phone, userId, intent);
+          await this.handleNLPUpdateEvent(phone, userId, adaptedResult);
           break;
 
         case 'update_reminder':
-          await this.handleNLPUpdateReminder(phone, userId, intent);
+          await this.handleNLPUpdateReminder(phone, userId, adaptedResult);
           break;
 
         case 'complete_task':
@@ -257,19 +320,19 @@ export class NLPRouter {
           break;
 
         case 'add_comment':
-          await this.handleNLPAddComment(phone, userId, intent);
+          await this.handleNLPAddComment(phone, userId, adaptedResult);
           break;
 
         case 'view_comments':
-          await this.handleNLPViewComments(phone, userId, intent);
+          await this.handleNLPViewComments(phone, userId, adaptedResult);
           break;
 
         case 'delete_comment':
-          await this.handleNLPDeleteComment(phone, userId, intent);
+          await this.handleNLPDeleteComment(phone, userId, adaptedResult);
           break;
 
         case 'update_comment':
-          await this.handleNLPUpdateComment(phone, userId, intent);
+          await this.handleNLPUpdateComment(phone, userId, adaptedResult);
           break;
 
         case 'generate_dashboard':
@@ -1671,13 +1734,16 @@ ${priorityIcon} הערה ${comment.commentIndex}: ${updatedComment.text}`;
       if (process.env.DASHBOARD_URL) {
         // Explicitly configured URL (highest priority)
         baseUrl = process.env.DASHBOARD_URL;
+        logger.info('Using DASHBOARD_URL from environment', { baseUrl });
       } else if (process.env.RAILWAY_PUBLIC_DOMAIN) {
         // Railway automatic domain
         baseUrl = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+        logger.info('Using RAILWAY_PUBLIC_DOMAIN', { baseUrl });
       } else if (process.env.NODE_ENV === 'production') {
-        // Production fallback - you need to set DASHBOARD_URL in Railway!
-        logger.warn('DASHBOARD_URL not set in production - using placeholder');
-        baseUrl = 'https://your-app-url.railway.app';
+        // CRITICAL ERROR: No domain configured in production
+        logger.error('❌ DASHBOARD_URL and RAILWAY_PUBLIC_DOMAIN not set in production!');
+        await this.sendMessage(phone, '❌ שגיאה בהגדרת השרת. אנא צור קשר עם התמיכה.');
+        return;
       } else {
         // Development
         baseUrl = `http://localhost:${process.env.PORT || 3000}`;
