@@ -18,7 +18,6 @@ describe('ValidationEnrichmentPhase', () => {
       messageId: 'test-123',
       from: '+972501234567',
       content: {
-        type: 'text',
         text: 'test message'
       },
       timestamp: Date.now(),

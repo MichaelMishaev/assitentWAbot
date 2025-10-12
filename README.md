@@ -44,24 +44,24 @@ That's it. Everything else is optional.
 
 ---
 
-## 🐛 Developer Comment System
+## 🐛 Bug Reporting Convention
 
-This bot has a built-in **async bug reporting** system for developers:
+**IMPORTANT:** All `#` comments in the codebase are **user-reported bugs** documented during testing.
 
-**In WhatsApp Chat:**
+**In WhatsApp Chat (Production Testing):**
 ```
-# Bug: Reminder feature doesn't show date correctly
-# Feature request: Link reminder to event
-# Issue: Date format recognizes time wrong
+# Bug: Asked for "today" but got all events
+# היום (today) not recognized - shows all upcoming events instead
+# Date parser interprets "16:10" as time, not filtering by date
 ```
 
-**How it works:**
-- Any message starting with `#` is logged to `logs/dev-comments.log`
-- Bot **silently acknowledges** (no response to avoid clutter)
-- Comments are searchable with special formatting
-- 30-day retention for historical tracking
+**Convention:**
+- **`#` = User-reported bug** during real-world testing
+- Bot **logs** these to `logs/dev-comments.log`
+- Developer reviews comments to batch-fix issues
+- **DO NOT** treat `#` as general comments - they're bug reports!
 
-**View comments:**
+**View bug reports:**
 ```bash
 # Interactive viewer (local or production)
 ./scripts/view-dev-comments.sh
@@ -71,7 +71,11 @@ ssh root@167.71.145.9
 cat /root/wAssitenceBot/logs/dev-comments.log
 ```
 
-**Use case:** Document bugs as they happen in real-time, then batch-fix them later by asking Claude to analyze all `#` comments.
+**Workflow:**
+1. User tests in WhatsApp → documents bugs with `#` comments
+2. Developer reviews all `#` comments later
+3. Ask Claude: "analyze all # comments and fix the bugs"
+4. Claude identifies patterns and fixes issues systematically
 
 ---
 
