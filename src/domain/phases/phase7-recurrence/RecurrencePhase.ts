@@ -11,7 +11,11 @@
  * Priority: #7
  */
 
-import { RRule, Frequency } from 'rrule';
+// RRULE ES MODULE FIX: Import as default, then destructure
+// The rrule library is CommonJS and has issues with named exports in ES modules
+import rruleLib from 'rrule';
+const { RRule } = rruleLib as any;
+
 import { BasePhase } from '../../orchestrator/IPhase.js';
 import { PhaseContext, PhaseResult } from '../../orchestrator/PhaseContext.js';
 import logger from '../../../utils/logger.js';
@@ -119,7 +123,7 @@ export class RecurrencePhase extends BasePhase {
   /**
    * Generate RRULE from pattern
    */
-  private generateRRule(pattern: RecurrencePattern, context: PhaseContext): RRule {
+  private generateRRule(pattern: RecurrencePattern, context: PhaseContext): any {
     const options: any = {
       freq: this.getFrequency(pattern.frequency),
       interval: pattern.interval || 1
@@ -149,8 +153,8 @@ export class RecurrencePhase extends BasePhase {
   /**
    * Convert frequency string to RRule frequency
    */
-  private getFrequency(frequency: string): Frequency {
-    const map: Record<string, Frequency> = {
+  private getFrequency(frequency: string): any {
+    const map: Record<string, any> = {
       'daily': RRule.DAILY,
       'weekly': RRule.WEEKLY,
       'monthly': RRule.MONTHLY,
