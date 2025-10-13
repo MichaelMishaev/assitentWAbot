@@ -277,6 +277,46 @@ export class MessageRouter {
     try {
       logger.info('Routing message', { from, text, messageId, quotedMessage });
 
+      // COST PROTECTION: Emergency daily API call limit (prevent cost disasters like Railway crash loop)
+      // Added after ₪461 incident where Railway crash loop caused 19,335 API calls in 24 hours
+      const dailyCostKey = `api:calls:daily:${new Date().toISOString().split('T')[0]}`;
+      const dailyCalls = await redis.incr(dailyCostKey);
+      await redis.expire(dailyCostKey, 86400); // 24 hour expiry
+
+      const DAILY_LIMIT = 5000; // Max 5,000 API calls/day (~$7.50 cost limit)
+
+      if (dailyCalls > DAILY_LIMIT) {
+        logger.error('🚨 EMERGENCY: Daily API limit reached!', {
+          dailyCalls,
+          limit: DAILY_LIMIT,
+          estimatedCost: `$${(dailyCalls * 0.0015).toFixed(2)}`
+        });
+
+        // Alert admin (your number) once per day
+        const alertKey = `api:alert:sent:${new Date().toISOString().split('T')[0]}`;
+        const alertSent = await redis.get(alertKey);
+
+        if (!alertSent) {
+          await this.messageProvider.sendMessage(
+            '972544345287', // Your phone number
+            `🚨 EMERGENCY COST LIMIT!\n\n` +
+            `Daily API calls: ${dailyCalls}/${DAILY_LIMIT}\n` +
+            `Estimated cost: $${(dailyCalls * 0.0015).toFixed(2)}\n\n` +
+            `Bot is PAUSED until tomorrow to prevent cost spike.\n\n` +
+            `To restart: Delete Redis key "${dailyCostKey}"`
+          );
+          await redis.setex(alertKey, 86400, '1');
+        }
+
+        // Return without processing (bot is paused)
+        return;
+      }
+
+      // Log every 500 calls to monitor usage
+      if (dailyCalls % 500 === 0) {
+        logger.warn(`📊 API Usage Warning: ${dailyCalls} calls today ($${(dailyCalls * 0.0015).toFixed(2)} estimated)`);
+      }
+
       // DEVELOPER COMMENT DETECTION: Check if message is a dev comment (starts with #)
       // These are treated as notes/bug reports and logged separately for later analysis
       if (isDevComment(text)) {
