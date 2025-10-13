@@ -266,18 +266,20 @@ RELATIVE TIMES:
 - "בעוד שבוע" → one week from now
 - "בעוד חצי שעה" → current time + 30 minutes
 
-TIME OF DAY (CRITICAL - Extract ALL time formats):
+TIME OF DAY (CRITICAL - Extract ALL time formats, including WITHOUT colons):
 - "בבוקר", "בערב", "בצהריים", "בלילה" → morning (9:00), evening (18:00), noon (12:00), night (21:00)
 - "ב-3", "בשעה 3" → 15:00 today (3 PM)
 - "ב-15:00", "ב15" → 15:00 today
 - "לשעה 14:00", "בשעה 14:00", "ב-14:00" → EXACTLY 14:00 (DO NOT default to 00:00!)
+- "לשעה 14" (NO colon) → EXACTLY 14:00 with 00 minutes (user didn't specify minutes)
 - "ל 19:00", "ל 19:30", "ל-19:00" → EXACTLY 19:00, 19:30 (ל without שעה)
 - "תעדכן שעה ל 19:00" → time: 19:00
 - "8 בערב" → 20:00 today
 
-EXPLICIT DATES:
-- "05/01/2025", "1.5.25" → explicit date
+EXPLICIT DATES (CRITICAL - Support all separator types):
+- "05/01/2025", "1.5.25", "18.10", "18/10", "18-10" → explicit date (dots, slashes, dashes all valid)
 - "3 באוקטובר", "3 לאוקטובר" → October 3rd
+- IMPORTANT: "18.10" means October 18th (DD.MM format)
 
 CRITICAL TIME EXTRACTION:
 - ALWAYS extract the FULL time from the user's message into BOTH fields:

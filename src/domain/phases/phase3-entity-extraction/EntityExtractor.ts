@@ -70,7 +70,7 @@ export class EntityExtractor {
       case 'create_event':
       case 'create_reminder':
         this.extractTitleDateLocation(text, entities, timezone);
-        this.extractContactNames(text, entities);
+        // Contact extraction now happens inside extractTitleDateLocation
         this.extractDuration(text, entities);
         this.extractPriority(text, entities);
         break;
@@ -102,13 +102,16 @@ export class EntityExtractor {
    * Extract title, date, and location from event/reminder creation text
    */
   private extractTitleDateLocation(text: string, entities: ExtractedEntities, timezone: string): void {
-    // Extract date/time first (more specific patterns)
+    // CRITICAL: Extract contacts FIRST before they get removed by title extraction
+    this.extractContactNames(text, entities);
+
+    // Extract date/time (more specific patterns)
     this.extractDateTime(text, entities, timezone);
 
     // Extract location (common patterns)
     this.extractLocation(text, entities);
 
-    // Extract title (everything that's not date/location)
+    // Extract title (everything that's not date/location/contacts)
     this.extractTitle(text, entities);
   }
 
@@ -118,10 +121,34 @@ export class EntityExtractor {
   private extractDateTime(text: string, entities: ExtractedEntities, timezone: string): void {
     const lowerText = text.toLowerCase();
 
-    // Time patterns (must be before date to avoid conflicts)
+    // CRITICAL: Extract dates FIRST before times to avoid confusion
+    // Date "ל 18.10" should not be confused with time "ל 18"
+
+    // Absolute date patterns (DD/MM or DD/MM/YYYY) - Extract FIRST
+    // CRITICAL FIX: Support dots (.), slashes (/), and dashes (-) as separators
+    // User feedback: "18.10" was not recognized
+    const absoluteDatePattern = /\b(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.](\d{2,4}))?\b/;
+    const absoluteMatch = text.match(absoluteDatePattern);
+    if (absoluteMatch) {
+      const day = parseInt(absoluteMatch[1]);
+      const month = parseInt(absoluteMatch[2]);
+      let year = absoluteMatch[3] ? parseInt(absoluteMatch[3]) : DateTime.now().year;
+      if (year < 100) year += 2000; // Handle 2-digit years
+
+      const dt = DateTime.fromObject({ year, month, day }, { zone: timezone });
+      if (dt.isValid) {
+        entities.date = dt.toJSDate();
+        entities.confidence.date = 0.98;
+        entities.dateText = absoluteMatch[0];
+      }
+    }
+
+    // Time patterns (after date extraction to avoid conflicts)
+    // CRITICAL FIX: Support "לשעה 14" without colon
+    // User feedback: "לשעה 14" was not recognized
     const timePatterns = [
-      /(?:בשעה|ב-|ל|לשעה|ב)\s*(\d{1,2}):(\d{2})/gi,  // "בשעה 14:30"
-      /(?:בשעה|ב-|ל)\s*(\d{1,2})\s*(?:בבוקר|בערב|אחרי הצהריים)?/gi,  // "בשעה 3 אחרי הצהריים"
+      /(?:בשעה|ב-|לשעה)\s*(\d{1,2}):(\d{2})/gi,  // "בשעה 14:30" or "לשעה 14:30" (with colon)
+      /(?:בשעה|לשעה)\s*(\d{1,2})\s*(?:בבוקר|בערב|אחרי הצהריים)?/gi,  // "בשעה 3" or "לשעה 14" (no colon)
     ];
 
     for (const pattern of timePatterns) {
@@ -196,26 +223,7 @@ export class EntityExtractor {
       }
     }
 
-    // Absolute date patterns (DD/MM or DD/MM/YYYY)
-    const absoluteDatePattern = /\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/;
-    const absoluteMatch = text.match(absoluteDatePattern);
-    if (absoluteMatch) {
-      const day = parseInt(absoluteMatch[1]);
-      const month = parseInt(absoluteMatch[2]);
-      let year = absoluteMatch[3] ? parseInt(absoluteMatch[3]) : DateTime.now().year;
-      if (year < 100) year += 2000; // Handle 2-digit years
-
-      const dt = DateTime.fromObject({ year, month, day }, { zone: timezone });
-      if (dt.isValid) {
-        entities.date = dt.toJSDate();
-        entities.confidence.date = 0.98;
-        if (!entities.dateText) {
-          entities.dateText = absoluteMatch[0];
-        }
-      }
-    }
-
-    // Try Hebrew date parser as fallback
+    // Try Hebrew date parser as fallback (only if no date was extracted yet)
     if (!entities.date && text.length > 0) {
       const hebrewResult = parseHebrewDate(text);
       if (hebrewResult.success && hebrewResult.date) {
@@ -281,9 +289,22 @@ export class EntityExtractor {
       title = title.replace(prefix, '');
     }
 
-    // Remove date/time expressions
-    if (entities.dateText) {
-      title = title.replace(entities.dateText, '');
+    // CRITICAL FIX: Remove date in all formats (DD.MM, DD/MM, DD-MM) with optional prefix
+    // User feedback: "ל 18.10" was not removed from title
+    const datePatterns = [
+      /\b(?:ל|ב|ב-|ל-|לתאריך|בתאריך)?\s*(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.](\d{2,4}))?\b/gi,
+    ];
+    for (const pattern of datePatterns) {
+      title = title.replace(pattern, '');
+    }
+
+    // Remove time expressions (לשעה X, בשעה X, etc.)
+    const timePatterns = [
+      /(?:בשעה|לשעה|ב-|ל)\s*\d{1,2}:\d{2}/gi,
+      /(?:בשעה|לשעה)\s*\d{1,2}\b/gi,
+    ];
+    for (const pattern of timePatterns) {
+      title = title.replace(pattern, '');
     }
 
     // Remove location expressions
@@ -292,10 +313,16 @@ export class EntityExtractor {
     }
 
     // Remove contact expressions (עם X)
-    title = title.replace(/\bעם\s+[א-ת\s]+/gi, '');
+    // CRITICAL FIX: Use Unicode range for Hebrew, not \b word boundary
+    title = title.replace(/עם\s+[\u05D0-\u05EA\s]+/gi, '');
 
-    // Clean up
-    title = title.trim().replace(/\s+/g, ' ');
+    // Clean up (multiple passes to remove extra spaces/commas)
+    title = title.trim();
+    title = title.replace(/\s*,\s*/g, ' '); // Remove commas with surrounding spaces
+    title = title.replace(/\s+/g, ' '); // Collapse multiple spaces
+    title = title.replace(/^[,\s]+|[,\s]+$/g, ''); // Remove leading/trailing commas and spaces
+    title = title.replace(/\s+ל\s+/g, ' '); // Remove standalone "ל" (leftover from "ל 18.10")
+    title = title.trim(); // Final trim
 
     if (title.length > 0) {
       entities.title = title;
@@ -308,9 +335,11 @@ export class EntityExtractor {
    */
   private extractContactNames(text: string, entities: ExtractedEntities): void {
     // Pattern: "עם X" or "עם X ו-Y"
+    // CRITICAL FIX: Remove \b word boundary - doesn't work with Hebrew!
+    // Use Unicode range for Hebrew letters: \u05D0-\u05EA
     const contactPatterns = [
-      /\bעם\s+([א-ת]+(?:\s+[א-ת]+)?)/gi,
-      /\bפגישה\s+(?:עם\s+)?([א-ת]+)/gi,
+      /עם\s+([\u05D0-\u05EA]+)/gi,  // "עם מוטי"
+      /פגישה\s+עם\s+([\u05D0-\u05EA]+)/gi,  // "פגישה עם מוטי"
     ];
 
     const names: string[] = [];
@@ -318,9 +347,9 @@ export class EntityExtractor {
       const matches = text.matchAll(pattern);
       for (const match of matches) {
         if (match[1]) {
-          // Split by conjunction
+          // Split by conjunction (ו-, ו)
           const parts = match[1].split(/\s+ו-?\s+/);
-          names.push(...parts);
+          names.push(...parts.map(name => name.trim()));
         }
       }
     }
