@@ -379,10 +379,9 @@ export function formatEventWithComments(
     output += `\n\n📝 הערות:\n`;
     event.notes.forEach((comment, idx) => {
       const priority = getPriorityIndicator(comment.priority);
-      const time = formatCommentTimestamp(comment.timestamp, timezone);
       // CRITICAL FIX (Issue #5): Use LEFT-TO-RIGHT EMBEDDING to force number directionality in RTL context
+      // BUG FIX: Removed confusing timestamp display - users don't care when comment was created
       output += `\u202A${idx + 1}.\u202C ${comment.text}${priority ? ' ' + priority : ''}\n`;
-      output += `   🕐 ${time}\n`;
     });
   }
 

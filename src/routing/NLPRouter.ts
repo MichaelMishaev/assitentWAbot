@@ -445,9 +445,15 @@ export class NLPRouter {
         rrule: event.recurrence || undefined // ✅ FIX: Pass recurrence RRULE from RecurrencePhase
       });
 
-      // If contact name exists, add it as a comment
-      if (event.contactName && newEvent) {
-        await this.eventService.addComment(newEvent.id, userId, `עם ${event.contactName}`, { priority: 'normal' });
+      // BUG FIX: Removed auto-comment feature for contactName
+      // "עם מיכאל" was being incorrectly added as a comment instead of being recognized as a participant
+      // Let Phase 9 (ParticipantPhase) handle participant detection instead
+
+      // BUG FIX: Add comments from CommentPhase (Phase 8) if detected
+      if (intent.comment?.text && newEvent) {
+        await this.eventService.addComment(newEvent.id, userId, intent.comment.text, {
+          priority: intent.comment.priority || 'normal'
+        });
       }
 
       // CRITICAL FIX (Issue #8): Reload event from database to get fresh data with comments
@@ -469,14 +475,17 @@ export class NLPRouter {
         await this.sendMessage(phone, `⚠️ אזהרה: יש לך אירוע נוסף באותה שעה!\n📌 ${conflictTitles}\n\nשני האירועים נשמרו.`);
       }
 
-      // ✅ FIX: Display warnings from HebrewCalendarPhase (Shabbat, holidays, etc.)
+      // BUG FIX: Merge warnings into success message (prevents two separate WhatsApp messages)
+      // Build success message with warnings if they exist
+      let successMessage = '';
+
+      // Add warnings first if they exist
       if (intent.warnings && intent.warnings.length > 0) {
-        const warningsText = intent.warnings.join('\n');
-        await this.sendMessage(phone, warningsText);
+        successMessage += intent.warnings.join('\n') + '\n\n';
       }
 
-      // CRITICAL FIX (Issue #8): Use formatEventWithComments to show event with all comments
-      const successMessage = `✅ אירוע נוסף בהצלחה!\n\n${formatEventWithComments(eventToShow)}`;
+      // Add success confirmation with event details
+      successMessage += `✅ אירוע נוסף בהצלחה!\n\n${formatEventWithComments(eventToShow)}`;
 
       const sentMessageId = await this.sendMessage(phone, successMessage);
 
