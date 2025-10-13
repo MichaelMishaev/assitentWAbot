@@ -1,20 +1,18 @@
 /**
- * Ensemble AI Classifier
+ * Ensemble AI Classifier (Dual Model Voting)
  *
- * Runs 3 AI models in parallel and uses voting to determine intent:
- * - GPT-4o-mini (OpenAI)
- * - Gemini 1.5 Flash (Google)
- * - Claude 3 Haiku (Anthropic)
+ * Runs 2 AI models in parallel and uses voting to determine intent:
+ * - GPT-4.1 nano (OpenAI) - $0.10/$0.40 per 1M tokens
+ * - Gemini 2.5 Flash-Lite (Google) - $0.10/$0.40 per 1M tokens
  *
  * Confidence levels:
- * - 3/3 agreement: 95% confidence
- * - 2/3 agreement: 85% confidence
- * - No agreement: Ask user (clarification needed)
+ * - 2/2 agreement: 95% confidence (both models agree)
+ * - 1/2 split: 70% confidence (models disagree, clarification needed)
+ *
+ * Cost: ~$3.60 per 1K messages (64% cheaper than 3-model ensemble)
  */
 
 import logger from '../../../utils/logger.js';
-import { pluginManager } from '../../../plugins/PluginManager.js';
-import { ClaudeClient, ClaudeResponse } from '../../../infrastructure/external/anthropic/ClaudeClient.js';
 import { BasePhase } from '../../orchestrator/IPhase.js';
 import { PhaseContext, PhaseResult } from '../../orchestrator/PhaseContext.js';
 
@@ -29,7 +27,7 @@ interface EnsembleResult {
   finalIntent: string;
   finalConfidence: number;
   votes: ModelVote[];
-  agreement: number; // How many models agreed (0-3)
+  agreement: number; // How many models agreed (0-2)
   needsClarification: boolean;
 }
 
@@ -53,11 +51,10 @@ export class EnsembleClassifier extends BasePhase {
       // Build prompt for all models
       const prompt = this.buildClassificationPrompt(message, context);
 
-      // Run all 3 models in parallel
-      const [gptResult, geminiResult, claudeResult] = await Promise.allSettled([
+      // Run 2 cheapest models in parallel (removed Claude for cost optimization)
+      const [gptResult, geminiResult] = await Promise.allSettled([
         this.classifyWithGPT(prompt, context),
-        this.classifyWithGemini(prompt, context),
-        this.classifyWithClaude(prompt, context)
+        this.classifyWithGemini(prompt, context)
       ]);
 
       // Collect votes
@@ -73,12 +70,6 @@ export class EnsembleClassifier extends BasePhase {
         votes.push(geminiResult.value);
       } else {
         logger.warn('Gemini classification failed', { error: geminiResult.reason });
-      }
-
-      if (claudeResult.status === 'fulfilled') {
-        votes.push(claudeResult.value);
-      } else {
-        logger.warn('Claude classification failed', { error: claudeResult.reason });
       }
 
       // Need at least 1 vote to proceed
@@ -101,7 +92,8 @@ export class EnsembleClassifier extends BasePhase {
       logger.info('Ensemble classification complete', {
         intent: result.finalIntent,
         confidence: result.finalConfidence,
-        agreement: `${result.agreement}/3`,
+        agreement: `${result.agreement}/2`,
+        models: 'GPT-4.1-nano + Gemini-2.5-Flash-Lite',
         needsClarification: result.needsClarification
       });
 
@@ -114,7 +106,7 @@ export class EnsembleClassifier extends BasePhase {
   }
 
   /**
-   * Classify with GPT-4o-mini
+   * Classify with GPT-4.1 nano (cheapest OpenAI model)
    */
   private async classifyWithGPT(prompt: string, context: PhaseContext): Promise<ModelVote> {
     try {
@@ -122,7 +114,7 @@ export class EnsembleClassifier extends BasePhase {
       const { NLPService } = await import('../../../services/NLPService.js');
       const nlpService = new NLPService();
 
-      // Parse intent using existing service
+      // Parse intent using existing service (now uses GPT-4.1 nano)
       const result = await nlpService.parseIntent(
         context.processedText,
         [], // No contacts for intent classification
@@ -130,7 +122,7 @@ export class EnsembleClassifier extends BasePhase {
       );
 
       return {
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-nano',
         intent: result.intent,
         confidence: result.confidence,
         reasoning: `GPT classified as ${result.intent}`
@@ -143,7 +135,7 @@ export class EnsembleClassifier extends BasePhase {
   }
 
   /**
-   * Classify with Gemini Flash
+   * Classify with Gemini 2.5 Flash-Lite (cheapest Google model)
    */
   private async classifyWithGemini(prompt: string, context: PhaseContext): Promise<ModelVote> {
     try {
@@ -151,7 +143,7 @@ export class EnsembleClassifier extends BasePhase {
       const { GeminiNLPService } = await import('../../../services/GeminiNLPService.js');
       const geminiService = new GeminiNLPService();
 
-      // Parse intent using existing service
+      // Parse intent using existing service (now uses Gemini 2.5 Flash-Lite)
       const result = await geminiService.parseIntent(
         context.processedText,
         [], // No contacts for intent classification
@@ -159,7 +151,7 @@ export class EnsembleClassifier extends BasePhase {
       );
 
       return {
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-2.5-flash-lite',
         intent: result.intent,
         confidence: result.confidence,
         reasoning: `Gemini classified as ${result.intent}`
@@ -171,39 +163,6 @@ export class EnsembleClassifier extends BasePhase {
     }
   }
 
-  /**
-   * Classify with Claude
-   */
-  private async classifyWithClaude(prompt: string, context: PhaseContext): Promise<ModelVote> {
-    try {
-      const claudeClient = pluginManager.getPlugin('claude-client') as ClaudeClient;
-
-      if (!claudeClient) {
-        throw new Error('ClaudeClient not registered');
-      }
-
-      const response = await claudeClient.execute(prompt, {
-        userId: context.userId,
-        messageId: context.originalMessage.messageId,
-        timestamp: new Date(),
-        metadata: {},
-        logger,
-        trackCost: (cost, model) => {
-          // Cost tracking handled in ClaudeClient
-        }
-      });
-
-      return {
-        model: 'claude-3-haiku',
-        intent: response.intent,
-        confidence: response.confidence,
-        reasoning: response.reasoning
-      };
-
-    } catch (error) {
-      throw new Error(`Claude classification failed: ${error}`);
-    }
-  }
 
   /**
    * Aggregate votes from multiple models
@@ -240,18 +199,19 @@ export class EnsembleClassifier extends BasePhase {
     const totalModels = votes.length;
     const agreement = maxVotes;
 
-    if (agreement === totalModels && totalModels === 3) {
-      // Perfect agreement (3/3)
+    if (agreement === 2 && totalModels === 2) {
+      // Perfect agreement (2/2 - both models agree)
       finalConfidence = 0.95;
-    } else if (agreement === 2 && totalModels === 3) {
-      // Majority agreement (2/3)
-      finalConfidence = 0.85;
-    } else if (agreement === 2 && totalModels === 2) {
-      // Both agree (2/2)
-      finalConfidence = 0.90;
+    } else if (agreement === 1 && totalModels === 2) {
+      // Split decision (1/2 - models disagree)
+      finalConfidence = 0.70;
+      needsClarification = true;
+    } else if (totalModels === 1) {
+      // Single model only (fallback if one fails)
+      finalConfidence = 0.80;
     } else {
-      // No clear agreement or single model only
-      finalConfidence = 0.60;
+      // No votes (both failed) - should not happen due to earlier check
+      finalConfidence = 0.50;
       needsClarification = true;
     }
 

@@ -300,9 +300,9 @@ CONVERSATION CONTEXT:
 
 User message to parse: "${userMessage}"`;
 
-      // Use Gemini 2.0 Flash with JSON mode
+      // Use Gemini 2.5 Flash-Lite (cheapest stable model at $0.10/$0.40 per 1M tokens)
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-2.5-flash-lite',
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0.3,
@@ -345,7 +345,7 @@ User message to parse: "${userMessage}"`;
    */
   async testConnection(): Promise<boolean> {
     try {
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
       const result = await model.generateContent('Test');
 
       logger.info('Gemini API connection successful');
