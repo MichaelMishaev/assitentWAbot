@@ -210,7 +210,8 @@ export class NLPRouter {
         intent: result.intent,
         confidence: result.confidence,
         success: result.success,
-        hasEntities: Object.keys(result.entities).length > 0
+        hasEntities: Object.keys(result.entities).length > 0,
+        warnings: result.warnings?.length || 0
       });
 
       // ===== ADAPTER: Convert V2 entities to old format for backward compatibility =====
@@ -220,6 +221,7 @@ export class NLPRouter {
         intent: result.intent,
         confidence: result.confidence,
         clarificationNeeded: result.clarificationQuestion,
+        warnings: result.warnings || [], // ✅ FIX: Pass warnings from Pipeline (Shabbat, holidays, etc.)
         // Wrap entities in appropriate containers based on intent type
         event: {
           title: entities.title,
@@ -264,8 +266,9 @@ export class NLPRouter {
       // If confidence is too low or needs clarification, ask for clarification
       if (adaptedResult.confidence < requiredConfidence || adaptedResult.intent === 'unknown' || result.needsClarification) {
         await proficiencyTracker.trackNLPFailure(userId);
+        // ✅ FIX: Don't show menu after failed NLP - it breaks context and UX
+        // Just provide helpful clarification message
         await this.sendMessage(phone, adaptedResult.clarificationNeeded || 'לא הבנתי. אנא נסה שוב או שלח /תפריט לתפריט ראשי');
-        await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
         return;
       }
 
@@ -464,6 +467,12 @@ export class NLPRouter {
       if (hasConflict && conflictingEvents.length > 0) {
         const conflictTitles = conflictingEvents.map((e: any) => e.title).join(', ');
         await this.sendMessage(phone, `⚠️ אזהרה: יש לך אירוע נוסף באותה שעה!\n📌 ${conflictTitles}\n\nשני האירועים נשמרו.`);
+      }
+
+      // ✅ FIX: Display warnings from HebrewCalendarPhase (Shabbat, holidays, etc.)
+      if (intent.warnings && intent.warnings.length > 0) {
+        const warningsText = intent.warnings.join('\n');
+        await this.sendMessage(phone, warningsText);
       }
 
       // CRITICAL FIX (Issue #8): Use formatEventWithComments to show event with all comments

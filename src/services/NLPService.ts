@@ -347,7 +347,7 @@ CONVERSATION CONTEXT:
       });
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini', // Using GPT-4o-mini for best cost/performance balance
+        model: 'gpt-5-nano-high', // Using GPT-5 nano for 95% cost savings vs GPT-5
         messages,
         response_format: { type: 'json_object' },
         temperature: 0.3, // Lower temperature for more consistent parsing
@@ -387,7 +387,7 @@ CONVERSATION CONTEXT:
   async testConnection(): Promise<boolean> {
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-nano-high',
         messages: [{ role: 'user', content: 'Test' }],
         max_tokens: 5
       });
