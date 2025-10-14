@@ -277,6 +277,19 @@ export class MessageRouter {
     try {
       logger.info('Routing message', { from, text, messageId, quotedMessage });
 
+      // 🚨 CRITICAL: WhatsApp Connection Check - Prevent API calls when disconnected
+      // This prevents cost disasters during connection failures or reconnection loops
+      const connectionState = this.messageProvider.getConnectionState();
+      if (connectionState.status !== 'connected') {
+        logger.warn('⚠️ Message received but WhatsApp not connected. Rejecting to prevent API waste.', {
+          status: connectionState.status,
+          from,
+          messageId
+        });
+        // Don't process - no API calls when disconnected
+        return;
+      }
+
       // COST PROTECTION: Emergency daily API call limit (prevent cost disasters like Railway crash loop)
       // Added after ₪461 incident where Railway crash loop caused 19,335 API calls in 24 hours
       const dailyCostKey = `api:calls:daily:${new Date().toISOString().split('T')[0]}`;

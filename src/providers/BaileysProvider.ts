@@ -45,6 +45,7 @@ export class BaileysProvider implements IMessageProvider {
   private authFailureCount: number = 0;
   private readonly MAX_AUTH_FAILURES = 3;
   private reconnectAttempts: number = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10; // HARD LIMIT: Max 10 reconnection attempts
   private readonly MAX_RECONNECT_DELAY = 60000; // 60 seconds max
 
   constructor(sessionPath?: string) {
@@ -187,6 +188,26 @@ export class BaileysProvider implements IMessageProvider {
       // Connection Closed - try reconnecting once, might be temporary
       logger.warn('Connection closed (428), attempting reconnect...');
       await this.reconnect();
+    } else if (statusCode === 405) {
+      // Connection Failure (often shows as 405 in Baileys)
+      // This is usually an auth issue, treat similar to 401/403
+      this.authFailureCount++;
+      logger.warn(`⚠️ Connection Failure (405) - Attempt ${this.authFailureCount}/${this.MAX_AUTH_FAILURES}`);
+
+      if (this.authFailureCount >= this.MAX_AUTH_FAILURES) {
+        logger.error(`❌ Connection failed ${this.MAX_AUTH_FAILURES} times. Session likely corrupted.`);
+        logger.error('🧹 Automatically clearing session...');
+        await this.clearSession();
+        logger.info('✅ Session cleared. Restart the app to scan QR code.');
+        this.updateConnectionState({
+          status: 'error',
+          error: 'Connection failed 3 times. Session cleared. Please restart to scan QR.'
+        });
+        this.shouldReconnect = false;
+      } else {
+        logger.warn(`Connection failure, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
+        await this.reconnect();
+      }
     } else if (statusCode === 401 || statusCode === 403) {
       // Connection failure during auth - could be:
       // 1. Normal restart disconnect (temporary 401)
@@ -235,6 +256,22 @@ export class BaileysProvider implements IMessageProvider {
       return;
     }
 
+    // 🚨 CRITICAL: Check max reconnection attempts (prevent infinite loops & cost disasters)
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      logger.error(`🛑 MAX RECONNECTION ATTEMPTS REACHED (${this.MAX_RECONNECT_ATTEMPTS})`);
+      logger.error('🧹 Auto-clearing session to prevent cost escalation...');
+      await this.clearSession();
+      logger.error('❌ RECONNECTION STOPPED. Manual restart required.');
+      logger.error('Run: pm2 restart ultrathink');
+
+      this.shouldReconnect = false;
+      this.updateConnectionState({
+        status: 'error',
+        error: `Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Session cleared. Restart required.`
+      });
+      return;
+    }
+
     // Exponential backoff: 5s, 10s, 20s, 40s, 60s (max)
     this.reconnectAttempts++;
     const delay = Math.min(
@@ -242,7 +279,7 @@ export class BaileysProvider implements IMessageProvider {
       this.MAX_RECONNECT_DELAY
     );
 
-    logger.info(`Reconnecting in ${delay / 1000} seconds... (attempt ${this.reconnectAttempts})`);
+    logger.info(`Reconnecting in ${delay / 1000} seconds... (attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})`);
     logWhatsAppReconnect();
     await new Promise(resolve => setTimeout(resolve, delay));
 
@@ -251,7 +288,7 @@ export class BaileysProvider implements IMessageProvider {
     } catch (error) {
       logger.error('Reconnection failed:', error);
       logWhatsAppDisconnect('Reconnection failed', 0);
-      // Will retry on next disconnect with increased backoff
+      // Will retry on next disconnect with increased backoff (up to MAX_RECONNECT_ATTEMPTS)
     }
   }
 
