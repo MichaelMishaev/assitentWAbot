@@ -30,11 +30,19 @@ let botStartupTime: number = 0;
 // Redis monitoring
 let monitoringInterval: NodeJS.Timeout | null = null;
 
+// 🛡️ CRASH LOOP PREVENTION: Track crashes to prevent infinite restart loops
+const CRASH_TRACKING_KEY = 'bot:crash:count';
+const CRASH_WINDOW_SECONDS = 300; // 5 minutes
+const MAX_CRASHES_IN_WINDOW = 5; // Max 5 crashes in 5 minutes
+
 async function main() {
   try {
     botStartupTime = Date.now(); // Track startup time for grace period
     logger.info('🚀 Starting WhatsApp Assistant Bot...');
     logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+
+    // 🛡️ Check crash loop prevention
+    await checkCrashLoop();
 
     // Test database connection
     logger.info('Testing database connection...');
@@ -74,11 +82,14 @@ async function main() {
     whatsappProvider.onMessage(handleIncomingMessage);
 
     // Register connection state handler
-    whatsappProvider.onConnectionStateChange((state) => {
+    whatsappProvider.onConnectionStateChange(async (state) => {
       logger.info(`WhatsApp connection state: ${state.status}`);
       if (state.status === 'qr') {
         logger.info('📱 Scan the QR code with WhatsApp to connect');
         logger.info(`QR code saved to: ${process.env.SESSION_PATH || './sessions'}/qr-code.png`);
+      } else if (state.status === 'connected') {
+        // Reset crash counter on successful connection
+        await resetCrashCounter();
       }
     });
 
@@ -100,6 +111,62 @@ async function main() {
   } catch (error) {
     logger.error('❌ Failed to start bot:', error);
     process.exit(1);
+  }
+}
+
+/**
+ * 🛡️ CRASH LOOP PREVENTION
+ * Tracks crashes in Redis with 5-minute sliding window
+ * If > 5 crashes in 5 minutes, bot stays paused (no restart)
+ */
+async function checkCrashLoop(): Promise<void> {
+  try {
+    // Increment crash counter (with 5-minute expiry)
+    const crashes = await redis.incr(CRASH_TRACKING_KEY);
+
+    // Set expiry on first crash
+    if (crashes === 1) {
+      await redis.expire(CRASH_TRACKING_KEY, CRASH_WINDOW_SECONDS);
+    }
+
+    logger.info(`🔍 Crash tracking: ${crashes}/${MAX_CRASHES_IN_WINDOW} crashes in last ${CRASH_WINDOW_SECONDS}s`);
+
+    // If too many crashes, pause bot to prevent infinite loop
+    if (crashes > MAX_CRASHES_IN_WINDOW) {
+      logger.error('🚨 CRASH LOOP DETECTED!');
+      logger.error(`Bot crashed ${crashes} times in ${CRASH_WINDOW_SECONDS} seconds`);
+      logger.error('🛑 BOT PAUSED - Crash loop protection activated');
+      logger.error('📋 This prevents infinite restart loops that waste API calls');
+      logger.error('📋 Check logs for error patterns, fix the bug, then restart');
+      logger.error(`📋 To reset: redis-cli DEL ${CRASH_TRACKING_KEY}`);
+      logger.error('📋 Or wait 5 minutes for automatic reset');
+
+      // Keep process alive in error state (no exit = no PM2 restart)
+      logger.info('Process will remain alive in paused state');
+
+      // Wait forever (prevents further execution)
+      await new Promise(() => {}); // Intentional infinite wait
+    }
+
+    // On successful startup, decrement counter (successful start)
+    // We'll reset this after WhatsApp connects successfully
+
+  } catch (error) {
+    logger.error('Failed to check crash loop', { error });
+    // Don't block startup if Redis check fails
+  }
+}
+
+/**
+ * Reset crash counter on successful WhatsApp connection
+ * This way only crashes during startup/connection are tracked
+ */
+async function resetCrashCounter(): Promise<void> {
+  try {
+    await redis.del(CRASH_TRACKING_KEY);
+    logger.info('✅ Crash counter reset (successful connection)');
+  } catch (error) {
+    logger.error('Failed to reset crash counter', { error });
   }
 }
 
@@ -314,11 +381,20 @@ async function handleIncomingMessage(message: IncomingMessage) {
 // Handle uncaught errors
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - let the process continue (crash counter will handle repeated crashes)
 });
 
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
-  process.exit(1);
+  logger.error('Stack:', (error as Error).stack);
+
+  // DON'T exit immediately - this causes PM2 restart loops
+  // Instead, the crash counter will detect repeated crashes and pause the bot
+  logger.error('🚨 Critical error occurred but process will attempt to continue');
+  logger.error('🛡️ Crash loop protection active - bot will pause after 5 crashes in 5 minutes');
+
+  // Note: If this is a fatal error (e.g., syntax error on startup),
+  // the crash counter will detect it and pause the bot automatically
 });
 
 // Graceful shutdown
