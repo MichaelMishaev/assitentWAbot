@@ -45,7 +45,7 @@ export class BaileysProvider implements IMessageProvider {
   private authFailureCount: number = 0;
   private readonly MAX_AUTH_FAILURES = 3;
   private reconnectAttempts: number = 0;
-  private readonly MAX_RECONNECT_ATTEMPTS = 10; // HARD LIMIT: Max 10 reconnection attempts
+  private readonly MAX_RECONNECT_ATTEMPTS = 3; // HARD LIMIT: Max 3 reconnection attempts (then exit)
   private readonly MAX_RECONNECT_DELAY = 60000; // 60 seconds max
 
   constructor(sessionPath?: string) {
@@ -198,18 +198,20 @@ export class BaileysProvider implements IMessageProvider {
         logger.error(`❌ Connection failed ${this.MAX_AUTH_FAILURES} times. Session likely corrupted.`);
         logger.error('🧹 Automatically clearing session...');
         await this.clearSession();
-        logger.info('✅ Session cleared. Attempting fresh connection to generate QR code...');
+        logger.error('✅ Session cleared successfully');
+        logger.error('🔄 EXITING PROCESS - PM2 will restart with fresh QR code');
+        logger.error('📱 QR code will appear in console after restart');
 
-        // Reset counters and flags for fresh start
-        this.authFailureCount = 0;
-        this.reconnectAttempts = 0;
-        this.shouldReconnect = true;
+        this.shouldReconnect = false;
+        this.updateConnectionState({
+          status: 'error',
+          error: 'Session cleared. Process exiting for fresh restart.'
+        });
 
-        // Wait a bit before reconnecting to ensure session is fully cleared
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // Try to reconnect - this should generate a QR code
-        await this.reconnect();
+        // Exit process - PM2 will restart and generate QR code
+        setTimeout(() => {
+          process.exit(1);
+        }, 1000);
       } else {
         logger.warn(`Connection failure, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
         await this.reconnect();
@@ -236,18 +238,20 @@ export class BaileysProvider implements IMessageProvider {
         logger.error(`❌ Authentication failed ${this.MAX_AUTH_FAILURES} times. Session likely corrupted.`);
         logger.error('🧹 Automatically clearing session...');
         await this.clearSession();
-        logger.info('✅ Session cleared. Attempting fresh connection to generate QR code...');
+        logger.error('✅ Session cleared successfully');
+        logger.error('🔄 EXITING PROCESS - PM2 will restart with fresh QR code');
+        logger.error('📱 QR code will appear in console after restart');
 
-        // Reset counters and flags for fresh start
-        this.authFailureCount = 0;
-        this.reconnectAttempts = 0;
-        this.shouldReconnect = true;
+        this.shouldReconnect = false;
+        this.updateConnectionState({
+          status: 'error',
+          error: 'Session cleared. Process exiting for fresh restart.'
+        });
 
-        // Wait a bit before reconnecting to ensure session is fully cleared
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // Try to reconnect - this should generate a QR code
-        await this.reconnect();
+        // Exit process - PM2 will restart and generate QR code
+        setTimeout(() => {
+          process.exit(1);
+        }, 1000);
       } else {
         logger.warn(`Authentication failed, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
         logger.warn('If this keeps happening, session will be auto-cleared after 3 failures');
@@ -273,14 +277,20 @@ export class BaileysProvider implements IMessageProvider {
       logger.error(`🛑 MAX RECONNECTION ATTEMPTS REACHED (${this.MAX_RECONNECT_ATTEMPTS})`);
       logger.error('🧹 Auto-clearing session to prevent cost escalation...');
       await this.clearSession();
-      logger.error('❌ RECONNECTION STOPPED. Manual restart required.');
-      logger.error('Run: pm2 restart ultrathink');
+      logger.error('✅ Session cleared successfully');
+      logger.error('🔄 EXITING PROCESS - PM2 will restart with fresh QR code');
+      logger.error('📱 QR code will appear in console after restart');
 
       this.shouldReconnect = false;
       this.updateConnectionState({
         status: 'error',
-        error: `Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Session cleared. Restart required.`
+        error: `Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Session cleared. Process exiting.`
       });
+
+      // Exit process - PM2 will restart and generate QR code
+      setTimeout(() => {
+        process.exit(1);
+      }, 1000);
       return;
     }
 

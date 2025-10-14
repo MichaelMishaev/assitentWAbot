@@ -1,23 +1,35 @@
 /**
- * Intent Classifier (GPT-Only Mode - Cost Protection)
+ * Intent Classifier (GPT-Only Mode - 4-Layer Cost Protection)
  *
- * EMERGENCY CONFIGURATION:
- * - Uses ONLY GPT-4.1-nano ($0.10/$0.40 per 1M tokens)
- * - Ensemble DISABLED to prevent cost spikes during crash loops
- * - Response caching (1 hour TTL) - saves 50-70% of calls
- * - Strict limits to prevent disasters:
+ * 🛡️ DEFENSE IN DEPTH STRATEGY:
+ *
+ * LAYER 1: Message ID Deduplication (src/index.ts:handleIncomingMessage)
+ *   ✅ Primary defense - Prevents same message from being processed twice
+ *   ✅ 48-hour TTL in Redis (msg:processed:{messageId})
+ *   ✅ Checked BEFORE any processing (zero API calls for duplicates)
+ *
+ * LAYER 2: Content Caching (this file)
+ *   ✅ 24-hour TTL (up from 1 hour) - Better restart coverage
+ *   ✅ Saves 50-70% of API calls for common queries
+ *   ✅ Cache key: md5(message + date + timezone)
+ *
+ * LAYER 3: Rate Limits (this file)
  *   ✅ 300 calls/day HARD LIMIT (bot pauses)
  *   ✅ 200 calls/day WARNING (admin WhatsApp alert)
  *   ✅ 50 calls/hour (catches crash loops fast)
  *   ✅ 100 calls/user/day (user + admin notified)
  *
- * Cost: ~$0.45/day at 300 calls (90% cheaper than dual ensemble)
+ * LAYER 4: Startup Grace Period (src/index.ts:handleIncomingMessage)
+ *   ✅ Skips messages >5 minutes old during first 5 minutes after restart
+ *   ✅ Prevents reprocessing old WhatsApp-delivered messages
  *
- * CRASH LOOP PROTECTION:
- * - Cache prevents duplicate processing during restarts
- * - Hourly limit catches loops within 1 hour
- * - Admin gets WhatsApp alerts at 200 & 300 calls
- * - Bot auto-pauses at 300 calls (manual restart required)
+ * MODEL: GPT-4.1-nano only ($0.10/$0.40 per 1M tokens)
+ *   - Ensemble DISABLED to prevent cost spikes
+ *   - 90% cheaper than dual ensemble
+ *
+ * COST: ~$0.15-0.45/day with 4-layer protection
+ *   - Down from $115-172 during Oct 12 crash loop
+ *   - 97-99% cost reduction!
  */
 
 import logger from '../../../utils/logger.js';
@@ -493,13 +505,18 @@ export class EnsembleClassifier extends BasePhase {
   }
 
   /**
-   * Cache classification result (1 hour TTL)
+   * 🛡️ LAYER 2: Cache classification result (Enhanced TTL for restart protection)
+   * Increased TTL helps prevent duplicate API calls during bot restarts
    */
   private async cacheResult(cacheKey: string, result: EnsembleResult): Promise<void> {
     try {
-      const TTL = 3600; // 1 hour
+      // 🛡️ LAYER 2 ENHANCEMENT: Increased from 1 hour to 24 hours
+      // Covers restart scenarios where same query might be reprocessed
+      // Balance: Long enough for restarts, short enough for dynamic queries
+      const TTL = 86400; // 24 hours (up from 3600/1 hour)
+
       await redis.setex(cacheKey, TTL, JSON.stringify(result));
-      logger.debug('Cached result', { cacheKey, intent: result.finalIntent, ttl: TTL });
+      logger.debug('Cached result', { cacheKey, intent: result.finalIntent, ttl: `${TTL}s (24h)` });
     } catch (error) {
       logger.warn('Cache write failed', { cacheKey, error });
       // Non-critical, continue
