@@ -198,12 +198,18 @@ export class BaileysProvider implements IMessageProvider {
         logger.error(`❌ Connection failed ${this.MAX_AUTH_FAILURES} times. Session likely corrupted.`);
         logger.error('🧹 Automatically clearing session...');
         await this.clearSession();
-        logger.info('✅ Session cleared. Restart the app to scan QR code.');
-        this.updateConnectionState({
-          status: 'error',
-          error: 'Connection failed 3 times. Session cleared. Please restart to scan QR.'
-        });
-        this.shouldReconnect = false;
+        logger.info('✅ Session cleared. Attempting fresh connection to generate QR code...');
+
+        // Reset counters and flags for fresh start
+        this.authFailureCount = 0;
+        this.reconnectAttempts = 0;
+        this.shouldReconnect = true;
+
+        // Wait a bit before reconnecting to ensure session is fully cleared
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Try to reconnect - this should generate a QR code
+        await this.reconnect();
       } else {
         logger.warn(`Connection failure, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
         await this.reconnect();
@@ -230,12 +236,18 @@ export class BaileysProvider implements IMessageProvider {
         logger.error(`❌ Authentication failed ${this.MAX_AUTH_FAILURES} times. Session likely corrupted.`);
         logger.error('🧹 Automatically clearing session...');
         await this.clearSession();
-        logger.info('✅ Session cleared. Restart the app to scan QR code.');
-        this.updateConnectionState({
-          status: 'error',
-          error: 'Session corrupted and cleared. Please restart to scan QR.'
-        });
-        this.shouldReconnect = false;
+        logger.info('✅ Session cleared. Attempting fresh connection to generate QR code...');
+
+        // Reset counters and flags for fresh start
+        this.authFailureCount = 0;
+        this.reconnectAttempts = 0;
+        this.shouldReconnect = true;
+
+        // Wait a bit before reconnecting to ensure session is fully cleared
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Try to reconnect - this should generate a QR code
+        await this.reconnect();
       } else {
         logger.warn(`Authentication failed, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
         logger.warn('If this keeps happening, session will be auto-cleared after 3 failures');
