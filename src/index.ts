@@ -20,7 +20,9 @@ let reminderWorker: ReminderWorker | null = null;
 
 // 🛡️ LAYER 1: Message Deduplication (Prevents duplicate processing)
 // Optimized: 12h TTL (down from 48h) - 75% memory savings
-// Still covers crash loops (typically <4h) and multiple restarts per day
+// Covers: Reconnection attempts (<1min) + IP block cooldown (1-2h) + safety margin
+// With MAX_RECONNECT_ATTEMPTS=3, failures happen in ~35 seconds (5s+10s+20s)
+// 12h TTL provides 43,200% safety margin over actual failure time
 const MESSAGE_DEDUP_TTL = 43200; // 12 hours (optimized from 48h)
 const STARTUP_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
 let botStartupTime: number = 0;
@@ -336,6 +338,15 @@ async function shutdown() {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// Handle direct process.exit() (e.g., from BaileysProvider IP block detection)
+// Ensures monitoring stops cleanly even when bypassing shutdown handlers
+process.on('exit', (code) => {
+  if (monitoringInterval) {
+    clearInterval(monitoringInterval);
+    logger.debug(`Monitoring stopped on process exit (code: ${code})`);
+  }
+});
 
 // Start the application
 main();
