@@ -19,9 +19,14 @@ let messageRouter: MessageRouter | null = null;
 let reminderWorker: ReminderWorker | null = null;
 
 // 🛡️ LAYER 1: Message Deduplication (Prevents duplicate processing)
-const MESSAGE_DEDUP_TTL = 86400 * 2; // 48 hours
+// Optimized: 12h TTL (down from 48h) - 75% memory savings
+// Still covers crash loops (typically <4h) and multiple restarts per day
+const MESSAGE_DEDUP_TTL = 43200; // 12 hours (optimized from 48h)
 const STARTUP_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
 let botStartupTime: number = 0;
+
+// Redis monitoring
+let monitoringInterval: NodeJS.Timeout | null = null;
 
 async function main() {
   try {
@@ -87,9 +92,104 @@ async function main() {
     logger.info('  ✅ ReminderWorker started');
     logger.info('  ⏳ WhatsApp initializing (scan QR code if needed)');
     logger.info('  ✅ Health check API running on port', process.env.PORT || 3000);
+
+    // Start Redis memory monitoring (every 10 minutes)
+    startRedisMonitoring();
   } catch (error) {
     logger.error('❌ Failed to start bot:', error);
     process.exit(1);
+  }
+}
+
+/**
+ * 🎯 Redis Memory Monitoring
+ * Tracks memory usage and alerts on high usage to prevent OOM
+ */
+async function startRedisMonitoring(): Promise<void> {
+  try {
+    // Initial check
+    await checkRedisMemory();
+
+    // Check every 10 minutes
+    monitoringInterval = setInterval(async () => {
+      await checkRedisMemory();
+    }, 10 * 60 * 1000); // 10 minutes
+
+    logger.info('✅ Redis monitoring started (10-minute intervals)');
+  } catch (error) {
+    logger.error('Failed to start Redis monitoring', { error });
+  }
+}
+
+async function checkRedisMemory(): Promise<void> {
+  try {
+    const info = await redis.info('memory');
+
+    // Parse memory info
+    const usedMemoryMatch = info.match(/used_memory:(\d+)/);
+    const maxMemoryMatch = info.match(/maxmemory:(\d+)/);
+
+    if (!usedMemoryMatch || !maxMemoryMatch) {
+      logger.warn('Could not parse Redis memory info');
+      return;
+    }
+
+    const usedMemory = parseInt(usedMemoryMatch[1]);
+    const maxMemory = parseInt(maxMemoryMatch[1]);
+    const usagePct = maxMemory > 0 ? (usedMemory / maxMemory) * 100 : 0;
+
+    // Get key counts for detailed metrics
+    const dbSize = await redis.dbsize();
+
+    // Log stats
+    logger.info('📊 Redis memory stats', {
+      usedMemory: `${(usedMemory / 1024 / 1024).toFixed(2)} MB`,
+      maxMemory: `${(maxMemory / 1024 / 1024).toFixed(2)} MB`,
+      usagePercent: `${usagePct.toFixed(1)}%`,
+      totalKeys: dbSize
+    });
+
+    // Alert thresholds
+    if (usagePct >= 90) {
+      logger.error('🚨 CRITICAL: Redis memory at 90%!', {
+        usedMemory: `${(usedMemory / 1024 / 1024).toFixed(2)} MB`,
+        maxMemory: `${(maxMemory / 1024 / 1024).toFixed(2)} MB`,
+        usagePercent: `${usagePct.toFixed(1)}%`
+      });
+
+      // Send admin alert
+      try {
+        const { BaileysProvider } = await import('./providers/BaileysProvider.js');
+        const provider = new BaileysProvider();
+        await provider.sendMessage(
+          '972544345287@s.whatsapp.net',
+          `🚨 REDIS MEMORY CRITICAL\n\n` +
+          `Usage: ${usagePct.toFixed(1)}%\n` +
+          `Used: ${(usedMemory / 1024 / 1024).toFixed(2)} MB\n` +
+          `Max: ${(maxMemory / 1024 / 1024).toFixed(2)} MB\n` +
+          `Keys: ${dbSize}\n\n` +
+          `LRU eviction is active but monitor closely!`
+        );
+      } catch (err) {
+        logger.error('Failed to send Redis memory alert', { err });
+      }
+    } else if (usagePct >= 80) {
+      logger.warn('⚠️ WARNING: Redis memory at 80%', {
+        usedMemory: `${(usedMemory / 1024 / 1024).toFixed(2)} MB`,
+        maxMemory: `${(maxMemory / 1024 / 1024).toFixed(2)} MB`,
+        usagePercent: `${usagePct.toFixed(1)}%`
+      });
+    }
+  } catch (error) {
+    logger.error('Failed to check Redis memory', { error });
+  }
+}
+
+function stopRedisMonitoring(): void {
+  if (monitoringInterval) {
+    clearInterval(monitoringInterval);
+    monitoringInterval = null;
+    logger.info('Redis monitoring stopped');
   }
 }
 
@@ -110,14 +210,14 @@ async function isMessageAlreadyProcessed(messageId: string): Promise<boolean> {
 
 /**
  * 🛡️ LAYER 1: Mark message as processed
+ * Optimized: Store minimal data (timestamp only, not full JSON)
+ * Memory savings: 60 bytes → 13 bytes (78% reduction per key)
  */
 async function markMessageAsProcessed(messageId: string, metadata?: string): Promise<void> {
   try {
     const key = `msg:processed:${messageId}`;
-    const value = JSON.stringify({
-      processedAt: Date.now(),
-      metadata: metadata || 'processed'
-    });
+    // Optimized: Just store timestamp (not full JSON object)
+    const value = Date.now().toString();
     await redis.setex(key, MESSAGE_DEDUP_TTL, value);
   } catch (error) {
     logger.error('Failed to mark message as processed', { error, messageId });
@@ -222,6 +322,7 @@ process.on('uncaughtException', (error) => {
 // Graceful shutdown
 async function shutdown() {
   logger.info('👋 Shutting down gracefully...');
+  stopRedisMonitoring(); // Stop monitoring before shutdown
   await stopHealthCheck();
   await shutdownPipeline();
   if (reminderWorker) {

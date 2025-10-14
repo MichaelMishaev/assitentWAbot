@@ -11,16 +11,16 @@
  * Priority: #7
  */
 
-// RRULE ES MODULE FIX: Import default export only
-// The rrule library is CommonJS and has issues with named exports in ES modules
-import * as rruleModule from 'rrule';
+// RRULE ES MODULE FIX: Import entire module as default then destructure
+// The rrule library has ESM exports but Node.js needs default import for hybrid packages
+import rruleModule from 'rrule';
 
 import { BasePhase } from '../../orchestrator/IPhase.js';
 import { PhaseContext, PhaseResult } from '../../orchestrator/PhaseContext.js';
 import logger from '../../../utils/logger.js';
 
-// Extract RRule from the module
-const RRule = (rruleModule as any).RRule || (rruleModule as any).default?.RRule || rruleModule;
+// Extract RRule from the default export
+const { RRule } = rruleModule as any;
 
 export class RecurrencePhase extends BasePhase {
   readonly name = 'recurrence-detector';

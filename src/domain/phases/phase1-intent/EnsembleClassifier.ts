@@ -505,18 +505,19 @@ export class EnsembleClassifier extends BasePhase {
   }
 
   /**
-   * 🛡️ LAYER 2: Cache classification result (Enhanced TTL for restart protection)
-   * Increased TTL helps prevent duplicate API calls during bot restarts
+   * 🛡️ LAYER 2: Cache classification result (Optimized TTL)
+   * Balanced TTL helps prevent duplicate API calls while minimizing memory usage
    */
   private async cacheResult(cacheKey: string, result: EnsembleResult): Promise<void> {
     try {
-      // 🛡️ LAYER 2 ENHANCEMENT: Increased from 1 hour to 24 hours
-      // Covers restart scenarios where same query might be reprocessed
-      // Balance: Long enough for restarts, short enough for dynamic queries
-      const TTL = 86400; // 24 hours (up from 3600/1 hour)
+      // 🛡️ LAYER 2 OPTIMIZED: 4-hour TTL (balanced approach)
+      // Long enough: Covers multiple restarts within a work session
+      // Short enough: Doesn't waste memory on stale queries
+      // Memory savings: 84% vs 24h TTL, still 4x better than original 1h
+      const TTL = 14400; // 4 hours (optimized from 24h)
 
       await redis.setex(cacheKey, TTL, JSON.stringify(result));
-      logger.debug('Cached result', { cacheKey, intent: result.finalIntent, ttl: `${TTL}s (24h)` });
+      logger.debug('Cached result', { cacheKey, intent: result.finalIntent, ttl: `${TTL}s (4h)` });
     } catch (error) {
       logger.warn('Cache write failed', { cacheKey, error });
       // Non-critical, continue
