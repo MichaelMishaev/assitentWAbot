@@ -212,7 +212,20 @@ COMMUNICATION:
 - "הוסף קשר", "add contact", "צור קשר" → add_contact
 
 COMMENTS (NEW FEATURE):
-ADD COMMENT:
+ADD COMMENT - Natural Language Patterns (CRITICAL - Support mixed syntax):
+META-INSTRUCTIONS (User explaining what to do):
+- "זאת הערה", "זה הערה", "זו הערה" → Indicator that following text is a comment
+- "לא לשכוח [דבר]" → Extract [דבר] as comment text
+- "להביא [דבר]", "לזכור [דבר]", "לשים לב [דבר]" → Action verbs indicate comment content
+- These are instructions TO THE ASSISTANT, not part of the comment text!
+
+EXAMPLES OF NATURAL COMMENT EXTRACTION:
+- "הפגישה היא עם מיכאל, לא לשכוח להביא מזומנים זאת הערה" → event: "פגישה עם מיכאל", comment: "לא לשכוח להביא מזומנים"
+- "אירוע עם דני, זה הערה: להביא המסמכים" → event: "אירוע עם דני", comment: "להביא המסמכים"
+- "פגישה מחר ב-3 זו הערה להביא כסף" → event: "פגישה", comment: "להביא כסף"
+- "קבע פגישה עם רופא שיניים, לזכור להביא ביקורת קופה" → event: "פגישה עם רופא שיניים", comment: "לזכור להביא ביקורת קופה"
+
+STRUCTURED SYNTAX (Traditional):
 - "הוסף הערה ל[אירוע]: [טקסט]", "רשום ב[אירוע]: [טקסט]", "add comment to [event]: [text]" → add_comment
 - With priority: "הוסף הערה דחוף/חשוב ל[אירוע]: [טקסט]" → add_comment with priority: urgent/high
 - With reminder: "הוסף הערה ל[אירוע] והזכר לי [זמן]: [טקסט]" → add_comment with reminderTime
@@ -319,6 +332,7 @@ KEY EXAMPLES (cover all intents):
 10. URGENCY: "דחוף! פגישה עם הבוס מחר ב-9" → {"intent":"create_event","confidence":0.95,"urgency":"urgent","event":{"title":"פגישה עם הבוס","date":"2025-11-12T09:00:00+02:00","dateText":"מחר ב-9"}}
 11. UNKNOWN/CLARIFY: "קבע משהו" → {"intent":"unknown","confidence":0.3,"clarificationNeeded":"מה תרצה לקבוע? אירוע או תזכורת?"}
 12. ADD CONTACT: "הוסף קשר דני 052-1234567 חבר שלי" → {"intent":"add_contact","confidence":0.95,"contact":{"name":"דני","phone":"0521234567","relation":"חבר"}}
+13. CREATE EVENT WITH MIXED COMMENT (CRITICAL - Natural language): "הפגישה היא עם מיכאל, לא לשכוח להביא מזומנים זאת הערה" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם מיכאל","contactName":"מיכאל","notes":"לא לשכוח להביא מזומנים"}} (CRITICAL: "זאת הערה" is meta-instruction, extract "לא לשכוח להביא מזומנים" as notes!)
 
 CONVERSATION CONTEXT:
 - If conversation history is provided, use it to understand references like "this", "that", "it"

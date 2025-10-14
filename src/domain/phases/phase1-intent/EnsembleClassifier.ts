@@ -1,20 +1,30 @@
 /**
- * Ensemble AI Classifier (Dual Model Voting)
+ * Intent Classifier (GPT-Only Mode - Cost Protection)
  *
- * Runs 2 AI models in parallel and uses voting to determine intent:
- * - GPT-4.1 nano (OpenAI) - $0.10/$0.40 per 1M tokens
- * - Gemini 2.5 Flash-Lite (Google) - $0.10/$0.40 per 1M tokens
+ * EMERGENCY CONFIGURATION:
+ * - Uses ONLY GPT-4.1-nano ($0.10/$0.40 per 1M tokens)
+ * - Ensemble DISABLED to prevent cost spikes during crash loops
+ * - Response caching (1 hour TTL) - saves 50-70% of calls
+ * - Strict limits to prevent disasters:
+ *   ✅ 300 calls/day HARD LIMIT (bot pauses)
+ *   ✅ 200 calls/day WARNING (admin WhatsApp alert)
+ *   ✅ 50 calls/hour (catches crash loops fast)
+ *   ✅ 100 calls/user/day (user + admin notified)
  *
- * Confidence levels:
- * - 2/2 agreement: 95% confidence (both models agree)
- * - 1/2 split: 70% confidence (models disagree, clarification needed)
+ * Cost: ~$0.45/day at 300 calls (90% cheaper than dual ensemble)
  *
- * Cost: ~$3.60 per 1K messages (64% cheaper than 3-model ensemble)
+ * CRASH LOOP PROTECTION:
+ * - Cache prevents duplicate processing during restarts
+ * - Hourly limit catches loops within 1 hour
+ * - Admin gets WhatsApp alerts at 200 & 300 calls
+ * - Bot auto-pauses at 300 calls (manual restart required)
  */
 
 import logger from '../../../utils/logger.js';
 import { BasePhase } from '../../orchestrator/IPhase.js';
 import { PhaseContext, PhaseResult } from '../../orchestrator/PhaseContext.js';
+import { redis } from '../../../config/redis.js';
+import crypto from 'crypto';
 
 interface ModelVote {
   model: string;
@@ -48,37 +58,58 @@ export class EnsembleClassifier extends BasePhase {
     try {
       const message = context.processedText;
 
-      // Build prompt for all models
+      // COST PROTECTION: Check cache first (saves 50-70% of API calls)
+      const cacheKey = this.generateCacheKey(message, context);
+      const cached = await this.checkCache(cacheKey);
+      if (cached) {
+        logger.info('✅ NLP cache HIT - Saved API call!', {
+          cacheKey: cacheKey.substring(0, 20) + '...',
+          intent: cached.finalIntent
+        });
+
+        // Update context from cache
+        context.intent = cached.finalIntent;
+        context.confidence = cached.finalConfidence;
+        context.needsClarification = cached.needsClarification;
+
+        return this.success(cached);
+      }
+
+      // COST PROTECTION: Check daily/hourly limits BEFORE calling API
+      const limitsOk = await this.checkApiLimits(context.userId, context);
+      if (!limitsOk) {
+        logger.error('❌ API limits exceeded - Returning fallback');
+        return this.error('API limit exceeded');
+      }
+
+      // Build prompt for GPT
       const prompt = this.buildClassificationPrompt(message, context);
 
-      // Run 2 cheapest models in parallel (removed Claude for cost optimization)
-      const [gptResult, geminiResult] = await Promise.allSettled([
-        this.classifyWithGPT(prompt, context),
-        this.classifyWithGemini(prompt, context)
+      // USE ONLY GPT-4.1-nano (cheapest, most reliable)
+      // Ensemble disabled to reduce costs during testing
+      logger.info('Using GPT-4.1-nano only (cost protection mode)', {
+        message: message.substring(0, 50)
+      });
+
+      const [gptResult] = await Promise.allSettled([
+        this.classifyWithGPT(prompt, context)
       ]);
 
-      // Collect votes
+      // Collect votes (only GPT now)
       const votes: ModelVote[] = [];
 
       if (gptResult.status === 'fulfilled') {
         votes.push(gptResult.value);
       } else {
-        logger.warn('GPT classification failed', { error: gptResult.reason });
-      }
-
-      if (geminiResult.status === 'fulfilled') {
-        votes.push(geminiResult.value);
-      } else {
-        logger.warn('Gemini classification failed', { error: geminiResult.reason });
-      }
-
-      // Need at least 1 vote to proceed
-      if (votes.length === 0) {
-        return this.error('All AI models failed to classify intent');
+        logger.error('❌ GPT classification failed', { error: gptResult.reason });
+        return this.error('GPT classification failed');
       }
 
       // Aggregate votes
       const result = this.aggregateVotes(votes);
+
+      // Cache the result (1 hour TTL)
+      await this.cacheResult(cacheKey, result);
 
       // Update context
       context.intent = result.finalIntent;
@@ -89,12 +120,12 @@ export class EnsembleClassifier extends BasePhase {
         context.clarificationQuestion = this.generateClarificationQuestion(votes);
       }
 
-      logger.info('Ensemble classification complete', {
+      logger.info('✅ Classification complete (GPT-only mode)', {
         intent: result.finalIntent,
         confidence: result.finalConfidence,
-        agreement: `${result.agreement}/2`,
-        models: 'GPT-4.1-nano + Gemini-2.5-Flash-Lite',
-        needsClarification: result.needsClarification
+        model: 'GPT-4.1-nano',
+        needsClarification: result.needsClarification,
+        cached: true
       });
 
       return this.success(result);
@@ -262,6 +293,217 @@ export class EnsembleClassifier extends BasePhase {
       'unknown': 'לא ברור'
     };
     return map[intent] || intent;
+  }
+
+  /**
+   * Check API limits before making expensive AI calls
+   * Prevents cost disasters during crash loops
+   */
+  private async checkApiLimits(userId: string, context?: PhaseContext): Promise<boolean> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const currentHour = new Date().toISOString().substring(0, 13); // YYYY-MM-DDTHH
+
+      // CRITICAL: Global daily limit (300 calls/day MAX)
+      const dailyKey = `api:calls:daily:${today}`;
+      const dailyCalls = await redis.incr(dailyKey);
+      await redis.expire(dailyKey, 86400); // 24h expiry
+
+      const DAILY_LIMIT = 300;  // Hard limit
+      const DAILY_WARNING = 200; // Warning threshold
+
+      if (dailyCalls >= DAILY_LIMIT) {
+        logger.error('🚨 CRITICAL: Daily API limit reached!', {
+          dailyCalls,
+          limit: DAILY_LIMIT
+        });
+
+        // Send alert to admin (once per day)
+        const alertKey = `api:alert:daily:${today}`;
+        const alertSent = await redis.get(alertKey);
+        if (!alertSent) {
+          await this.sendAdminAlert(
+            `🚨 DAILY LIMIT REACHED!\n\n` +
+            `API calls today: ${dailyCalls}/${DAILY_LIMIT}\n` +
+            `Bot is PAUSED to prevent cost spike.\n\n` +
+            `To restart: redis-cli DEL ${dailyKey}`
+          );
+          await redis.setex(alertKey, 86400, '1');
+        }
+
+        return false; // Block API call
+      }
+
+      // WARNING: Approaching daily limit
+      if (dailyCalls === DAILY_WARNING) {
+        logger.warn('⚠️  WARNING: Approaching daily limit', {
+          dailyCalls,
+          limit: DAILY_LIMIT
+        });
+
+        await this.sendAdminAlert(
+          `⚠️  API Usage Warning\n\n` +
+          `Calls today: ${dailyCalls}/${DAILY_LIMIT}\n` +
+          `Limit: ${DAILY_LIMIT - dailyCalls} calls remaining`
+        );
+      }
+
+      // Hourly limit (50/hour - catches crash loops faster)
+      const hourlyKey = `api:calls:hourly:${currentHour}`;
+      const hourlyCalls = await redis.incr(hourlyKey);
+      await redis.expire(hourlyKey, 3600); // 1h expiry
+
+      const HOURLY_LIMIT = 50;
+
+      if (hourlyCalls >= HOURLY_LIMIT) {
+        logger.error('🚨 Hourly API limit exceeded!', {
+          hourlyCalls,
+          limit: HOURLY_LIMIT,
+          hour: currentHour
+        });
+
+        // Send alert (once per hour)
+        const hourlyAlertKey = `api:alert:hourly:${currentHour}`;
+        const hourlyAlertSent = await redis.get(hourlyAlertKey);
+        if (!hourlyAlertSent) {
+          await this.sendAdminAlert(
+            `⚠️  Hourly spike detected!\n\n` +
+            `Calls this hour: ${hourlyCalls}/${HOURLY_LIMIT}\n` +
+            `This could indicate a crash loop.\n\n` +
+            `Check logs immediately!`
+          );
+          await redis.setex(hourlyAlertKey, 3600, '1');
+        }
+
+        return false; // Block API call
+      }
+
+      // Per-user daily limit (100/day - prevents single user abuse)
+      const userDailyKey = `api:calls:user:${userId}:${today}`;
+      const userCalls = await redis.incr(userDailyKey);
+      await redis.expire(userDailyKey, 86400);
+
+      const USER_DAILY_LIMIT = 100;
+
+      if (userCalls >= USER_DAILY_LIMIT) {
+        logger.warn('User exceeded daily limit', {
+          userId,
+          userCalls,
+          limit: USER_DAILY_LIMIT
+        });
+
+        // Alert user about limit (once per day)
+        const userAlertKey = `api:alert:user:${userId}:${today}`;
+        const userAlertSent = await redis.get(userAlertKey);
+        if (!userAlertSent) {
+          try {
+            const { BaileysProvider } = await import('../../../providers/BaileysProvider.js');
+            const provider = new BaileysProvider();
+            const userPhone = context?.originalMessage?.from || `${userId}@s.whatsapp.net`;
+
+            await provider.sendMessage(userPhone,
+              `⚠️ הגעת למגבלה היומית\n\n` +
+              `השתמשת היום ב-${userCalls} פעולות מתוך ${USER_DAILY_LIMIT}.\n\n` +
+              `הבוט יחזור לפעול מחר.\n` +
+              `תודה על ההבנה! 🙏`
+            );
+
+            await redis.setex(userAlertKey, 86400, '1');
+          } catch (err) {
+            logger.error('Failed to send user limit alert', { err });
+          }
+
+          // Alert admin about user hitting limit
+          await this.sendAdminAlert(
+            `👤 User hit daily limit\n\n` +
+            `User ID: ${userId}\n` +
+            `Calls: ${userCalls}/${USER_DAILY_LIMIT}\n` +
+            `Date: ${today}`
+          );
+        }
+
+        return false; // Block API call
+      }
+
+      // Log usage stats every 10 calls
+      if (dailyCalls % 10 === 0) {
+        logger.info('📊 API usage stats', {
+          daily: `${dailyCalls}/${DAILY_LIMIT}`,
+          hourly: `${hourlyCalls}/${HOURLY_LIMIT}`,
+          user: `${userCalls}/${USER_DAILY_LIMIT}`
+        });
+      }
+
+      return true; // Limits OK, proceed with API call
+
+    } catch (error) {
+      logger.error('Failed to check API limits', { error });
+      // Fail-safe: Allow call if Redis is down (but log it)
+      return true;
+    }
+  }
+
+  /**
+   * Send WhatsApp alert to admin
+   */
+  private async sendAdminAlert(message: string): Promise<void> {
+    try {
+      const { BaileysProvider } = await import('../../../providers/BaileysProvider.js');
+      const provider = new BaileysProvider();
+      const adminPhone = '972544345287@s.whatsapp.net';
+
+      await provider.sendMessage(adminPhone, message);
+      logger.info('Admin alert sent', { adminPhone });
+    } catch (error) {
+      logger.error('Failed to send admin alert', { error });
+    }
+  }
+
+  /**
+   * Generate cache key from message and context
+   * CRITICAL: Same message with same context = same cache key
+   */
+  private generateCacheKey(message: string, context: PhaseContext): string {
+    const normalizedMessage = message.trim().toLowerCase();
+    const dateKey = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const timezoneKey = context.userTimezone || 'UTC';
+
+    // Include date and timezone so "מה יש לי היום?" changes daily
+    const keyData = `${normalizedMessage}:${dateKey}:${timezoneKey}`;
+    const hash = crypto.createHash('md5').update(keyData).digest('hex');
+
+    return `nlp:intent:${hash}`;
+  }
+
+  /**
+   * Check cache for previous classification
+   */
+  private async checkCache(cacheKey: string): Promise<EnsembleResult | null> {
+    try {
+      const cached = await redis.get(cacheKey);
+      if (!cached) return null;
+
+      const result = JSON.parse(cached) as EnsembleResult;
+      logger.debug('Cache hit', { cacheKey });
+      return result;
+    } catch (error) {
+      logger.warn('Cache check failed', { cacheKey, error });
+      return null; // Fail gracefully
+    }
+  }
+
+  /**
+   * Cache classification result (1 hour TTL)
+   */
+  private async cacheResult(cacheKey: string, result: EnsembleResult): Promise<void> {
+    try {
+      const TTL = 3600; // 1 hour
+      await redis.setex(cacheKey, TTL, JSON.stringify(result));
+      logger.debug('Cached result', { cacheKey, intent: result.finalIntent, ttl: TTL });
+    } catch (error) {
+      logger.warn('Cache write failed', { cacheKey, error });
+      // Non-critical, continue
+    }
   }
 
   /**

@@ -104,7 +104,9 @@ export class HebrewCalendarPhase extends BasePhase {
             `שבת נכנסת ב-${result.shabbatTimes.start.toFormat('HH:mm')} ` +
             `ויוצאת ב-${result.shabbatTimes.end.toFormat('HH:mm')}`;
 
-          context.addWarning(warning);
+          // BUG FIX: Don't add to warnings array - prevents duplicate warnings
+          // The warning is already added via holidayConflict.message below
+          // context.addWarning(warning);
 
           if (context.entities.holidayConflict) {
             context.entities.holidayConflict.severity = 'warn';
