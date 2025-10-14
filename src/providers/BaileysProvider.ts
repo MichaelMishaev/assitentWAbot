@@ -71,8 +71,9 @@ export class BaileysProvider implements IMessageProvider {
         auth: state,
         printQRInTerminal: false, // We handle QR manually
         markOnlineOnConnect: true,
-        // Add browser info for better compatibility
-        browser: ['Ubuntu', 'Chrome', '22.04.4'],
+        // Add browser info - Use Windows/Chrome to avoid datacenter detection
+        // WhatsApp flags 'Ubuntu' as datacenter/bot signature
+        browser: ['Windows', 'Chrome', '120.0.0'],
         // Enable retries
         retryRequestDelayMs: 250,
         maxMsgRetryCount: 5,
@@ -190,29 +191,25 @@ export class BaileysProvider implements IMessageProvider {
       await this.reconnect();
     } else if (statusCode === 405) {
       // Connection Failure (often shows as 405 in Baileys)
-      // This is usually an auth issue, treat similar to 401/403
+      // This is usually an auth issue - session is invalid/expired
       this.authFailureCount++;
       logger.warn(`⚠️ Connection Failure (405) - Attempt ${this.authFailureCount}/${this.MAX_AUTH_FAILURES}`);
 
       if (this.authFailureCount >= this.MAX_AUTH_FAILURES) {
-        logger.error(`❌ Connection failed ${this.MAX_AUTH_FAILURES} times. WhatsApp is blocking this IP.`);
-        logger.error('🧹 Automatically clearing session...');
+        logger.error(`❌ Connection failed ${this.MAX_AUTH_FAILURES} times. Session is invalid.`);
+        logger.error('🧹 Clearing session to generate fresh QR code...');
         await this.clearSession();
         logger.error('✅ Session cleared successfully');
-        logger.error('🛑 BOT PAUSED - WhatsApp IP block detected');
-        logger.error('📋 Bot will remain running in idle state (prevents PM2 restart loop)');
-        logger.error('📋 To retry connection: Wait 1-2 hours, then run: pm2 restart ultrathink');
-        logger.error('📱 QR code will appear after IP cooldown period');
 
-        this.shouldReconnect = false;
-        this.updateConnectionState({
-          status: 'error',
-          error: 'WhatsApp IP block detected. Bot paused. Manual restart required after cooldown.'
-        });
+        // Reset counters and allow reconnection to show QR code
+        this.authFailureCount = 0;
+        this.reconnectAttempts = 0;
 
-        // DO NOT exit process - PM2 will restart it and loop continues
-        // Instead, keep process alive in idle state
-        logger.info('Process remains alive in idle state to prevent restart loop');
+        logger.info('🔄 Reconnecting to generate new QR code...');
+        logger.info('📱 Please scan the QR code when it appears');
+
+        // Reconnect to generate QR code
+        await this.reconnect();
       } else {
         logger.warn(`Connection failure, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
         await this.reconnect();
