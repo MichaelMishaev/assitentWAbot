@@ -199,20 +199,20 @@ export class BaileysProvider implements IMessageProvider {
         logger.error('🧹 Automatically clearing session...');
         await this.clearSession();
         logger.error('✅ Session cleared successfully');
-        logger.error('🛑 STOPPING BOT - WhatsApp IP block detected');
-        logger.error('📋 To restart: Wait 1-2 hours, then run: pm2 restart ultrathink');
+        logger.error('🛑 BOT PAUSED - WhatsApp IP block detected');
+        logger.error('📋 Bot will remain running in idle state (prevents PM2 restart loop)');
+        logger.error('📋 To retry connection: Wait 1-2 hours, then run: pm2 restart ultrathink');
         logger.error('📱 QR code will appear after IP cooldown period');
 
         this.shouldReconnect = false;
         this.updateConnectionState({
           status: 'error',
-          error: 'WhatsApp IP block detected. Session cleared. Manual restart required after cooldown.'
+          error: 'WhatsApp IP block detected. Bot paused. Manual restart required after cooldown.'
         });
 
-        // Exit with code 0 to prevent PM2 auto-restart (IP is blocked, restart won't help)
-        setTimeout(() => {
-          process.exit(0);
-        }, 1000);
+        // DO NOT exit process - PM2 will restart it and loop continues
+        // Instead, keep process alive in idle state
+        logger.info('Process remains alive in idle state to prevent restart loop');
       } else {
         logger.warn(`Connection failure, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
         await this.reconnect();
@@ -240,20 +240,20 @@ export class BaileysProvider implements IMessageProvider {
         logger.error('🧹 Automatically clearing session...');
         await this.clearSession();
         logger.error('✅ Session cleared successfully');
-        logger.error('🛑 STOPPING BOT - WhatsApp IP block detected');
-        logger.error('📋 To restart: Wait 1-2 hours, then run: pm2 restart ultrathink');
+        logger.error('🛑 BOT PAUSED - WhatsApp IP block detected');
+        logger.error('📋 Bot will remain running in idle state (prevents PM2 restart loop)');
+        logger.error('📋 To retry connection: Wait 1-2 hours, then run: pm2 restart ultrathink');
         logger.error('📱 QR code will appear after IP cooldown period');
 
         this.shouldReconnect = false;
         this.updateConnectionState({
           status: 'error',
-          error: 'WhatsApp IP block detected. Session cleared. Manual restart required after cooldown.'
+          error: 'WhatsApp IP block detected. Bot paused. Manual restart required after cooldown.'
         });
 
-        // Exit with code 0 to prevent PM2 auto-restart (IP is blocked, restart won't help)
-        setTimeout(() => {
-          process.exit(0);
-        }, 1000);
+        // DO NOT exit process - PM2 will restart it and loop continues
+        // Instead, keep process alive in idle state
+        logger.info('Process remains alive in idle state to prevent restart loop');
       } else {
         logger.warn(`Authentication failed, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
         logger.warn('If this keeps happening, session will be auto-cleared after 3 failures');
@@ -280,20 +280,20 @@ export class BaileysProvider implements IMessageProvider {
       logger.error('🧹 Auto-clearing session to prevent cost escalation...');
       await this.clearSession();
       logger.error('✅ Session cleared successfully');
-      logger.error('🛑 STOPPING BOT - Connection failures detected');
-      logger.error('📋 To restart: Wait 1-2 hours, then run: pm2 restart ultrathink');
+      logger.error('🛑 BOT PAUSED - Connection failures detected');
+      logger.error('📋 Bot will remain running in idle state (prevents PM2 restart loop)');
+      logger.error('📋 To retry connection: Wait 1-2 hours, then run: pm2 restart ultrathink');
       logger.error('📱 QR code will appear after cooldown period');
 
       this.shouldReconnect = false;
       this.updateConnectionState({
         status: 'error',
-        error: `Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Session cleared. Manual restart required.`
+        error: `Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Bot paused. Manual restart required.`
       });
 
-      // Exit with code 0 to prevent PM2 auto-restart
-      setTimeout(() => {
-        process.exit(0);
-      }, 1000);
+      // DO NOT exit process - PM2 will restart it and loop continues
+      // Instead, keep process alive in idle state
+      logger.info('Process remains alive in idle state to prevent restart loop');
       return;
     }
 
