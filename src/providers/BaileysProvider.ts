@@ -195,22 +195,23 @@ export class BaileysProvider implements IMessageProvider {
       logger.warn(`⚠️ Connection Failure (405) - Attempt ${this.authFailureCount}/${this.MAX_AUTH_FAILURES}`);
 
       if (this.authFailureCount >= this.MAX_AUTH_FAILURES) {
-        logger.error(`❌ Connection failed ${this.MAX_AUTH_FAILURES} times. Session likely corrupted.`);
+        logger.error(`❌ Connection failed ${this.MAX_AUTH_FAILURES} times. WhatsApp is blocking this IP.`);
         logger.error('🧹 Automatically clearing session...');
         await this.clearSession();
         logger.error('✅ Session cleared successfully');
-        logger.error('🔄 EXITING PROCESS - PM2 will restart with fresh QR code');
-        logger.error('📱 QR code will appear in console after restart');
+        logger.error('🛑 STOPPING BOT - WhatsApp IP block detected');
+        logger.error('📋 To restart: Wait 1-2 hours, then run: pm2 restart ultrathink');
+        logger.error('📱 QR code will appear after IP cooldown period');
 
         this.shouldReconnect = false;
         this.updateConnectionState({
           status: 'error',
-          error: 'Session cleared. Process exiting for fresh restart.'
+          error: 'WhatsApp IP block detected. Session cleared. Manual restart required after cooldown.'
         });
 
-        // Exit process - PM2 will restart and generate QR code
+        // Exit with code 0 to prevent PM2 auto-restart (IP is blocked, restart won't help)
         setTimeout(() => {
-          process.exit(1);
+          process.exit(0);
         }, 1000);
       } else {
         logger.warn(`Connection failure, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
@@ -235,22 +236,23 @@ export class BaileysProvider implements IMessageProvider {
         });
         this.shouldReconnect = false;
       } else if (this.authFailureCount >= this.MAX_AUTH_FAILURES) {
-        logger.error(`❌ Authentication failed ${this.MAX_AUTH_FAILURES} times. Session likely corrupted.`);
+        logger.error(`❌ Authentication failed ${this.MAX_AUTH_FAILURES} times. WhatsApp is blocking this IP.`);
         logger.error('🧹 Automatically clearing session...');
         await this.clearSession();
         logger.error('✅ Session cleared successfully');
-        logger.error('🔄 EXITING PROCESS - PM2 will restart with fresh QR code');
-        logger.error('📱 QR code will appear in console after restart');
+        logger.error('🛑 STOPPING BOT - WhatsApp IP block detected');
+        logger.error('📋 To restart: Wait 1-2 hours, then run: pm2 restart ultrathink');
+        logger.error('📱 QR code will appear after IP cooldown period');
 
         this.shouldReconnect = false;
         this.updateConnectionState({
           status: 'error',
-          error: 'Session cleared. Process exiting for fresh restart.'
+          error: 'WhatsApp IP block detected. Session cleared. Manual restart required after cooldown.'
         });
 
-        // Exit process - PM2 will restart and generate QR code
+        // Exit with code 0 to prevent PM2 auto-restart (IP is blocked, restart won't help)
         setTimeout(() => {
-          process.exit(1);
+          process.exit(0);
         }, 1000);
       } else {
         logger.warn(`Authentication failed, but might be temporary. Trying to reconnect... (${this.authFailureCount}/${this.MAX_AUTH_FAILURES})`);
@@ -278,18 +280,19 @@ export class BaileysProvider implements IMessageProvider {
       logger.error('🧹 Auto-clearing session to prevent cost escalation...');
       await this.clearSession();
       logger.error('✅ Session cleared successfully');
-      logger.error('🔄 EXITING PROCESS - PM2 will restart with fresh QR code');
-      logger.error('📱 QR code will appear in console after restart');
+      logger.error('🛑 STOPPING BOT - Connection failures detected');
+      logger.error('📋 To restart: Wait 1-2 hours, then run: pm2 restart ultrathink');
+      logger.error('📱 QR code will appear after cooldown period');
 
       this.shouldReconnect = false;
       this.updateConnectionState({
         status: 'error',
-        error: `Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Session cleared. Process exiting.`
+        error: `Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Session cleared. Manual restart required.`
       });
 
-      // Exit process - PM2 will restart and generate QR code
+      // Exit with code 0 to prevent PM2 auto-restart
       setTimeout(() => {
-        process.exit(1);
+        process.exit(0);
       }, 1000);
       return;
     }
