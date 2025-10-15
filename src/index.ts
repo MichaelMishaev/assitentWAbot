@@ -3,7 +3,7 @@ import logger from './utils/logger.js';
 import { testConnection as testDatabase } from './config/database.js';
 import { testRedisConnection, redis } from './config/redis.js';
 import { startHealthCheck, stopHealthCheck } from './api/health.js';
-import { BaileysProvider } from './providers/index.js';
+import { WhatsAppWebJSProvider } from './providers/index.js';
 import { IncomingMessage } from './providers/IMessageProvider.js';
 import { createMessageRouter } from './services/MessageRouter.js';
 import { ReminderWorker } from './queues/ReminderWorker.js';
@@ -14,7 +14,7 @@ import type { MessageRouter } from './services/MessageRouter.js';
 dotenv.config();
 
 // Global instances
-let whatsappProvider: BaileysProvider | null = null;
+let whatsappProvider: WhatsAppWebJSProvider | null = null;
 let messageRouter: MessageRouter | null = null;
 let reminderWorker: ReminderWorker | null = null;
 
@@ -35,11 +35,25 @@ const CRASH_TRACKING_KEY = 'bot:crash:count';
 const CRASH_WINDOW_SECONDS = 300; // 5 minutes
 const MAX_CRASHES_IN_WINDOW = 5; // Max 5 crashes in 5 minutes
 
+// 🔒 SINGLE INSTANCE LOCK: Prevent multiple bot instances from running
+const INSTANCE_LOCK_KEY = 'bot:instance:lock';
+const INSTANCE_LOCK_TTL = 60; // 60 seconds (will be renewed every 30s)
+let instanceLockInterval: NodeJS.Timeout | null = null;
+
 async function main() {
   try {
     botStartupTime = Date.now(); // Track startup time for grace period
     logger.info('🚀 Starting WhatsApp Assistant Bot...');
     logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+
+    // 🔒 Acquire single instance lock
+    const lockAcquired = await acquireInstanceLock();
+    if (!lockAcquired) {
+      logger.error('❌ Another instance is already running!');
+      logger.error('🛑 Exiting to prevent duplicate instances');
+      logger.error('📋 If you believe this is an error, run: redis-cli DEL bot:instance:lock');
+      process.exit(1);
+    }
 
     // 🛡️ Check crash loop prevention
     await checkCrashLoop();
@@ -66,9 +80,9 @@ async function main() {
     logger.info('Initializing V2 Pipeline (10 phases + plugins)...');
     await initializePipeline();
 
-    // Initialize WhatsApp (Baileys)
+    // Initialize WhatsApp (whatsapp-web.js)
     logger.info('Initializing WhatsApp connection...');
-    whatsappProvider = new BaileysProvider();
+    whatsappProvider = new WhatsAppWebJSProvider();
 
     // Initialize MessageRouter
     logger.info('Initializing MessageRouter...');
@@ -111,6 +125,69 @@ async function main() {
   } catch (error) {
     logger.error('❌ Failed to start bot:', error);
     process.exit(1);
+  }
+}
+
+/**
+ * 🔒 SINGLE INSTANCE LOCK
+ * Prevents multiple bot instances from running simultaneously
+ * Uses Redis SET NX (set if not exists) with TTL for automatic cleanup
+ */
+async function acquireInstanceLock(): Promise<boolean> {
+  try {
+    const processInfo = `pid:${process.pid}|started:${new Date().toISOString()}`;
+
+    // Try to acquire lock with SET NX (only set if key doesn't exist)
+    const result = await redis.set(INSTANCE_LOCK_KEY, processInfo, 'EX', INSTANCE_LOCK_TTL, 'NX');
+
+    if (result !== 'OK') {
+      // Lock already held by another instance
+      const existingLock = await redis.get(INSTANCE_LOCK_KEY);
+      logger.error('Instance lock held by:', existingLock);
+      return false;
+    }
+
+    logger.info('✅ Instance lock acquired', { processInfo });
+
+    // Start heartbeat to renew lock every 30 seconds
+    startLockHeartbeat();
+
+    return true;
+  } catch (error) {
+    logger.error('Failed to acquire instance lock', { error });
+    return false; // Fail-safe: don't start if we can't acquire lock
+  }
+}
+
+/**
+ * Start heartbeat to renew instance lock
+ * Prevents lock expiry while bot is running
+ */
+function startLockHeartbeat(): void {
+  instanceLockInterval = setInterval(async () => {
+    try {
+      const processInfo = `pid:${process.pid}|started:${new Date().toISOString()}`;
+      await redis.expire(INSTANCE_LOCK_KEY, INSTANCE_LOCK_TTL);
+      logger.debug('Instance lock renewed');
+    } catch (error) {
+      logger.error('Failed to renew instance lock', { error });
+    }
+  }, 30000); // Renew every 30 seconds (lock expires after 60s)
+}
+
+/**
+ * Release instance lock on shutdown
+ */
+async function releaseInstanceLock(): Promise<void> {
+  try {
+    if (instanceLockInterval) {
+      clearInterval(instanceLockInterval);
+      instanceLockInterval = null;
+    }
+    await redis.del(INSTANCE_LOCK_KEY);
+    logger.info('✅ Instance lock released');
+  } catch (error) {
+    logger.error('Failed to release instance lock', { error });
   }
 }
 
@@ -228,17 +305,17 @@ async function checkRedisMemory(): Promise<void> {
 
       // Send admin alert
       try {
-        const { BaileysProvider } = await import('./providers/BaileysProvider.js');
-        const provider = new BaileysProvider();
-        await provider.sendMessage(
-          '972544345287@s.whatsapp.net',
-          `🚨 REDIS MEMORY CRITICAL\n\n` +
-          `Usage: ${usagePct.toFixed(1)}%\n` +
-          `Used: ${(usedMemory / 1024 / 1024).toFixed(2)} MB\n` +
-          `Max: ${(maxMemory / 1024 / 1024).toFixed(2)} MB\n` +
-          `Keys: ${dbSize}\n\n` +
-          `LRU eviction is active but monitor closely!`
-        );
+        if (whatsappProvider && whatsappProvider.isConnected()) {
+          await whatsappProvider.sendMessage(
+            '972544345287',
+            `🚨 REDIS MEMORY CRITICAL\n\n` +
+            `Usage: ${usagePct.toFixed(1)}%\n` +
+            `Used: ${(usedMemory / 1024 / 1024).toFixed(2)} MB\n` +
+            `Max: ${(maxMemory / 1024 / 1024).toFixed(2)} MB\n` +
+            `Keys: ${dbSize}\n\n` +
+            `LRU eviction is active but monitor closely!`
+          );
+        }
       } catch (err) {
         logger.error('Failed to send Redis memory alert', { err });
       }
@@ -354,8 +431,9 @@ async function handleIncomingMessage(message: IncomingMessage) {
       return;
     }
 
-    // Mark as processed BEFORE routing (prevents race conditions)
-    await markMessageAsProcessed(messageId, 'processing');
+    // NOTE: Duplicate detection is now handled entirely by MessageRouter
+    // index.ts only handles startup grace period check above
+    // MessageRouter uses `msg:processed:${messageId}` keys with atomic SET NX
 
     // Log message details
     if (quotedMessage) {
@@ -384,9 +462,12 @@ process.on('unhandledRejection', (reason, promise) => {
   // Don't exit - let the process continue (crash counter will handle repeated crashes)
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', async (error) => {
   logger.error('Uncaught Exception:', error);
   logger.error('Stack:', (error as Error).stack);
+
+  // Release instance lock on fatal crash
+  await releaseInstanceLock();
 
   // DON'T exit immediately - this causes PM2 restart loops
   // Instead, the crash counter will detect repeated crashes and pause the bot
@@ -401,6 +482,7 @@ process.on('uncaughtException', (error) => {
 async function shutdown() {
   logger.info('👋 Shutting down gracefully...');
   stopRedisMonitoring(); // Stop monitoring before shutdown
+  await releaseInstanceLock(); // Release instance lock
   await stopHealthCheck();
   await shutdownPipeline();
   if (reminderWorker) {
