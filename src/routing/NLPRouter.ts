@@ -41,6 +41,38 @@ interface DateQuery {
 }
 
 /**
+ * Filter out question phrases from title filters
+ * Questions like "מה האירועים?" should NOT be used as title filters
+ */
+function sanitizeTitleFilter(title: string | undefined): string | undefined {
+  if (!title) return undefined;
+
+  const trimmed = title.trim();
+
+  // Check if it's a question phrase (starts with question word)
+  const questionStarters = ['מה ', 'מתי ', 'איזה ', 'איפה ', 'איך ', 'למה ', 'מי ', 'כמה ', 'האם '];
+  const isQuestionStart = questionStarters.some(q => trimmed.toLowerCase().startsWith(q));
+
+  // Check if it ends with a question mark (likely a question)
+  const endsWithQuestion = trimmed.endsWith('?');
+
+  // Check if it's a single short word with question mark (like "מחר?" - probably extracted from "מה מחר?")
+  const isShortQuestion = endsWithQuestion && trimmed.replace('?', '').split(' ').length === 1;
+
+  if (isQuestionStart || isShortQuestion) {
+    logger.info('Ignoring question phrase as title filter', { title, reason: isQuestionStart ? 'starts-with-question' : 'short-question-mark' });
+    return undefined;
+  }
+
+  // Remove trailing question mark from legitimate titles (e.g., "Meeting about Q4?" -> "Meeting about Q4")
+  if (endsWithQuestion) {
+    return trimmed.slice(0, -1).trim();
+  }
+
+  return trimmed;
+}
+
+/**
  * Parse date from NLP intent
  */
 function parseDateFromNLP(event: any, context: string): DateQuery {
@@ -231,6 +263,7 @@ export class NLPRouter {
           contactName: entities.contactName,
           notes: entities.notes,
           deleteAll: entities.deleteAll,
+          participants: entities.participants, // ✅ FIX: Include participants from Phase 9
         },
         reminder: {
           title: entities.title,
@@ -409,9 +442,16 @@ export class NLPRouter {
         ? `\n\n💡 הצעות: ${timeSuggestions.join(', ')}`
         : '';
 
-      await this.sendMessage(phone, `📌 ${event.title}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן שעה (למשל: 14:00)${suggestionsText}\n\nאו שלח /ביטול`);
+      // ✅ FIX: Format participants for clarification state too
+      let eventTitleForState = event.title;
+      if (event.participants && event.participants.length > 0) {
+        const participantNames = event.participants.map((p: any) => p.name).join(' ו');
+        eventTitleForState = `${event.title} עם ${participantNames}`;
+      }
+
+      await this.sendMessage(phone, `📌 ${eventTitleForState}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן שעה (למשל: 14:00)${suggestionsText}\n\nאו שלח /ביטול`);
       await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_TIME, {
-        title: event.title,
+        title: eventTitleForState,
         date: eventDate.toISOString(),
         location: event.location,
         notes: event.contactName ? `עם ${event.contactName}` : undefined,
@@ -437,9 +477,21 @@ export class NLPRouter {
 
     // Create event immediately (no confirmation needed)
     try {
+      // ✅ FIX: Format participants and append to title (e.g., "פגישה" -> "פגישה עם איתי")
+      let eventTitle = event.title;
+      if (event.participants && event.participants.length > 0) {
+        const participantNames = event.participants.map((p: any) => p.name).join(' ו');
+        eventTitle = `${event.title} עם ${participantNames}`;
+        logger.info('Appended participants to event title', {
+          originalTitle: event.title,
+          participants: event.participants.map((p: any) => p.name),
+          finalTitle: eventTitle
+        });
+      }
+
       const newEvent = await this.eventService.createEvent({
         userId,
-        title: event.title,
+        title: eventTitle,
         startTsUtc: eventDate,
         location: event.location || undefined,
         rrule: event.recurrence || undefined // ✅ FIX: Pass recurrence RRULE from RecurrencePhase
@@ -603,14 +655,29 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
 
     // CRITICAL FIX: Support searching by TITLE in addition to date
     // Query like "מתי יש לי רופא שיניים?" should filter by title="רופא שיניים"
-    if (event?.date || event?.dateText || event?.title) {
+    const titleFilter = sanitizeTitleFilter(event?.title);
+
+    // SMART FALLBACK: If NLP didn't extract date but title contains date words (like "היום?", "מחר?"),
+    // treat it as a date query by parsing the title
+    let fallbackDateText: string | undefined = undefined;
+    if (!event?.date && !event?.dateText && event?.title) {
+      const lowerTitle = event.title.toLowerCase().replace('?', '').trim();
+      const dateWords = ['היום', 'מחר', 'מחרתיים', 'השבוע', 'החודש'];
+      if (dateWords.includes(lowerTitle)) {
+        fallbackDateText = lowerTitle;
+        logger.info('Using fallback date parsing from title', { originalTitle: event.title, parsedDate: fallbackDateText });
+      }
+    }
+
+    if (event?.date || event?.dateText || fallbackDateText || titleFilter) {
       let events: any[] = [];
       let dateDescription = '';
-      let titleFilter = event?.title;
 
       // First, get events by date if date is specified
-      if (event?.date || event?.dateText) {
-        const dateQuery = parseDateFromNLP(event, 'handleNLPSearchEvents');
+      if (event?.date || event?.dateText || fallbackDateText) {
+        // Use fallback date if NLP didn't extract it
+        const eventWithFallback = fallbackDateText ? { ...event, dateText: fallbackDateText } : event;
+        const dateQuery = parseDateFromNLP(eventWithFallback, 'handleNLPSearchEvents');
 
         if (!dateQuery.date) {
           await this.sendMessage(phone, '❌ לא הצלחתי להבין את התאריך.\n\nנסה לפרט יותר או שלח /תפריט לתפריט ראשי');
@@ -703,9 +770,14 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
 
       events.forEach((event, index) => {
         // For week/month ranges or title searches, show full date. For single date, show shorter format.
-        const showFullDate = (dateDescription.includes('בשבוע') || dateDescription.includes('בחודש') || titleFilter);
+        const showFullDate = (dateDescription.includes('בשבוע') || dateDescription.includes('בחודש') || !!titleFilter);
         message += formatEventInList(event, index + 1, 'Asia/Jerusalem', showFullDate, events) + `\n\n`;
       });
+
+      // Add deletion hint (always shown, clear and actionable)
+      message += '💡 *למחיקת אירוע:*\n';
+      message += '• ענה להודעה זו: "מחק 2"\n';
+      message += '• או כתוב: "תמחק פגישה עם איתי"';
 
       const sentMessageId = await this.sendMessage(phone, message);
 
@@ -728,6 +800,11 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       events.forEach((event, index) => {
         message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events) + `\n\n`;
       });
+
+      // Add deletion hint (always shown, clear and actionable)
+      message += '💡 *למחיקת אירוע:*\n';
+      message += '• ענה להודעה זו: "מחק 2"\n';
+      message += '• או כתוב: "תמחק פגישה עם איתי"';
 
       const sentMessageId = await this.sendMessage(phone, message);
 
@@ -791,8 +868,9 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       }
 
       // Filter by title if provided using fuzzy matching (45% threshold for Hebrew flexibility)
-      if (event.title && events.length > 0) {
-        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.45);
+      const titleFilter = sanitizeTitleFilter(event.title);
+      if (titleFilter && events.length > 0) {
+        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.45);
       }
 
       if (events.length === 0) {
@@ -814,10 +892,10 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         return;
       }
 
-      // Multiple events found - show list
+      // Multiple events found - show list (without comments to reduce clutter)
       let message = `📅 נמצאו ${events.length} אירועים:\n\n`;
       events.slice(0, 10).forEach((event, index) => {
-        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events) + `\n\n`;
+        message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events, false) + `\n\n`;
       });
       message += 'בחר מספר אירוע למחיקה או שלח /ביטול';
 
@@ -851,7 +929,12 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
     }
 
     // Use fuzzy match helper (same as events, 0.45 threshold for Hebrew flexibility)
-    let matchedReminders = filterByFuzzyMatch(allReminders, reminder.title, (r: any) => r.title, 0.45);
+    const titleFilter = sanitizeTitleFilter(reminder.title);
+    if (!titleFilter) {
+      await this.sendMessage(phone, '❌ לא זיהיתי איזו תזכורת למחוק.\n\nשלח /תפריט לחזרה לתפריט');
+      return;
+    }
+    let matchedReminders = filterByFuzzyMatch(allReminders, titleFilter, (r: any) => r.title, 0.45);
 
     if (matchedReminders.length === 0) {
       await this.sendMessage(phone, `❌ לא מצאתי תזכורת עם השם "${reminder.title}".\n\nשלח /תפריט לחזרה לתפריט`);
@@ -925,7 +1008,10 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         // User said "update EVENT_TITLE to NEW_VALUE"
         // Search by title in recent events (past + future, DESC order)
         events = await this.eventService.getAllEvents(userId, 100, 0, true);
-        events = filterByFuzzyMatch(events, event.title, e => e.title, 0.3);
+        const titleFilter = sanitizeTitleFilter(event.title);
+        if (titleFilter) {
+          events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.3);
+        }
       } else if (event.date || event.dateText) {
         // User said "update event on DATE" - date is search term
         const dateQuery = parseDateFromNLP(event, 'handleNLPUpdateEvent');
@@ -938,16 +1024,18 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         events = await this.eventService.getEventsByDate(userId, dateQuery.date!);
 
         // Filter by title if provided (30% threshold for Hebrew flexibility)
-        if (event.title && events.length > 0) {
-          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.3);
+        const titleFilter = sanitizeTitleFilter(event.title);
+        if (titleFilter && events.length > 0) {
+          events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.3);
         }
       } else {
         // Search all recent events (past + future, DESC order)
         events = await this.eventService.getAllEvents(userId, 100, 0, true);
 
         // Filter by title if provided (30% threshold for Hebrew flexibility)
-        if (event.title && events.length > 0) {
-          events = filterByFuzzyMatch(events, event.title, e => e.title, 0.3);
+        const titleFilter = sanitizeTitleFilter(event.title);
+        if (titleFilter && events.length > 0) {
+          events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.3);
         }
       }
 
@@ -1153,7 +1241,12 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
     }
 
     // Use fuzzy match (0.3 threshold for Hebrew flexibility - more lenient)
-    let matchedReminders = filterByFuzzyMatch(allReminders, reminder.title, (r: any) => r.title, 0.3);
+    const titleFilter = sanitizeTitleFilter(reminder.title);
+    if (!titleFilter) {
+      await this.sendMessage(phone, '❌ לא זיהיתי איזו תזכורת לעדכן.\n\nשלח /תפריט לחזרה לתפריט');
+      return;
+    }
+    let matchedReminders = filterByFuzzyMatch(allReminders, titleFilter, (r: any) => r.title, 0.3);
 
     if (matchedReminders.length === 0) {
       // No matches - show available reminders to help user
@@ -1309,7 +1402,7 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       // CRITICAL FIX (Issue #7a): Filter reminders by title if specified
       // User feedback: "#whybshow me all reminders? I asked only about water drink"
       const { reminder } = intent;
-      const titleFilter = reminder?.title;
+      const titleFilter = sanitizeTitleFilter(reminder?.title);
 
       // Get all active reminders for user
       let reminders = await this.reminderService.getActiveReminders(userId, 50);

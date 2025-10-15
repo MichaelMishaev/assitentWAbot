@@ -299,14 +299,15 @@ export function formatNoCommentsToDelete(eventTitle: string): string {
 }
 
 /**
- * Format event in list view with inline comment preview
+ * Format event in list view with optional inline comment preview
  */
 export function formatEventInList(
   event: Event,
   index: number,
   timezone: string = 'Asia/Jerusalem',
   showFullDate: boolean = false,
-  allEvents?: Event[] // Optional: used to detect parallel events
+  allEvents?: Event[], // Optional: used to detect parallel events
+  showComments: boolean = true // Control whether to show comments inline (default: true for backward compatibility)
 ): string {
   const dt = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
   const dateFormat = showFullDate ? 'dd/MM/yyyy HH:mm' : 'dd/MM HH:mm';
@@ -345,8 +346,8 @@ export function formatEventInList(
     output += `\n   📍 ${event.location}`;
   }
 
-  // Add all comments inline
-  if (event.notes && event.notes.length > 0) {
+  // Add all comments inline (if showComments is true)
+  if (showComments && event.notes && event.notes.length > 0) {
     output += `\n   💬 ${event.notes.length} הערות:`;
     event.notes.forEach((comment, idx) => {
       const priority = getPriorityIndicator(comment.priority);
