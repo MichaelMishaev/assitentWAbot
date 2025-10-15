@@ -84,12 +84,15 @@ jobs:
             cd /root/wAssitenceBot
             COMMIT_HASH="${{ github.sha }}"
             COMMIT_SHORT="${COMMIT_HASH:0:7}"
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            COMMIT_MSG=$(cat <<'COMMIT_EOF'
+            ${{ github.event.head_commit.message }}
+            COMMIT_EOF
+            )
 
             MESSAGE="❌ *TESTS FAILED - DEPLOYMENT BLOCKED!*
 
             🧪 Tests failed - deployment cancelled
-            📝 Commit: $COMMIT_MSG ($COMMIT_SHORT)
+            📝 Commit: ${COMMIT_MSG} (${COMMIT_SHORT})
 
             🔍 Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
@@ -134,12 +137,15 @@ jobs:
             cd /root/wAssitenceBot
             COMMIT_HASH="${{ github.sha }}"
             COMMIT_SHORT="${COMMIT_HASH:0:7}"
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            COMMIT_MSG=$(cat <<'COMMIT_EOF'
+            ${{ github.event.head_commit.message }}
+            COMMIT_EOF
+            )
 
             MESSAGE="❌ *DEPLOYMENT FAILED!*
 
             🚨 Deploy script failed to execute
-            📝 Commit: $COMMIT_MSG ($COMMIT_SHORT)
+            📝 Commit: ${COMMIT_MSG} (${COMMIT_SHORT})
 
             🔍 Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
@@ -194,7 +200,10 @@ jobs:
             cd /root/wAssitenceBot
             COMMIT_HASH="${{ github.sha }}"
             COMMIT_SHORT="${COMMIT_HASH:0:7}"
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            COMMIT_MSG=$(cat <<'COMMIT_EOF'
+            ${{ github.event.head_commit.message }}
+            COMMIT_EOF
+            )
 
             # Make status check script executable
             chmod +x scripts/check-bot-status.sh
@@ -215,20 +224,20 @@ jobs:
             🔍 Check server: ssh root@167.71.145.9
             📋 View QR: cat /root/wAssitenceBot/sessions/qr-code.png
 
-            Commit: $COMMIT_MSG ($COMMIT_SHORT)"
+            Commit: ${COMMIT_MSG} (${COMMIT_SHORT})"
             elif [ "$WA_CONNECTED" = "true" ]; then
               MESSAGE="✅ Deployment successful - Bot fully operational!
 
             📱 WhatsApp connected
             🚀 All systems running
 
-            Commit: $COMMIT_MSG ($COMMIT_SHORT)"
+            Commit: ${COMMIT_MSG} (${COMMIT_SHORT})"
             else
               MESSAGE="✅ Deployment successful - Bot starting up
 
             ⏳ WhatsApp connection initializing...
 
-            Commit: $COMMIT_MSG ($COMMIT_SHORT)"
+            Commit: ${COMMIT_MSG} (${COMMIT_SHORT})"
             fi
 
             # Send notification
@@ -246,6 +255,9 @@ jobs:
             cd /root/wAssitenceBot
             COMMIT_HASH="${{ github.sha }}"
             COMMIT_SHORT="${COMMIT_HASH:0:7}"
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
-            node scripts/send-deployment-notification.js "failure" "$COMMIT_SHORT" "❌ Health check failed! Check GitHub Actions logs. Commit: $COMMIT_MSG" || true
+            COMMIT_MSG=$(cat <<'COMMIT_EOF'
+            ${{ github.event.head_commit.message }}
+            COMMIT_EOF
+            )
+            node scripts/send-deployment-notification.js "failure" "$COMMIT_SHORT" "❌ Health check failed! Check GitHub Actions logs. Commit: ${COMMIT_MSG}" || true
 
