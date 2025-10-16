@@ -774,13 +774,6 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         message += formatEventInList(event, index + 1, 'Asia/Jerusalem', showFullDate, events) + `\n\n`;
       });
 
-      // Add deletion hint (always shown, clear and actionable)
-      // Use dynamic example - show first event number if single event, otherwise show "2" as example
-      const exampleNum = events.length === 1 ? '1' : '2';
-      message += '💡 *למחיקת אירוע:*\n';
-      message += `• ענה להודעה זו: "מחק ${exampleNum}"\n`;
-      message += '• או כתוב: "תמחק פגישה עם איתי"';
-
       const sentMessageId = await this.sendMessage(phone, message);
 
       // Phase 1: Store event mapping for reply-to actions
@@ -802,13 +795,6 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       events.forEach((event, index) => {
         message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events) + `\n\n`;
       });
-
-      // Add deletion hint (always shown, clear and actionable)
-      // Use dynamic example - show first event number if single event, otherwise show "2" as example
-      const exampleNum = events.length === 1 ? '1' : '2';
-      message += '💡 *למחיקת אירוע:*\n';
-      message += `• ענה להודעה זו: "מחק ${exampleNum}"\n`;
-      message += '• או כתוב: "תמחק פגישה עם איתי"';
 
       const sentMessageId = await this.sendMessage(phone, message);
 
