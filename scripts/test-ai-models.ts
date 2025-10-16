@@ -41,13 +41,13 @@ const TEST_MESSAGE = 'קבע פגישה עם דני מחר ב-3';
 const TEST_PROMPT = `You are a Hebrew calendar assistant. Extract intent from: "${TEST_MESSAGE}". Return JSON: {"intent": "create_event", "confidence": 0.95}`;
 
 /**
- * Test GPT-4.1 Nano
+ * Test GPT-4.1 Mini
  */
-async function testGPT41Nano(): Promise<TestResult> {
-  console.log(`\n${colors.cyan}Testing GPT-4.1 Nano...${colors.reset}`);
+async function testGPT41Mini(): Promise<TestResult> {
+  console.log(`\n${colors.cyan}Testing GPT-4.1 Mini...${colors.reset}`);
 
   const result: TestResult = {
-    model: 'gpt-4.1-nano',
+    model: 'gpt-4.1-mini',
     provider: 'OpenAI',
     success: false,
     responseTime: 0,
@@ -63,7 +63,7 @@ async function testGPT41Nano(): Promise<TestResult> {
     const startTime = Date.now();
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-nano',
+      model: 'gpt-4.1-mini',
       messages: [
         { role: 'system', content: 'You are a helpful assistant. Always respond with valid JSON.' },
         { role: 'user', content: TEST_PROMPT }
@@ -81,8 +81,8 @@ async function testGPT41Nano(): Promise<TestResult> {
     // Calculate cost
     const inputTokens = response.usage?.prompt_tokens || 0;
     const outputTokens = response.usage?.completion_tokens || 0;
-    const costInput = (inputTokens / 1000000) * 0.10; // $0.10 per 1M input tokens
-    const costOutput = (outputTokens / 1000000) * 0.40; // $0.40 per 1M output tokens
+    const costInput = (inputTokens / 1000000) * 0.40; // $0.40 per 1M input tokens
+    const costOutput = (outputTokens / 1000000) * 1.60; // $1.60 per 1M output tokens
     const totalCost = costInput + costOutput;
 
     result.cost = {
@@ -283,17 +283,17 @@ function printSummary(results: TestResult[]) {
   // Recommendations
   console.log(`${colors.bright}Recommendations:${colors.reset}`);
 
-  const gpt41Success = results.find(r => r.model === 'gpt-4.1-nano')?.success;
+  const gpt41Success = results.find(r => r.model === 'gpt-4.1-mini')?.success;
   const gemini25Success = results.find(r => r.model === 'gemini-2.5-flash-lite')?.success;
   const gpt4oSuccess = results.find(r => r.model === 'gpt-4o-mini')?.success;
 
   if (gpt41Success && gemini25Success) {
     console.log(`  ${colors.green}✓${colors.reset} Both target models work! Ready for production.`);
-    console.log(`  ${colors.green}✓${colors.reset} Estimated cost: $3.60 per 1K messages (₪13.32)`);
+    console.log(`  ${colors.green}✓${colors.reset} Estimated cost per 1K messages with GPT-4.1-mini`);
   } else if (!gpt41Success && gpt4oSuccess) {
-    console.log(`  ${colors.yellow}⚠${colors.reset} GPT-4.1 nano not available. Use GPT-4o-mini as fallback.`);
-    console.log(`  ${colors.yellow}⚠${colors.reset} Update: src/services/NLPService.ts line 350`);
-    console.log(`  ${colors.yellow}⚠${colors.reset} Change: 'gpt-4.1-nano' → 'gpt-4o-mini'`);
+    console.log(`  ${colors.yellow}⚠${colors.reset} GPT-4.1 mini not available. Use GPT-4o-mini as fallback.`);
+    console.log(`  ${colors.yellow}⚠${colors.reset} Update: src/services/NLPService.ts line 364`);
+    console.log(`  ${colors.yellow}⚠${colors.reset} Change: 'gpt-4.1-mini' → 'gpt-4o-mini'`);
   } else if (!gemini25Success) {
     console.log(`  ${colors.yellow}⚠${colors.reset} Gemini 2.5 Flash-Lite not available. Try alternatives:`);
     console.log(`    - gemini-1.5-flash (stable)`);
@@ -321,7 +321,7 @@ async function main() {
   }
 
   // Run tests
-  testResults.push(await testGPT41Nano());
+  testResults.push(await testGPT41Mini());
   testResults.push(await testGemini25FlashLite());
   testResults.push(await testGPT4oMini());
 

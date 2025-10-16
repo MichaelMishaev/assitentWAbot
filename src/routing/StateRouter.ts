@@ -446,8 +446,24 @@ export class StateRouter {
         });
       }
 
-      // Parse time (HH:MM format)
-      const timeMatch = normalizedText.match(/^(\d{1,2}):(\d{2})$/);
+      // Parse time - TRY MULTIPLE PATTERNS (smart extraction)
+      // Pattern 1: Exact time format "HH:MM" or "H:MM"
+      let timeMatch = normalizedText.match(/^(\d{1,2}):(\d{2})$/);
+
+      // Pattern 2: Time with Hebrew prefix "לשעה 20:30" or "בשעה 14:00"
+      if (!timeMatch) {
+        timeMatch = text.match(/(?:לשעה|בשעה)\s*(\d{1,2})(?::(\d{2}))?/);
+      }
+
+      // Pattern 3: Time with ב- prefix "ב-20:30" or "ב20:30"
+      if (!timeMatch) {
+        timeMatch = text.match(/ב-?\s*(\d{1,2})(?::(\d{2}))?/);
+      }
+
+      // Pattern 4: Find ANY time pattern in the message "... 20:30 ..."
+      if (!timeMatch) {
+        timeMatch = text.match(/\b(\d{1,2}):(\d{2})\b/);
+      }
 
       if (!timeMatch) {
         await this.sendMessage(phone, '❌ פורמט שעה לא תקין.\n\nהזן שעה בפורמט HH:MM (למשל: 14:30)\n\nאו שלח "דלג"');
@@ -455,7 +471,7 @@ export class StateRouter {
       }
 
       const hours = parseInt(timeMatch[1]);
-      const minutes = parseInt(timeMatch[2]);
+      const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0; // Default to :00 if no minutes
 
       if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
         await this.sendMessage(phone, '❌ שעה לא תקינה.\n\nשעות: 0-23, דקות: 0-59\n\nנסה שוב או שלח "דלג"');

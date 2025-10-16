@@ -361,7 +361,7 @@ CONVERSATION CONTEXT:
       });
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4.1-nano', // Using GPT-4.1 nano - cheapest model at $0.10/$0.40 per 1M tokens
+        model: 'gpt-4.1-mini', // Using GPT-4.1 mini - better performance at $0.40/$1.60 per 1M tokens
         messages,
         response_format: { type: 'json_object' },
         temperature: 0.3, // Lower temperature for more consistent parsing
@@ -401,7 +401,7 @@ CONVERSATION CONTEXT:
   async testConnection(): Promise<boolean> {
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4.1-nano',
+        model: 'gpt-4.1-mini',
         messages: [{ role: 'user', content: 'Test' }],
         max_tokens: 5
       });

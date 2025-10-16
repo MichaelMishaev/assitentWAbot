@@ -77,7 +77,10 @@ export class ParticipantPhase extends BasePhase {
     const participants: Participant[] = [];
 
     // Pattern 1: "עם X ו-Y" (with X and Y)
-    const withPattern = /עם\s+([א-ת\s,ו-]+)/i;
+    // CRITICAL FIX: Stop at date/time keywords AND location prepositions to prevent false matches
+    // "עם איתי להיום" should capture "איתי", not "איתי להיום"
+    // "עם יוסי בקופת חולים" should capture "יוסי", not "יוסי בקופת חולים"
+    const withPattern = /עם\s+([א-ת\s,ו-]+?)(?:\s+(?:ל?היום|מחר|ב?שעה|ל?שעה|ב-?\d|בשבוע|בחודש|ב[א-ת]|ל[א-ת]|מ[א-ת])|$)/i;
     const withMatch = text.match(withPattern);
 
     if (withMatch) {

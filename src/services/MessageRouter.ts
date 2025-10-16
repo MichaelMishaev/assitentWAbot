@@ -767,8 +767,9 @@ export class MessageRouter {
   }
 
   /**
-   * Phase 2.4: Send helpful hints for first-time users
-   * Shows quick action tips for the first 3 uses
+   * Comprehensive hint system for all user levels
+   * - Beginner: First 3 uses (guaranteed hints)
+   * - Mid-level: Random hints (15% chance after first 3 uses)
    */
   private async sendQuickActionHint(phone: string, userId: string): Promise<void> {
     try {
@@ -776,22 +777,139 @@ export class MessageRouter {
       const count = await redis.get(countKey);
       const currentCount = count ? parseInt(count, 10) : 0;
 
-      // Show hints only for first 3 uses
-      if (currentCount < 3) {
-        let hint = '\n\n💡 טיפ: ';
+      // Array of all available hints
+      const HINTS = [
+        // Quick actions (reply-to-message)
+        {
+          category: 'quick_actions',
+          text: 'עכשיו אפשר לענות להודעות שלי!\n• "מחק" למחיקה\n• "20:00" לעדכון שעה\n• או כל בקשה אחרת'
+        },
+        {
+          category: 'quick_actions',
+          text: 'אם יש כמה אירועים, הוסף מספר:\n• "מחק 1" - מחק אירוע ראשון\n• "עדכן 2 ל15:00" - שנה שעה של אירוע 2'
+        },
+        {
+          category: 'quick_actions',
+          text: 'תמיד אפשר לענות להודעות שלי במקום להתחיל מחדש!'
+        },
 
-        if (currentCount === 0) {
-          hint += 'עכשיו אפשר לענות להודעות שלי!\n• "מחק" למחיקה\n• "20:00" לעדכון שעה\n• או כל בקשה אחרת';
-        } else if (currentCount === 1) {
-          hint += 'אם יש כמה אירועים, הוסף מספר:\n• "מחק 1" - מחק אירוע ראשון\n• "עדכן 2 ל15:00" - שנה שעה של אירוע 2';
-        } else if (currentCount === 2) {
-          hint += 'תמיד אפשר לענות להודעות שלי במקום להתחיל מחדש!';
+        // Natural language capabilities
+        {
+          category: 'nlp',
+          text: 'דבר איתי בשפה טבעית!\n• "תוסיף פגישה עם דני מחר ב3"\n• "תזכיר לי להתקשר למנהל השבוע"\n• "מה יש לי היום?"'
+        },
+        {
+          category: 'nlp',
+          text: 'אני מבין עברית!\n• "תמחק את הפגישה עם יוסי"\n• "דחה את האירוע ב2 שעות"\n• "הראה לי מה יש השבוע"'
+        },
+
+        // Time shortcuts
+        {
+          category: 'time',
+          text: 'קיצורי זמן:\n• "מחר 14:00" או "מחר 2 אחר הצהריים"\n• "בשבוע הבא ביום שלישי"\n• "ב8 בערב" = 20:00'
+        },
+        {
+          category: 'time',
+          text: 'תאריכים גמישים:\n• "בעוד שעתיים"\n• "מחרתיים"\n• "בסוף השבוע"'
+        },
+
+        // Recurring reminders
+        {
+          category: 'recurring',
+          text: 'תזכורות חוזרות!\n• "תזכיר לי כל יום ב7 בבוקר"\n• "כל שבוע ביום שני ב3"\n• "כל חודש ב-1"'
+        },
+        {
+          category: 'recurring',
+          text: 'עדכון תזכורות חוזרות:\n• עדכן פעם אחת בלבד\n• או עדכן את כל המופעים\n• אני אשאל אותך!'
+        },
+
+        // Batch operations
+        {
+          category: 'batch',
+          text: 'פעולות מרובות:\n• "מחק את כל האירועים שלי"\n• "הראה לי את כל התזכורות"\n• "מה יש לי החודש?"'
+        },
+
+        // Voice support
+        {
+          category: 'voice',
+          text: 'תמיכה בהודעות קוליות!\n• שלח הודעת קול במקום להקליד\n• אני אמיר אותה לטקסט\n• עובד גם בעברית וגם באנגלית'
+        },
+
+        // Commands
+        {
+          category: 'commands',
+          text: 'פקודות מהירות:\n• /תפריט - חזור לתפריט הראשי\n• /ביטול - בטל פעולה נוכחית\n• /עזרה - עזרה והסברים'
+        },
+
+        // Search
+        {
+          category: 'search',
+          text: 'חיפוש חכם:\n• "חפש פגישה עם דני"\n• "איפה הפגישה ביום שלישי?"\n• "מה הייתה השעה של האירוע עם יוסי?"'
+        },
+
+        // Context awareness
+        {
+          category: 'context',
+          text: 'אני זוכר את השיחה שלנו!\n• "עוד 2 שעות" (אחרי שיצרת אירוע)\n• "כן, מחק" (אחרי שאני שואל)\n• "שנה ל3" (בהקשר של שעה)'
+        },
+
+        // Multi-event management
+        {
+          category: 'multi_event',
+          text: 'ניהול מספר אירועים:\n• "הראה לי אירועים השבוע"\n• "מחק אירוע 3"\n• "עדכן את האירוע הראשון"'
+        },
+
+        // Tips for efficiency
+        {
+          category: 'efficiency',
+          text: 'טיפ לחיסכון בזמן:\n• במקום תפריט, פשוט כתוב מה אתה רוצה\n• "פגישה מחר 3" מספיק!\n• אני אשלים את החסר'
+        },
+
+        // Contact integration
+        {
+          category: 'contacts',
+          text: 'אני מכיר את אנשי הקשר שלך!\n• "פגישה עם דני" (אם דני באנשי קשר)\n• "תזכיר להתקשר לאמא"\n• לא צריך לכתוב מספרים'
         }
+      ];
 
+      let shouldSendHint = false;
+      let selectedHint = '';
+
+      // Beginner users (first 3 uses): Always show hints sequentially
+      if (currentCount < 3) {
+        shouldSendHint = true;
+
+        // Show first 3 hints in order (quick actions)
+        const beginnerHints = HINTS.filter(h => h.category === 'quick_actions');
+        selectedHint = beginnerHints[currentCount]?.text || HINTS[currentCount]?.text || '';
+      }
+      // Mid-level users (after 3 uses): Random hints with 15% probability
+      else {
+        // 15% chance to show a hint
+        shouldSendHint = Math.random() < 0.15;
+
+        if (shouldSendHint) {
+          // Select random hint from all categories
+          const randomIndex = Math.floor(Math.random() * HINTS.length);
+          selectedHint = HINTS[randomIndex].text;
+        }
+      }
+
+      if (shouldSendHint && selectedHint) {
+        const hint = '\n\n💡 טיפ: ' + selectedHint;
         await this.sendMessage(phone, hint);
 
-        // Increment counter
-        await redis.setex(countKey, 2592000, (currentCount + 1).toString()); // 30-day TTL
+        // Increment counter (only for first 3 uses, don't increment for random hints)
+        if (currentCount < 3) {
+          await redis.setex(countKey, 2592000, (currentCount + 1).toString()); // 30-day TTL
+        }
+
+        logger.debug('Hint sent', {
+          userId,
+          hintCount: currentCount,
+          isRandom: currentCount >= 3,
+          hintPreview: selectedHint.substring(0, 30)
+        });
       }
     } catch (error) {
       logger.error('Failed to send quick action hint', { userId, error });

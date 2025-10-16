@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
-    "dev": "lsof -ti:7100 | xargs kill 2>/dev/null || true && sleep 1 && nodemon --exec node --loader ts-node/esm src/index.ts",
+    "dev": "pkill -9 -f 'node.*dist/index' 2>/dev/null; pkill -9 -f 'nodemon' 2>/dev/null; pkill -9 -f 'ts-node' 2>/dev/null; redis-cli DEL bot:instance:lock >/dev/null 2>&1; sleep 2 && nodemon --exec node --loader ts-node/esm src/index.ts",
     "build": "tsc && mkdir -p dist/templates && cp src/templates/*.html dist/templates/",
     "postinstall": "npm run build",
     "test": "jest --config jest.config.js",
@@ -55,6 +55,7 @@
     "luxon": "^3.5.0",
     "openai": "^6.0.1",
     "pg": "^8.13.1",
+    "puppeteer": "^24.24.1",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "rrule": "^2.8.1",

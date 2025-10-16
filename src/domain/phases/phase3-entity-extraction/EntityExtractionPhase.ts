@@ -19,6 +19,7 @@ import { BasePhase } from '../../orchestrator/IPhase.js';
 import { PhaseContext, PhaseResult } from '../../orchestrator/PhaseContext.js';
 import logger from '../../../utils/logger.js';
 import { EntityExtractor } from './EntityExtractor.js';
+import { AIEntityExtractor } from './AIEntityExtractor.js';
 
 export class EntityExtractionPhase extends BasePhase {
   readonly name = 'entity-extractor';
@@ -26,11 +27,13 @@ export class EntityExtractionPhase extends BasePhase {
   readonly description = 'Extract structured entities from text (dates, times, titles, locations)';
   readonly isRequired = true; // Critical phase
 
-  private extractor: EntityExtractor;
+  private regexExtractor: EntityExtractor; // Fallback regex-based extractor
+  private aiExtractor: AIEntityExtractor; // Primary AI-based extractor
 
   constructor() {
     super();
-    this.extractor = new EntityExtractor();
+    this.regexExtractor = new EntityExtractor();
+    this.aiExtractor = new AIEntityExtractor();
   }
 
   /**
@@ -46,14 +49,20 @@ export class EntityExtractionPhase extends BasePhase {
       const intent = context.intent || 'create_event'; // Default intent
       const timezone = context.userTimezone;
 
-      logger.info('Extracting entities', {
+      logger.info('Extracting entities with AI (GPT-4 Mini primary)', {
         text: text.substring(0, 100),
         intent,
         timezone
       });
 
-      // Extract entities using EntityExtractor
-      const extracted = this.extractor.extractEntities(text, intent, timezone);
+      // ✅ PRIMARY: Use AI extraction (GPT-4 Mini + Claude Haiku fallback)
+      const aiExtracted = await this.aiExtractor.extract(text, intent, timezone);
+
+      // ✅ FALLBACK: Use regex extraction for safety net
+      const regexExtracted = this.regexExtractor.extractEntities(text, intent, timezone);
+
+      // ✅ MERGE: Combine AI + Regex (AI takes priority, regex fills gaps)
+      const extracted = this.mergeExtractions(aiExtracted, regexExtracted);
 
       // Merge extracted entities into context
       // Preserve existing entities from previous phases, but add new ones
@@ -101,7 +110,7 @@ export class EntityExtractionPhase extends BasePhase {
       }
 
       // Calculate overall confidence
-      const overallConfidence = this.extractor.getOverallConfidence(extracted);
+      const overallConfidence = this.regexExtractor.getOverallConfidence(extracted);
 
       // Log extraction results
       const entityCount = [
@@ -142,5 +151,30 @@ export class EntityExtractionPhase extends BasePhase {
       logger.error('Entity extraction failed', { error });
       return this.error('Entity extraction failed: ' + (error as Error).message);
     }
+  }
+
+  /**
+   * Merge AI extraction with regex extraction (AI takes priority, regex fills gaps)
+   */
+  private mergeExtractions(ai: any, regex: any): any {
+    return {
+      // AI takes priority for these fields (better understanding)
+      title: ai.title || regex.title,
+      date: ai.date || regex.date,
+      time: ai.time || regex.time,
+      dateText: ai.dateText || regex.dateText,
+      location: ai.location || regex.location,
+
+      // Merge participants (union of both)
+      contactNames: [...new Set([...(ai.participants || []), ...(regex.contactNames || [])])],
+
+      // Other fields
+      duration: regex.duration, // Regex is good at this
+      priority: ai.priority || regex.priority,
+      notes: ai.notes || regex.notes,
+
+      // Confidence: use AI confidence (it's more reliable)
+      confidence: ai.confidence,
+    };
   }
 }

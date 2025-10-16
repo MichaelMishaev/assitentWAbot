@@ -39,7 +39,7 @@ export function parseHebrewDate(
     'שבוע הבא': () => now.plus({ weeks: 1 }).startOf('week'), // Next week (next Monday)
     'בשבוע הבא': () => now.plus({ weeks: 1 }).startOf('week'),
     'לשבוע הבא': () => now.plus({ weeks: 1 }).startOf('week'),
-    'שבוע הקרוב': () => now.plus({ weeks: 1 }).startOf('week'), // USER'S QUERY!
+    'שבוע הקרוב': () => now.plus({ weeks: 1 }).startOf('week'),
     'בשבוע הקרוב': () => now.plus({ weeks: 1 }).startOf('week'),
 
     // Month keywords
@@ -138,6 +138,48 @@ export function parseHebrewDate(
     }
   }
   } // Close if (!extractedTime)
+
+  // FIX #1: Support "עוד X ימים" (in X days) pattern
+  const relativeDaysMatch = dateInput.match(/^עוד\s+(\d+)\s+ימים?$/);
+  if (relativeDaysMatch) {
+    const daysToAdd = parseInt(relativeDaysMatch[1], 10);
+    if (daysToAdd >= 0 && daysToAdd <= 365) { // Reasonable range
+      let date = now.plus({ days: daysToAdd });
+      // Apply extracted time if available
+      if (extractedTime) {
+        date = date.set({ hour: extractedTime.hour, minute: extractedTime.minute });
+      }
+      return {
+        success: true,
+        date: date.toJSDate(),
+      };
+    }
+  }
+
+  // FIX #2: Support "יום X הקרוב/הבא" patterns (next Saturday, next Sunday, etc.)
+  // Match: "שבת הקרוב", "יום ראשון הבא", "רביעי הקרוב", etc.
+  const nextDayMatch = dateInput.match(/^(?:יום\s+)?([א-ת]+)\s+(הקרוב|הבא)$/);
+  if (nextDayMatch) {
+    const dayName = nextDayMatch[1];
+    const hebrewDays: Record<string, number> = {
+      'ראשון': 0, 'שני': 1, 'שלישי': 2, 'רביעי': 3,
+      'חמישי': 4, 'שישי': 5, 'שבת': 6,
+      'א': 0, 'ב': 1, 'ג': 2, 'ד': 3, 'ה': 4, 'ו': 5,
+    };
+
+    if (hebrewDays.hasOwnProperty(dayName)) {
+      const targetDay = hebrewDays[dayName];
+      let date = getNextWeekday(now, targetDay);
+      // Apply extracted time if available
+      if (extractedTime) {
+        date = date.set({ hour: extractedTime.hour, minute: extractedTime.minute });
+      }
+      return {
+        success: true,
+        date: date.toJSDate(),
+      };
+    }
+  }
 
   // Check for direct keyword match
   if (keywords[dateInput]) {

@@ -106,6 +106,82 @@ export class ValidationEnrichmentPhase extends BasePhase {
 
       // ===== ENRICHMENT PHASE =====
 
+      // 0. CRITICAL FIX: Fallback date/time parsing if entity extractor missed it
+      // Check if date OR time is missing but text contains date/time keywords
+      if ((!context.entities.date || !context.entities.time) && (context.intent === 'create_event' || context.intent === 'create_reminder')) {
+        const { parseHebrewDate } = await import('../../../utils/hebrewDateParser.js');
+
+        // Try parsing common Hebrew date expressions
+        const dateKeywords = ['היום', 'להיום', 'בהיום', 'מחר', 'למחר', 'מחרתיים', 'השבוע', 'בשבוע', 'לשבוע'];
+        const lowerText = context.processedText.toLowerCase();
+
+        logger.info('🔍 Fallback date parser running', {
+          hasDate: !!context.entities.date,
+          text: context.processedText.substring(0, 100),
+          lowerText: lowerText.substring(0, 100)
+        });
+
+        // First, ensure we have a base date
+        let baseDate = context.entities.date;
+
+        // If no date, try to find one from keywords
+        if (!baseDate) {
+          for (const keyword of dateKeywords) {
+            if (lowerText.includes(keyword)) {
+              const parseResult = parseHebrewDate(keyword);
+              if (parseResult.success && parseResult.date) {
+                baseDate = parseResult.date;
+                context.entities.dateText = keyword;
+                logger.info('📅 Found date keyword', { keyword, date: baseDate.toISOString() });
+                break;
+              }
+            }
+          }
+        }
+
+        // Now try to extract time (regardless of whether we found date above)
+        if (!context.entities.time && baseDate) {
+          // Extract time if present - TRY MULTIPLE PATTERNS
+          // Pattern 1: "לשעה 20:30" or "בשעה 14:00"
+          let timeMatch = context.processedText.match(/(?:לשעה|בשעה)\s*(\d{1,2})(?::(\d{2}))?/);
+
+          // Pattern 2: "ב-20:30" or "ב20:30"
+          if (!timeMatch) {
+            timeMatch = context.processedText.match(/ב-?\s*(\d{1,2})(?::(\d{2}))?/);
+          }
+
+          // Pattern 3: Just "20:30" or "14:00" (time only)
+          if (!timeMatch) {
+            timeMatch = context.processedText.match(/\b(\d{1,2}):(\d{2})\b/);
+          }
+
+          logger.info('⏰ Time extraction attempt', {
+            found: !!timeMatch,
+            pattern: timeMatch ? timeMatch[0] : 'none',
+            hours: timeMatch ? timeMatch[1] : 'none',
+            minutes: timeMatch ? timeMatch[2] : 'none',
+            hasBaseDate: !!baseDate
+          });
+
+          if (timeMatch) {
+            const hours = parseInt(timeMatch[1]);
+            const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+
+            const dt = DateTime.fromJSDate(baseDate)
+              .setZone(context.userTimezone)
+              .set({ hour: hours, minute: minutes, second: 0, millisecond: 0 });
+
+            context.entities.date = dt.toJSDate();
+            context.entities.time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+            enrichments.push(`Fallback extracted time: ${context.entities.time}`);
+            logger.info('✅ Enriched with fallback time extraction', {
+              time: context.entities.time,
+              parsedDate: dt.toISO()
+            });
+          }
+        }
+      }
+
       // 1. Add default duration if missing (1 hour for events, 0 for reminders)
       if (context.intent === 'create_event' && context.entities.date && !context.entities.endDate) {
         const startTime = DateTime.fromJSDate(context.entities.date).setZone(context.userTimezone);

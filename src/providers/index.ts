@@ -6,3 +6,4 @@
 
 export { IMessageProvider, MessageContent, IncomingMessage, MessageHandler, ConnectionState, ConnectionStateHandler } from './IMessageProvider.js';
 export { BaileysProvider } from './BaileysProvider.js';
+export { WhatsAppWebJSProvider } from './WhatsAppWebJSProvider.js';

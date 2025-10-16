@@ -17,18 +17,18 @@ const colors = {
 
 const TEST_MESSAGE = 'קבע פגישה עם דני מחר ב-3';
 
-// Test GPT-4.1 nano
+// Test GPT-4.1 mini
 async function testGPT() {
-  console.log(`\n${colors.cyan}Testing GPT-4.1 nano...${colors.reset}`);
+  console.log(`\n${colors.cyan}Testing GPT-4.1 mini...${colors.reset}`);
 
   if (!process.env.OPENAI_API_KEY) {
     console.log(`${colors.red}✗ OPENAI_API_KEY not set${colors.reset}`);
-    return { model: 'gpt-4.1-nano', success: false, error: 'API key not set' };
+    return { model: 'gpt-4.1-mini', success: false, error: 'API key not set' };
   }
 
   return new Promise((resolve) => {
     const data = JSON.stringify({
-      model: 'gpt-4.1-nano',
+      model: 'gpt-4.1-mini',
       messages: [
         { role: 'system', content: 'You are a Hebrew calendar assistant. Return JSON.' },
         { role: 'user', content: `Extract intent: "${TEST_MESSAGE}"` }
@@ -61,7 +61,7 @@ async function testGPT() {
           try {
             const parsed = JSON.parse(body);
             const tokens = parsed.usage || { prompt_tokens: 0, completion_tokens: 0 };
-            const cost = (tokens.prompt_tokens / 1000000 * 0.10 + tokens.completion_tokens / 1000000 * 0.40).toFixed(6);
+            const cost = (tokens.prompt_tokens / 1000000 * 0.40 + tokens.completion_tokens / 1000000 * 1.60).toFixed(6);
 
             console.log(`${colors.green}✓ Success!${colors.reset}`);
             console.log(`  Response time: ${responseTime}ms`);
@@ -70,7 +70,7 @@ async function testGPT() {
             console.log(`  Response: ${parsed.choices[0].message.content.substring(0, 100)}...`);
 
             resolve({
-              model: 'gpt-4.1-nano',
+              model: 'gpt-4.1-mini',
               success: true,
               responseTime,
               tokens,
@@ -78,7 +78,7 @@ async function testGPT() {
             });
           } catch (e) {
             console.log(`${colors.red}✗ Failed to parse response${colors.reset}`);
-            resolve({ model: 'gpt-4.1-nano', success: false, error: 'Parse error' });
+            resolve({ model: 'gpt-4.1-mini', success: false, error: 'Parse error' });
           }
         } else {
           const error = JSON.parse(body);
@@ -89,7 +89,7 @@ async function testGPT() {
           }
 
           resolve({
-            model: 'gpt-4.1-nano',
+            model: 'gpt-4.1-mini',
             success: false,
             error: error.error?.message || 'Unknown error',
             statusCode: res.statusCode
@@ -100,7 +100,7 @@ async function testGPT() {
 
     req.on('error', (e) => {
       console.log(`${colors.red}✗ Network error: ${e.message}${colors.reset}`);
-      resolve({ model: 'gpt-4.1-nano', success: false, error: e.message });
+      resolve({ model: 'gpt-4.1-mini', success: false, error: e.message });
     });
 
     req.write(data);
@@ -248,7 +248,7 @@ async function main() {
   console.log(`${colors.bright}Recommendations:${colors.reset}`);
 
   const bothWork = results.every(r => r.success);
-  const gptWorks = results.find(r => r.model === 'gpt-4.1-nano')?.success;
+  const gptWorks = results.find(r => r.model === 'gpt-4.1-mini')?.success;
   const geminiWorks = results.find(r => r.model === 'gemini-2.5-flash-lite')?.success;
 
   if (bothWork) {
@@ -256,9 +256,9 @@ async function main() {
     console.log(`  ${colors.green}✓ Expected cost: ~$3.60 per 1K messages (₪13.32)${colors.reset}`);
   } else {
     if (!gptWorks) {
-      console.log(`  ${colors.yellow}⚠ GPT-4.1 nano not available${colors.reset}`);
-      console.log(`    Update src/services/NLPService.ts:350`);
-      console.log(`    Change 'gpt-4.1-nano' → 'gpt-4o-mini'`);
+      console.log(`  ${colors.yellow}⚠ GPT-4.1 mini not available${colors.reset}`);
+      console.log(`    Update src/services/NLPService.ts:364`);
+      console.log(`    Change 'gpt-4.1-mini' → 'gpt-4o-mini'`);
     }
     if (!geminiWorks) {
       console.log(`  ${colors.yellow}⚠ Gemini 2.5 Flash-Lite not available${colors.reset}`);
