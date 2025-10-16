@@ -143,7 +143,7 @@ async function acquireInstanceLock(): Promise<boolean> {
     if (result !== 'OK') {
       // Lock already held by another instance
       const existingLock = await redis.get(INSTANCE_LOCK_KEY);
-      logger.error('Instance lock held by:', existingLock);
+      logger.error('Instance lock held by:', { lockInfo: existingLock });
       return false;
     }
 
