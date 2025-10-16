@@ -3,7 +3,7 @@ import logger from './utils/logger.js';
 import { testConnection as testDatabase } from './config/database.js';
 import { testRedisConnection, redis } from './config/redis.js';
 import { startHealthCheck, stopHealthCheck } from './api/health.js';
-import { WhatsAppWebJSProvider } from './providers/index.js';
+import { WhatsAppWebJSProvider } from './providers/WhatsAppWebJSProvider.js';
 import { IncomingMessage, ConnectionState } from './providers/IMessageProvider.js';
 import { createMessageRouter } from './services/MessageRouter.js';
 import { ReminderWorker } from './queues/ReminderWorker.js';
