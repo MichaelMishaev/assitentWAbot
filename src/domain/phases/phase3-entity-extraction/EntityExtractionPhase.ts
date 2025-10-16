@@ -81,18 +81,13 @@ export class EntityExtractionPhase extends BasePhase {
       if (extracted.location) {
         context.entities.location = extracted.location;
       }
+      // ✅ CRITICAL FIX: Do NOT extract participants here - let Phase 9 handle it!
+      // Phase 3 (AI) was extracting truncated names like "סי" instead of "יוסי"
+      // Phase 9 (ParticipantPhase) has reliable Hebrew regex patterns
+      // Only store contactName for backward compatibility, NOT participants
       if (extracted.contactNames && extracted.contactNames.length > 0) {
-        context.entities.contactName = extracted.contactNames[0]; // Store first contact
-        // Store all as participants
-        if (!context.entities.participants) {
-          context.entities.participants = [];
-        }
-        for (const name of extracted.contactNames) {
-          context.entities.participants.push({
-            name,
-            role: 'companion'
-          });
-        }
+        context.entities.contactName = extracted.contactNames[0]; // Store first contact for legacy code
+        // DO NOT SET participants here - Phase 9 will handle it correctly
       }
       if (extracted.duration) {
         // Calculate end time if we have start time

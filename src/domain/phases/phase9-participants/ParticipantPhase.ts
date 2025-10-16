@@ -37,7 +37,18 @@ export class ParticipantPhase extends BasePhase {
     try {
       const participants = this.detectParticipants(context.processedText);
 
+      // CRITICAL: Clear any existing participants from Phase 3 (AI extraction)
+      // Phase 9 is the AUTHORITATIVE source for participant detection
+      if (context.entities.participants) {
+        logger.warn('Clearing existing participants from previous phase', {
+          existing: context.entities.participants.map((p: any) => p.name || p),
+          text: context.processedText.substring(0, 100)
+        });
+      }
+
       if (participants.length === 0) {
+        // IMPORTANT: Clear participants even if none detected (overwrite Phase 3's mistakes)
+        context.entities.participants = undefined;
         return this.success({ hasParticipants: false });
       }
 
@@ -76,12 +87,25 @@ export class ParticipantPhase extends BasePhase {
   private detectParticipants(text: string): Participant[] {
     const participants: Participant[] = [];
 
+    logger.info('Phase 9 detecting participants', {
+      text: text.substring(0, 150),
+      textLength: text.length
+    });
+
     // Pattern 1: "עם X ו-Y" (with X and Y)
     // CRITICAL FIX: Stop at date/time keywords AND location prepositions to prevent false matches
     // "עם איתי להיום" should capture "איתי", not "איתי להיום"
     // "עם יוסי בקופת חולים" should capture "יוסי", not "יוסי בקופת חולים"
     const withPattern = /עם\s+([א-ת\s,ו-]+?)(?:\s+(?:ל?היום|מחר|ב?שעה|ל?שעה|ב-?\d|בשבוע|בחודש|ב[א-ת]|ל[א-ת]|מ[א-ת])|$)/i;
     const withMatch = text.match(withPattern);
+
+    if (withMatch) {
+      logger.info('Pattern 1 matched', {
+        fullMatch: withMatch[0],
+        capturedGroup: withMatch[1],
+        index: withMatch.index
+      });
+    }
 
     if (withMatch) {
       const namesText = withMatch[1];
@@ -102,6 +126,10 @@ export class ParticipantPhase extends BasePhase {
         }
       }
 
+      logger.info('Pattern 1 extracted participants', {
+        count: participants.length,
+        names: participants.map(p => p.name)
+      });
       return participants;
     }
 
@@ -129,6 +157,11 @@ export class ParticipantPhase extends BasePhase {
         role: 'primary'
       });
     }
+
+    logger.info('Phase 9 participant detection complete', {
+      participantCount: participants.length,
+      participants: participants.map(p => ({ name: p.name, role: p.role }))
+    });
 
     return participants;
   }
