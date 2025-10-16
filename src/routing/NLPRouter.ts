@@ -775,8 +775,10 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       });
 
       // Add deletion hint (always shown, clear and actionable)
+      // Use dynamic example - show first event number if single event, otherwise show "2" as example
+      const exampleNum = events.length === 1 ? '1' : '2';
       message += '💡 *למחיקת אירוע:*\n';
-      message += '• ענה להודעה זו: "מחק 2"\n';
+      message += `• ענה להודעה זו: "מחק ${exampleNum}"\n`;
       message += '• או כתוב: "תמחק פגישה עם איתי"';
 
       const sentMessageId = await this.sendMessage(phone, message);
@@ -802,8 +804,10 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       });
 
       // Add deletion hint (always shown, clear and actionable)
+      // Use dynamic example - show first event number if single event, otherwise show "2" as example
+      const exampleNum = events.length === 1 ? '1' : '2';
       message += '💡 *למחיקת אירוע:*\n';
-      message += '• ענה להודעה זו: "מחק 2"\n';
+      message += `• ענה להודעה זו: "מחק ${exampleNum}"\n`;
       message += '• או כתוב: "תמחק פגישה עם איתי"';
 
       const sentMessageId = await this.sendMessage(phone, message);
