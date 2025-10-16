@@ -4,7 +4,7 @@ import { testConnection as testDatabase } from './config/database.js';
 import { testRedisConnection, redis } from './config/redis.js';
 import { startHealthCheck, stopHealthCheck } from './api/health.js';
 import { WhatsAppWebJSProvider } from './providers/index.js';
-import { IncomingMessage } from './providers/IMessageProvider.js';
+import { IncomingMessage, ConnectionState } from './providers/IMessageProvider.js';
 import { createMessageRouter } from './services/MessageRouter.js';
 import { ReminderWorker } from './queues/ReminderWorker.js';
 import { initializePipeline, shutdownPipeline } from './domain/orchestrator/PhaseInitializer.js';
@@ -96,7 +96,7 @@ async function main() {
     whatsappProvider.onMessage(handleIncomingMessage);
 
     // Register connection state handler
-    whatsappProvider.onConnectionStateChange(async (state) => {
+    whatsappProvider.onConnectionStateChange(async (state: ConnectionState) => {
       logger.info(`WhatsApp connection state: ${state.status}`);
       if (state.status === 'qr') {
         logger.info('📱 Scan the QR code with WhatsApp to connect');
