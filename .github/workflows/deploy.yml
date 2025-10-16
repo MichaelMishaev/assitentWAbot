@@ -114,7 +114,8 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
-          script_stop: true
+          script_stop: false
+          command_timeout: 10m
           script: |
             /root/deploy.sh
 
