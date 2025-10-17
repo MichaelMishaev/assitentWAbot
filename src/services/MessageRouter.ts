@@ -11,6 +11,7 @@ import { ConversationState, AuthState } from '../types/index.js';
 import { redis } from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { prodMessageLogger } from '../utils/productionMessageLogger.js';
+import { redisMessageLogger } from './RedisMessageLogger.js';
 import { logDevComment, isDevComment } from '../utils/devCommentLogger.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
 import { safeParseDate } from '../utils/dateValidator.js';
@@ -393,9 +394,19 @@ export class MessageRouter {
       // Retrieve user once and reuse throughout
       let user = await this.authService.getUserByPhone(from);
 
-      // Log incoming message to production logger
+      // Log incoming message to Redis logger (instant persistence, no buffering)
       if (user && messageId) {
         const session = await this.stateManager.getState(user.id);
+        await redisMessageLogger.logIncomingMessage({
+          messageId,
+          userId: user.id,
+          phone: from,
+          messageText: text,
+          conversationState: session?.state || ConversationState.MAIN_MENU,
+          metadata: { quotedMessage }
+        });
+
+        // Also log to file-based logger for backward compatibility
         prodMessageLogger.logIncomingMessage({
           messageId,
           userId: user.id,
@@ -678,8 +689,18 @@ export class MessageRouter {
         if (authState?.userId) {
           await this.stateManager.addToHistory(authState.userId, 'assistant', message);
 
-          // Log outgoing message to production logger
+          // Log outgoing message to Redis logger (instant persistence)
           const session = await this.stateManager.getState(authState.userId);
+          await redisMessageLogger.logOutgoingMessage({
+            messageId,
+            userId: authState.userId,
+            phone: to,
+            messageText: message,
+            conversationState: session?.state || ConversationState.MAIN_MENU,
+            processingTime
+          });
+
+          // Also log to file-based logger for backward compatibility
           prodMessageLogger.logOutgoingMessage({
             messageId,
             userId: authState.userId,
