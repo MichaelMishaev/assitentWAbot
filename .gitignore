@@ -9,6 +9,7 @@ pnpm-debug.log*
 dist/
 build/
 *.js.map
+.tsbuildinfo
 
 # Environment variables
 .env

@@ -12,7 +12,9 @@
     "resolveJsonModule": true,
     "moduleResolution": "node",
     "allowImportingTsExtensions": false,
-    "allowJs": true
+    "allowJs": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo"
   },
   "ts-node": {
     "esm": true,

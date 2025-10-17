@@ -8,7 +8,6 @@
     "start": "node dist/index.js",
     "dev": "pkill -9 -f 'node.*dist/index' 2>/dev/null; pkill -9 -f 'nodemon' 2>/dev/null; pkill -9 -f 'ts-node' 2>/dev/null; redis-cli DEL bot:instance:lock >/dev/null 2>&1; sleep 2 && nodemon --exec node --loader ts-node/esm src/index.ts",
     "build": "tsc && mkdir -p dist/templates && cp src/templates/*.html dist/templates/",
-    "postinstall": "npm run build",
     "test": "jest --config jest.config.js",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
