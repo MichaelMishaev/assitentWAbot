@@ -338,7 +338,36 @@ CONVERSATION CONTEXT:
 - If conversation history is provided, use it to understand references like "this", "that", "it"
 - If user says just a time like "14:00" and previous context had a date/event, combine them
 - If user refers to "זה" (this), "זה התאריך" (this date), look at previous messages for the date
-- Example: Previous: "what about 11.11.2025?" Current: "remind doctor for this date at 14:00" → date: 11.11.2025, time: 14:00`;
+- Example: Previous: "what about 11.11.2025?" Current: "remind doctor for this date at 14:00" → date: 11.11.2025, time: 14:00
+
+MULTI-LINE MESSAGES (CRITICAL - Bug #3 Fix):
+- Users often send event details on separate lines (especially on mobile)
+- Parse EACH line for its semantic meaning (title, date, time, location)
+- Combine all extracted information into a single event
+
+Example patterns:
+1. Simple multi-line:
+   "פגישה עם מיכאל על בירה
+    20.10
+    16:00
+    מרפיס פולג"
+   → title: "פגישה על בירה עם מיכאל", date: "2025-10-20T16:00:00+03:00", location: "מרפיס פולג"
+
+2. Line-by-line meaning:
+   Line 1: Event title + participants
+   Line 2: Date (DD.MM or DD/MM format)
+   Line 3: Time (HH:MM format)
+   Line 4: Location (place name)
+
+3. Recognition rules:
+   - If a line contains ONLY digits/dots/slashes (18.10, 20/10) → it's a DATE
+   - If a line contains ONLY HH:MM format (16:00, 14:30) → it's a TIME
+   - If a line is after date/time lines and contains Hebrew text → it's a LOCATION
+   - First line with substantive text → it's the TITLE (+ participants)
+
+4. Critical: Combine date + time into single ISO timestamp:
+   Date "20.10" + Time "16:00" → "2025-10-20T16:00:00+03:00"
+   Do NOT ask for time again if it's on a separate line!`;
 
       // Build messages array with conversation history
       const messages: Array<{ role: 'system' | 'user' | 'assistant', content: string }> = [

@@ -581,9 +581,10 @@ export class NLPRouter {
         minute: dt.minute
       });
 
-      await this.sendMessage(phone, `📌 ${reminder.title}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן תאריך ושעה (למשל: מחר 14:30)\n\nאו שלח /ביטול`);
+      await this.sendMessage(phone, `📌 ${reminder.title}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן שעה (למשל: 14:30)\n\nאו שלח /ביטול`);
       await this.stateManager.setState(userId, ConversationState.ADDING_REMINDER_DATETIME, {
         title: reminder.title,
+        date: dueDate.toISOString(), // ✅ FIX Bug #2: Pass the date that was already extracted
         fromNLP: true
       });
       return;

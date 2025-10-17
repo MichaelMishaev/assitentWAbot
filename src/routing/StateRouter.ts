@@ -702,6 +702,7 @@ export class StateRouter {
   private async handleReminderDatetime(phone: string, userId: string, text: string): Promise<void> {
     const session = await this.stateManager.getState(userId);
     const title = session?.context?.title;
+    const existingDate = session?.context?.date; // ✅ FIX Bug #2: Check if date already exists from NLP
 
     if (!title) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
@@ -710,22 +711,42 @@ export class StateRouter {
       return;
     }
 
-    // Parse datetime - expecting format like "מחר 14:30" or "25/12/2025 15:00"
+    // ✅ FIX Bug #2: If date already exists (from NLP), allow just entering time
     const parts = text.trim().split(/\s+/);
 
-    if (parts.length < 2) {
+    let datePart: string;
+    let timePart: string;
+
+    if (existingDate && parts.length === 1) {
+      // User provided only time, use existing date from NLP
+      datePart = ''; // Will use existingDate below
+      timePart = parts[0];
+      logger.info('Using existing date from NLP context', {
+        existingDate,
+        timeInput: timePart
+      });
+    } else if (parts.length < 2) {
       await this.sendMessage(phone, '❌ נא להזין תאריך ושעה.\n\nדוגמה: מחר 14:30\n\nאו שלח /ביטול');
       return;
+    } else {
+      datePart = parts[0];
+      timePart = parts[1];
     }
 
-    const datePart = parts[0];
-    const timePart = parts[1];
+    // Parse date (or use existing from NLP)
+    let baseDate: Date;
 
-    // Parse date
-    const dateResult = parseHebrewDate(datePart);
-    if (!dateResult.success) {
-      await this.sendMessage(phone, `❌ ${dateResult.error}\n\nנסה שוב או שלח /ביטול`);
-      return;
+    if (existingDate && datePart === '') {
+      // Use existing date from NLP context
+      baseDate = safeParseDate(existingDate, 'handleReminderDatetime-fromNLP') || new Date();
+    } else {
+      // Parse new date from user input
+      const dateResult = parseHebrewDate(datePart);
+      if (!dateResult.success) {
+        await this.sendMessage(phone, `❌ ${dateResult.error}\n\nנסה שוב או שלח /ביטול`);
+        return;
+      }
+      baseDate = dateResult.date!;
     }
 
     // Parse time
@@ -744,7 +765,7 @@ export class StateRouter {
     }
 
     // Combine date and time
-    const dt = DateTime.fromJSDate(dateResult.date!).setZone('Asia/Jerusalem').set({ hour: hours, minute: minutes });
+    const dt = DateTime.fromJSDate(baseDate).setZone('Asia/Jerusalem').set({ hour: hours, minute: minutes });
     const dueDate = dt.toJSDate();
 
     // Check if in the past
