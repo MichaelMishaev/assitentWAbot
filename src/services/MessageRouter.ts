@@ -12,6 +12,7 @@ import { redis } from '../config/redis.js';
 import logger from '../utils/logger.js';
 import { prodMessageLogger } from '../utils/productionMessageLogger.js';
 import { redisMessageLogger } from './RedisMessageLogger.js';
+import { isDevComment } from '../utils/devCommentLogger.js';
 import { parseHebrewDate } from '../utils/hebrewDateParser.js';
 import { safeParseDate } from '../utils/dateValidator.js';
 import { DateTime } from 'luxon';
@@ -388,9 +389,9 @@ export class MessageRouter {
           metadata: { quotedMessage }
         });
 
-        // BUG REPORT DETECTION: If message starts with #, it's a bug report
-        // Log it to Redis (done above) and exit early - don't process as normal message
-        if (text.trim().startsWith('#')) {
+        // BUG REPORT DETECTION: Use existing isDevComment() function
+        // Bug reports are logged to Redis (done above) - now exit early to prevent processing
+        if (isDevComment(text)) {
           logger.info('Bug report logged to Redis', { userId: user.id, phone: from, bugText: text.substring(0, 50) });
 
           // Mark as processed and exit (bot will NOT respond to # messages)
