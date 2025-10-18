@@ -220,7 +220,8 @@ export class NLPRouter {
       // ===== LAYER 1: PRE-AI KEYWORD DETECTION (Option 5 - Hybrid Approach) =====
       // Check for explicit reminder keywords at the start of message
       // This catches obvious cases BEFORE expensive AI call
-      const reminderKeywordPattern = /^(תזכיר|תזכורת|תזכירי|remind|reminder)\s/i;
+      // Hebrew verb conjugations from root ז-כ-ר (z-k-r): remind/remember
+      const reminderKeywordPattern = /^(תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|remind|reminder|remindme)\s/i;
       const hasExplicitReminderKeyword = reminderKeywordPattern.test(text.trim());
 
       if (hasExplicitReminderKeyword) {
@@ -334,8 +335,10 @@ export class NLPRouter {
         await proficiencyTracker.trackNLPFailure(userId);
 
         // ===== LAYER 3: FALLBACK DISAMBIGUATION (Option 5 - Hybrid Approach) =====
-        // If AI failed but user used reminder keywords, ask for confirmation instead of generic error
-        const hasAnyReminderKeyword = text.includes('תזכורת') || text.includes('תזכיר') || text.includes('remind');
+        // If AI failed but user used reminder keywords ANYWHERE in message, ask for confirmation instead of generic error
+        // Check for any Hebrew conjugation of ז-כ-ר root or English variants
+        const anywhereKeywordPattern = /(תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|remind)/i;
+        const hasAnyReminderKeyword = anywhereKeywordPattern.test(text);
         const aiMissedReminder = hasAnyReminderKeyword && adaptedResult.intent !== 'create_reminder' && adaptedResult.intent !== 'update_reminder';
 
         if (aiMissedReminder) {
@@ -362,7 +365,7 @@ export class NLPRouter {
               aiIntent: adaptedResult.intent,
               aiConfidence: adaptedResult.confidence,
               expectedIntent: 'create_reminder',
-              detectedKeywords: text.match(/תזכורת|תזכיר|remind/gi) || []
+              detectedKeywords: text.match(/תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|remind/gi) || []
             }
           });
 
