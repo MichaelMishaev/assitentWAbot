@@ -587,10 +587,10 @@
       console.log('Filtering with keyword:', keyword);
 
       filteredEvents = allEvents.filter(event => {
-        // Search in title, location, and notes
-        const titleMatch = event.title?.toLowerCase().includes(keyword) || false;
-        const locationMatch = event.location?.toLowerCase().includes(keyword) || false;
-        const notesMatch = event.notes?.toLowerCase().includes(keyword) || false;
+        // Search in title, location, and notes (safely convert to string)
+        const titleMatch = String(event.title || '').toLowerCase().includes(keyword);
+        const locationMatch = String(event.location || '').toLowerCase().includes(keyword);
+        const notesMatch = String(event.notes || '').toLowerCase().includes(keyword);
 
         return titleMatch || locationMatch || notesMatch;
       });
