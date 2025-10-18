@@ -218,19 +218,20 @@ export class NLPRouter {
       }
 
       // ===== LAYER 1: PRE-AI KEYWORD DETECTION (Option 5 - Hybrid Approach) =====
-      // Check for explicit reminder keywords at the start of message
+      // Check for explicit reminder keywords ANYWHERE in message (word boundary match)
       // This catches obvious cases BEFORE expensive AI call
       // Hebrew verb conjugations from root ז-כ-ר (z-k-r): remind/remember
-      const reminderKeywordPattern = /^(תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|remind|reminder|remindme)\s/i;
+      // Using \b (word boundary) to match whole words, not parts of words
+      const reminderKeywordPattern = /\b(תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|remind|reminder|remindme)\b/i;
       const hasExplicitReminderKeyword = reminderKeywordPattern.test(text.trim());
 
       if (hasExplicitReminderKeyword) {
-        logger.info('🎯 Layer 1: Explicit reminder keyword detected - bypassing AI for speed', {
+        logger.info('🎯 Layer 1: Explicit reminder keyword detected anywhere in message', {
           userId,
           text: text.substring(0, 50),
           keyword: text.trim().match(reminderKeywordPattern)?.[1]
         });
-        // Continue to AI but boost reminder confidence in Layer 3
+        // Continue to AI but boost reminder confidence in Layer 2
       }
 
       // ===== V2 PIPELINE: Use PipelineOrchestrator (10 phases + Ensemble AI) =====
