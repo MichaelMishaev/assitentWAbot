@@ -122,62 +122,33 @@
 
     <!-- Search & Filter Section -->
     <div id="search-section" class="glass rounded-2xl shadow-xl p-6 mb-6 hidden">
-      <div class="flex items-center justify-between mb-4 cursor-pointer" onclick="toggleSearchSection()">
-        <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
-          <span>🔍</span>
-          <span>חיפוש וסינון</span>
-        </h2>
-        <button class="text-gray-600 hover:text-gray-800 text-xl font-bold transition-all">
-          <span id="search-toggle-icon">▼</span>
-        </button>
-      </div>
+      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span>🔍</span>
+        <span>חיפוש</span>
+      </h2>
 
-      <div id="search-body" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="flex gap-3">
         <!-- Keyword Search -->
-        <div class="md:col-span-1">
-          <label class="block text-sm font-medium text-gray-700 mb-2">חיפוש חופשי</label>
+        <div class="flex-1">
           <input
             type="text"
             id="search-keyword"
-            placeholder="כותרת, מיקום, הערות..."
+            placeholder="חפש לפי כותרת, מיקום או הערות..."
             oninput="applyFilters()"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base"
           />
         </div>
 
-        <!-- Date From -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">מתאריך</label>
-          <input
-            type="date"
-            id="search-date-from"
-            onchange="applyFilters()"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          />
-        </div>
-
-        <!-- Date To -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">עד תאריך</label>
-          <input
-            type="date"
-            id="search-date-to"
-            onchange="applyFilters()"
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          />
-        </div>
+        <!-- Clear Button -->
+        <button
+          onclick="clearFilters()"
+          class="px-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-lg text-gray-700 font-medium transition-all whitespace-nowrap">
+          נקה
+        </button>
       </div>
 
       <!-- Filter Results Count -->
-      <div id="filter-results" class="mt-4 text-sm text-gray-600 hidden"></div>
-
-      <!-- Clear Filters Button -->
-      <button
-        onclick="clearFilters(); event.stopPropagation();"
-        class="mt-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-gray-700 font-medium transition-all">
-        נקה סינונים
-      </button>
-      </div>
+      <div id="filter-results" class="mt-3 text-sm text-gray-600 hidden"></div>
     </div>
 
     <!-- Top Locations (MOVED TO TOP - First section after controls) -->
@@ -605,59 +576,48 @@
 
     // Filter events based on search criteria
     function applyFilters() {
-      const keyword = document.getElementById('search-keyword').value.toLowerCase().trim();
-      const dateFrom = document.getElementById('search-date-from').value;
-      const dateTo = document.getElementById('search-date-to').value;
+      const keyword = document.getElementById('search-keyword')?.value?.toLowerCase().trim() || '';
+
+      if (!keyword) {
+        // No filter - show all events
+        clearFilters();
+        return;
+      }
+
+      console.log('Filtering with keyword:', keyword);
 
       filteredEvents = allEvents.filter(event => {
-        // Keyword filter - search in title, location, notes
-        if (keyword) {
-          const matchesKeyword =
-            event.title?.toLowerCase().includes(keyword) ||
-            event.location?.toLowerCase().includes(keyword) ||
-            event.notes?.toLowerCase().includes(keyword);
+        // Search in title, location, and notes
+        const titleMatch = event.title?.toLowerCase().includes(keyword) || false;
+        const locationMatch = event.location?.toLowerCase().includes(keyword) || false;
+        const notesMatch = event.notes?.toLowerCase().includes(keyword) || false;
 
-          if (!matchesKeyword) return false;
-        }
-
-        // Date range filter
-        const eventDate = new Date(event.startTsUtc);
-        const eventDateStr = eventDate.toISOString().split('T')[0]; // YYYY-MM-DD
-
-        if (dateFrom && eventDateStr < dateFrom) return false;
-        if (dateTo && eventDateStr > dateTo) return false;
-
-        return true;
+        return titleMatch || locationMatch || notesMatch;
       });
+
+      console.log('Filtered results:', filteredEvents.length, 'out of', allEvents.length);
 
       // Update results count
       const resultsDiv = document.getElementById('filter-results');
-      const isFiltering = keyword || dateFrom || dateTo;
-
-      if (isFiltering) {
-        resultsDiv.classList.remove('hidden');
-        resultsDiv.textContent = `נמצאו ${filteredEvents.length} אירועים מתוך ${allEvents.length}`;
-      } else {
-        resultsDiv.classList.add('hidden');
-      }
-
-      // Determine which events to show
-      const eventsToShow = isFiltering ? filteredEvents : allEvents;
+      resultsDiv.classList.remove('hidden');
+      resultsDiv.textContent = `נמצאו ${filteredEvents.length} אירועים מתוך ${allEvents.length}`;
 
       // Re-calculate stats and locations for filtered events
-      const stats = calculateStats(eventsToShow);
+      const stats = calculateStats(filteredEvents);
 
       // Re-render all sections with filtered data
       renderStats(stats);
       renderLocations(stats?.topLocations || []);
-      renderEvents(eventsToShow);
+      renderEvents(filteredEvents);
     }
 
     // Clear all filters
     function clearFilters() {
-      document.getElementById('search-keyword').value = '';
-      document.getElementById('search-date-from').value = '';
-      document.getElementById('search-date-to').value = '';
+      const searchInput = document.getElementById('search-keyword');
+      if (searchInput) {
+        searchInput.value = '';
+      }
+
       document.getElementById('filter-results').classList.add('hidden');
 
       filteredEvents = [];
@@ -669,20 +629,6 @@
       renderStats(stats);
       renderLocations(stats?.topLocations || []);
       renderEvents(allEvents);
-    }
-
-    // Toggle search section collapse/expand
-    function toggleSearchSection() {
-      const searchBody = document.getElementById('search-body');
-      const toggleIcon = document.getElementById('search-toggle-icon');
-
-      if (searchBody.classList.contains('hidden')) {
-        searchBody.classList.remove('hidden');
-        toggleIcon.textContent = '▼';
-      } else {
-        searchBody.classList.add('hidden');
-        toggleIcon.textContent = '▶';
-      }
     }
 
     // Auto-load data on page load
