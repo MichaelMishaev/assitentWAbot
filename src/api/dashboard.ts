@@ -239,12 +239,60 @@ router.get('/api/dashboard/:token/past-events', async (req: Request, res: Respon
 });
 
 /**
- * Serve the past events test/detailed report page
+ * Serve the past events test/detailed report page (with token)
+ */
+router.get('/past-events-report/:token', async (req: Request, res: Response) => {
+  try {
+    const { token } = req.params;
+
+    // Validate token
+    const tokenData = await dashboardTokenService.validateToken(token);
+    if (!tokenData) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html dir="rtl" lang="he">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>קישור לא תקין</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+        </head>
+        <body class="bg-gradient-to-br from-red-50 to-red-100 min-h-screen flex items-center justify-center p-4">
+          <div class="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+            <div class="text-6xl mb-4">🔒</div>
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">הקישור לא תקין</h1>
+            <p class="text-gray-600 mb-6">הקישור אינו תקף או שפג תוקפו (15 דקות)</p>
+            <p class="text-sm text-gray-500">שלח הודעה לבוט כדי לקבל קישור חדש</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
+    const templatePath = path.join(__dirname, '../templates/personal-report-test.html');
+    let html = await fs.readFile(templatePath, 'utf-8');
+
+    // Inject token into the HTML
+    html = html.replace('{{TOKEN}}', token);
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    logger.error('Failed to serve past events report', { error });
+    res.status(500).send('Error loading report');
+  }
+});
+
+/**
+ * Serve the past events test page (without token - for testing)
  */
 router.get('/past-events-report', async (req: Request, res: Response) => {
   try {
     const templatePath = path.join(__dirname, '../templates/personal-report-test.html');
-    const html = await fs.readFile(templatePath, 'utf-8');
+    let html = await fs.readFile(templatePath, 'utf-8');
+
+    // No token - use placeholder
+    html = html.replace('{{TOKEN}}', '');
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);

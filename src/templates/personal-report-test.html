@@ -83,8 +83,8 @@
   <!-- Main Content -->
   <div class="container mx-auto px-4 py-8">
 
-    <!-- Test Controls -->
-    <div class="glass rounded-2xl shadow-xl p-6 mb-6 fade-in">
+    <!-- Test Controls (hidden when using real token) -->
+    <div id="test-controls" class="glass rounded-2xl shadow-xl p-6 mb-6 fade-in">
       <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
         <span>🧪</span>
         <span>בקרות בדיקה</span>
@@ -120,8 +120,20 @@
       </div>
     </div>
 
-    <!-- Stats Summary -->
-    <div id="stats-section" class="glass rounded-2xl shadow-xl p-6 mb-6 slide-in hidden">
+    <!-- Top Locations (MOVED TO TOP - First section after controls) -->
+    <div id="locations-section" class="glass rounded-2xl shadow-xl p-6 mb-6 slide-in hidden">
+      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span>📍</span>
+        <span>מיקומים פופולריים</span>
+        <span class="text-sm text-gray-500 font-normal">(לחץ למיקום לפרטים)</span>
+      </h2>
+      <div id="locations-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <!-- Locations will be populated here -->
+      </div>
+    </div>
+
+    <!-- Stats Summary (MOVED AFTER Locations) -->
+    <div id="stats-section" class="glass rounded-2xl shadow-xl p-6 mb-6 slide-in hidden" style="animation-delay: 0.1s">
       <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
         <span>📈</span>
         <span>סיכום אירועי העבר</span>
@@ -151,18 +163,6 @@
       </div>
     </div>
 
-    <!-- Top Locations -->
-    <div id="locations-section" class="glass rounded-2xl shadow-xl p-6 mb-6 slide-in hidden" style="animation-delay: 0.1s">
-      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-        <span>📍</span>
-        <span>מיקומים פופולריים</span>
-        <span class="text-sm text-gray-500 font-normal">(לחץ למיקום לפרטים)</span>
-      </h2>
-      <div id="locations-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        <!-- Locations will be populated here -->
-      </div>
-    </div>
-
     <!-- Recent Events -->
     <div id="events-section" class="glass rounded-2xl shadow-xl p-6 slide-in hidden" style="animation-delay: 0.2s">
       <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
@@ -177,7 +177,7 @@
 
     <!-- Link to Detailed Report -->
     <div id="detailed-link-section" class="mt-6 flex justify-center hidden">
-      <a href="/past-events-report" target="_blank"
+      <a id="detailed-report-link" href="/past-events-report" target="_blank"
          class="glass rounded-2xl shadow-xl p-6 card-hover inline-block">
         <div class="flex items-center gap-3">
           <span class="text-3xl">📊</span>
@@ -204,6 +204,9 @@
   </div>
 
   <script>
+    // Token injected from server
+    const INJECTED_TOKEN = '{{TOKEN}}';
+
     // Store all events globally for drill-downs
     let allEvents = [];
 
@@ -510,8 +513,8 @@
       renderEvents(allEvents);
     }
 
-    async function loadWithRealAPI() {
-      const token = document.getElementById('token-input').value.trim();
+    async function loadWithRealAPI(autoToken = null) {
+      const token = autoToken || document.getElementById('token-input')?.value.trim() || '';
 
       if (!token) {
         alert('❌ נא להזין טוקן מהדשבורד');
@@ -551,10 +554,24 @@
       console.log('Data cleared');
     }
 
-    // Auto-load dummy data on page load
+    // Auto-load data on page load
     document.addEventListener('DOMContentLoaded', () => {
-      console.log('🚀 Auto-loading dummy data...');
-      loadWithMockData();
+      // Check if we have a real token injected from server
+      if (INJECTED_TOKEN && INJECTED_TOKEN.trim() !== '') {
+        console.log('🚀 Auto-loading REAL data with token...');
+        // Hide test controls when using real token
+        document.getElementById('test-controls').classList.add('hidden');
+        // Update detailed report link to include token
+        const detailedLink = document.getElementById('detailed-report-link');
+        if (detailedLink) {
+          detailedLink.href = `/past-events-report/${INJECTED_TOKEN}`;
+        }
+        // Load real data
+        loadWithRealAPI(INJECTED_TOKEN);
+      } else {
+        console.log('🧪 Test mode - no token. Showing test controls.');
+        // In test mode, don't auto-load anything - let user choose
+      }
     });
   </script>
 
