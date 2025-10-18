@@ -120,6 +120,60 @@
       </div>
     </div>
 
+    <!-- Search & Filter Section -->
+    <div id="search-section" class="glass rounded-2xl shadow-xl p-6 mb-6 hidden">
+      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span>🔍</span>
+        <span>חיפוש וסינון</span>
+      </h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Keyword Search -->
+        <div class="md:col-span-1">
+          <label class="block text-sm font-medium text-gray-700 mb-2">חיפוש חופשי</label>
+          <input
+            type="text"
+            id="search-keyword"
+            placeholder="כותרת, מיקום, הערות..."
+            oninput="applyFilters()"
+            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
+        </div>
+
+        <!-- Date From -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">מתאריך</label>
+          <input
+            type="date"
+            id="search-date-from"
+            onchange="applyFilters()"
+            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
+        </div>
+
+        <!-- Date To -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">עד תאריך</label>
+          <input
+            type="date"
+            id="search-date-to"
+            onchange="applyFilters()"
+            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
+        </div>
+      </div>
+
+      <!-- Filter Results Count -->
+      <div id="filter-results" class="mt-4 text-sm text-gray-600 hidden"></div>
+
+      <!-- Clear Filters Button -->
+      <button
+        onclick="clearFilters()"
+        class="mt-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-gray-700 font-medium transition-all">
+        נקה סינונים
+      </button>
+    </div>
+
     <!-- Top Locations (MOVED TO TOP - First section after controls) -->
     <div id="locations-section" class="glass rounded-2xl shadow-xl p-6 mb-6 slide-in hidden">
       <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
@@ -175,22 +229,7 @@
       </div>
     </div>
 
-    <!-- Link to Detailed Report -->
-    <div id="detailed-link-section" class="mt-6 flex justify-center hidden">
-      <a id="detailed-report-link" href="/past-events-report" target="_blank"
-         class="glass rounded-2xl shadow-xl p-6 card-hover inline-block">
-        <div class="flex items-center gap-3">
-          <span class="text-3xl">📊</span>
-          <div class="text-right">
-            <div class="text-xl font-bold text-gray-800">עבור לדוח המפורט</div>
-            <div class="text-sm text-gray-600">סינונים, גרפים ואגרגציה</div>
-          </div>
-          <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l-5 5 5 5"></path>
-          </svg>
-        </div>
-      </a>
-    </div>
+    <!-- Link to Detailed Report (only shown in test mode without token) -->
 
   </div>
 
@@ -209,6 +248,7 @@
 
     // Store all events globally for drill-downs
     let allEvents = [];
+    let filteredEvents = [];
 
     // Mock data generator
     function generateMockData() {
@@ -327,7 +367,10 @@
         return;
       }
 
-      container.innerHTML = events.slice(0, 10).map((event, idx) => {
+      // Show search section when we have events
+      document.getElementById('search-section').classList.remove('hidden');
+
+      container.innerHTML = events.map((event, idx) => {
         const date = new Date(event.startTsUtc);
         const dateStr = date.toLocaleDateString('he-IL', {
           weekday: 'long',
@@ -362,7 +405,6 @@
       }).join('');
 
       document.getElementById('events-section').classList.remove('hidden');
-      document.getElementById('detailed-link-section').classList.remove('hidden');
     }
 
     // Drill-down: Show all events at specific location
@@ -547,11 +589,63 @@
 
     function clearData() {
       allEvents = [];
+      filteredEvents = [];
       document.getElementById('stats-section').classList.add('hidden');
       document.getElementById('locations-section').classList.add('hidden');
       document.getElementById('events-section').classList.add('hidden');
-      document.getElementById('detailed-link-section').classList.add('hidden');
+      document.getElementById('search-section').classList.add('hidden');
       console.log('Data cleared');
+    }
+
+    // Filter events based on search criteria
+    function applyFilters() {
+      const keyword = document.getElementById('search-keyword').value.toLowerCase().trim();
+      const dateFrom = document.getElementById('search-date-from').value;
+      const dateTo = document.getElementById('search-date-to').value;
+
+      filteredEvents = allEvents.filter(event => {
+        // Keyword filter - search in title, location, notes
+        if (keyword) {
+          const matchesKeyword =
+            event.title?.toLowerCase().includes(keyword) ||
+            event.location?.toLowerCase().includes(keyword) ||
+            event.notes?.toLowerCase().includes(keyword);
+
+          if (!matchesKeyword) return false;
+        }
+
+        // Date range filter
+        const eventDate = new Date(event.startTsUtc);
+        const eventDateStr = eventDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+        if (dateFrom && eventDateStr < dateFrom) return false;
+        if (dateTo && eventDateStr > dateTo) return false;
+
+        return true;
+      });
+
+      // Update results count
+      const resultsDiv = document.getElementById('filter-results');
+      if (keyword || dateFrom || dateTo) {
+        resultsDiv.classList.remove('hidden');
+        resultsDiv.textContent = `נמצאו ${filteredEvents.length} אירועים מתוך ${allEvents.length}`;
+      } else {
+        resultsDiv.classList.add('hidden');
+      }
+
+      // Re-render events with filtered data
+      renderEvents(filteredEvents.length > 0 || keyword || dateFrom || dateTo ? filteredEvents : allEvents);
+    }
+
+    // Clear all filters
+    function clearFilters() {
+      document.getElementById('search-keyword').value = '';
+      document.getElementById('search-date-from').value = '';
+      document.getElementById('search-date-to').value = '';
+      document.getElementById('filter-results').classList.add('hidden');
+
+      filteredEvents = [];
+      renderEvents(allEvents);
     }
 
     // Auto-load data on page load

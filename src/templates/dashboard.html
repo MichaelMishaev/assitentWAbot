@@ -1470,7 +1470,7 @@
             <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(circle at 2px 2px, white 1px, transparent 0); background-size: 24px 24px;"></div>
 
             <div class="relative z-10">
-              <div class="flex items-center justify-between mb-6">
+              <div class="flex items-center justify-between mb-4">
                 <h2 class="text-3xl font-bold text-white flex items-center gap-3">
                   <span class="text-4xl drop-shadow-lg">🕐</span>
                   <span class="drop-shadow-md">אירועי העבר</span>
@@ -1480,6 +1480,19 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
                   </svg>
                 </button>
+              </div>
+
+              <!-- Detailed Report Button in Header -->
+              <div class="mt-4">
+                <a href="/past-events-report/${TOKEN}" target="_blank"
+                   class="group inline-flex items-center gap-2 px-6 py-3 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-xl font-bold transition-all duration-300 active:scale-95 border border-white/30">
+                  <span>📊</span>
+                  <span>עבור לדוח המפורט</span>
+                  <span class="text-sm opacity-80">סינונים, גרפים ואגרגציה</span>
+                  <svg class="w-4 h-4 group-hover:translate-x-[-4px] transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l-5 5 5 5"></path>
+                  </svg>
+                </a>
               </div>
 
               <!-- Stats Summary -->
@@ -1500,7 +1513,15 @@
 
         if (events && events.length > 0) {
           // Show recent past events (limit to 10 for popup)
-          content += '<div class="mb-6"><h3 class="text-lg font-bold text-gray-800 mb-3">אירועים אחרונים</h3><div class="space-y-3">';
+          const displayedEvents = Math.min(10, events.length);
+          const totalEvents = events.length;
+
+          content += `<div class="mb-6">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-lg font-bold text-gray-800">אירועים אחרונים</h3>
+              ${totalEvents > 10 ? `<span class="text-sm text-gray-500">מציג ${displayedEvents} מתוך ${totalEvents}</span>` : ''}
+            </div>
+            <div class="space-y-3">`;
 
           events.slice(0, 10).forEach((event, idx) => {
             const eventDate = new Date(event.startTsUtc);
@@ -1528,9 +1549,17 @@
 
           // Show top locations if available
           if (stats?.topLocations && stats.topLocations.length > 0) {
-            content += '<div class="mb-6"><h3 class="text-lg font-bold text-gray-800 mb-3">מיקומים פופולריים</h3><div class="grid grid-cols-2 gap-3">';
+            const displayedLocations = Math.min(5, stats.topLocations.length);
+            const totalLocations = stats.topLocations.length;
 
-            stats.topLocations.slice(0, 6).forEach((loc) => {
+            content += `<div class="mb-6">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-lg font-bold text-gray-800">מיקומים פופולריים</h3>
+                ${totalLocations > 5 ? `<span class="text-sm text-gray-500">מציג ${displayedLocations} מתוך ${totalLocations}</span>` : ''}
+              </div>
+              <div class="grid grid-cols-2 gap-3">`;
+
+            stats.topLocations.slice(0, 5).forEach((loc) => {
               content += `
                 <div class="bg-white rounded-lg p-3 border border-gray-200 flex items-center justify-between">
                   <div class="flex items-center gap-2">
@@ -1552,21 +1581,8 @@
             </div>`;
         }
 
-        // Add button to detailed report
-        content += `
-            <div class="mt-8 pt-6 border-t border-gray-200 flex justify-center">
-              <a href="/past-events-report/${TOKEN}" target="_blank"
-                 class="group relative px-8 py-4 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-2xl font-bold hover:shadow-2xl transition-all duration-300 active:scale-95 overflow-hidden inline-block">
-                <span class="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 transition-opacity duration-300"></span>
-                <span class="relative flex items-center gap-2">
-                  <span>עבור לדוח המפורט</span>
-                  <svg class="w-5 h-5 group-hover:translate-x-[-4px] transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l-5 5 5 5"></path>
-                  </svg>
-                </span>
-              </a>
-            </div>
-          </div>`;
+        // Close the scrollable content div
+        content += `</div>`;
 
         modalBody.innerHTML = content;
       } catch (error) {
