@@ -568,26 +568,26 @@ export class NLPRouter {
       return;
     }
 
-    // CRITICAL FIX: Check if time is included
-    const dt = DateTime.fromJSDate(dueDate).setZone('Asia/Jerusalem');
+    // BUG FIX (#5): Check if time is included - if not, set default to 12:00
+    let dt = DateTime.fromJSDate(dueDate).setZone('Asia/Jerusalem');
     const hasTime = dt.hour !== 0 || dt.minute !== 0;
 
     if (!hasTime) {
-      // No time specified - ask user for time
-      logger.info('NLP reminder has no time, asking user', {
+      // No time specified - set default time to 12:00
+      logger.info('NLP reminder has no time, setting default 12:00', {
         title: reminder.title,
         date: dt.toFormat('dd/MM/yyyy'),
         hour: dt.hour,
         minute: dt.minute
       });
 
-      await this.sendMessage(phone, `📌 ${reminder.title}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן שעה (למשל: 14:30)\n\nאו שלח /ביטול`);
-      await this.stateManager.setState(userId, ConversationState.ADDING_REMINDER_DATETIME, {
+      dt = dt.set({ hour: 12, minute: 0 });
+      dueDate = dt.toJSDate();
+
+      logger.info('Default time applied', {
         title: reminder.title,
-        date: dueDate.toISOString(), // ✅ FIX Bug #2: Pass the date that was already extracted
-        fromNLP: true
+        newDateTime: dt.toFormat('dd/MM/yyyy HH:mm')
       });
-      return;
     }
 
     // Validate date is not in the past (with 30 second buffer for processing delays)
