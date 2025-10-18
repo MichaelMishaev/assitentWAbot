@@ -122,12 +122,17 @@
 
     <!-- Search & Filter Section -->
     <div id="search-section" class="glass rounded-2xl shadow-xl p-6 mb-6 hidden">
-      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-        <span>🔍</span>
-        <span>חיפוש וסינון</span>
-      </h2>
+      <div class="flex items-center justify-between mb-4 cursor-pointer" onclick="toggleSearchSection()">
+        <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+          <span>🔍</span>
+          <span>חיפוש וסינון</span>
+        </h2>
+        <button class="text-gray-600 hover:text-gray-800 text-xl font-bold transition-all">
+          <span id="search-toggle-icon">▼</span>
+        </button>
+      </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div id="search-body" class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <!-- Keyword Search -->
         <div class="md:col-span-1">
           <label class="block text-sm font-medium text-gray-700 mb-2">חיפוש חופשי</label>
@@ -168,10 +173,11 @@
 
       <!-- Clear Filters Button -->
       <button
-        onclick="clearFilters()"
+        onclick="clearFilters(); event.stopPropagation();"
         class="mt-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-gray-700 font-medium transition-all">
         נקה סינונים
       </button>
+      </div>
     </div>
 
     <!-- Top Locations (MOVED TO TOP - First section after controls) -->
@@ -626,15 +632,25 @@
 
       // Update results count
       const resultsDiv = document.getElementById('filter-results');
-      if (keyword || dateFrom || dateTo) {
+      const isFiltering = keyword || dateFrom || dateTo;
+
+      if (isFiltering) {
         resultsDiv.classList.remove('hidden');
         resultsDiv.textContent = `נמצאו ${filteredEvents.length} אירועים מתוך ${allEvents.length}`;
       } else {
         resultsDiv.classList.add('hidden');
       }
 
-      // Re-render events with filtered data
-      renderEvents(filteredEvents.length > 0 || keyword || dateFrom || dateTo ? filteredEvents : allEvents);
+      // Determine which events to show
+      const eventsToShow = isFiltering ? filteredEvents : allEvents;
+
+      // Re-calculate stats and locations for filtered events
+      const stats = calculateStats(eventsToShow);
+
+      // Re-render all sections with filtered data
+      renderStats(stats);
+      renderLocations(stats?.topLocations || []);
+      renderEvents(eventsToShow);
     }
 
     // Clear all filters
@@ -645,7 +661,28 @@
       document.getElementById('filter-results').classList.add('hidden');
 
       filteredEvents = [];
+
+      // Re-calculate stats for all events
+      const stats = calculateStats(allEvents);
+
+      // Re-render all sections with full data
+      renderStats(stats);
+      renderLocations(stats?.topLocations || []);
       renderEvents(allEvents);
+    }
+
+    // Toggle search section collapse/expand
+    function toggleSearchSection() {
+      const searchBody = document.getElementById('search-body');
+      const toggleIcon = document.getElementById('search-toggle-icon');
+
+      if (searchBody.classList.contains('hidden')) {
+        searchBody.classList.remove('hidden');
+        toggleIcon.textContent = '▼';
+      } else {
+        searchBody.classList.add('hidden');
+        toggleIcon.textContent = '▶';
+      }
     }
 
     // Auto-load data on page load
