@@ -2,263 +2,61 @@ name: Deploy to Production
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: whatsapp_assistant_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 7432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 7379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 7432
-      POSTGRES_DB: whatsapp_assistant_test
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      REDIS_HOST: localhost
-      REDIS_PORT: 7379
-
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🔧 Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: 📦 Install dependencies
-        run: npm ci
-
-      - name: 🗄️ Initialize test database
-        run: |
-          PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1733086800000_initial-schema.sql
-          PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1733176800000_add_event_comments_jsonb.sql
-          PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1739000000000_add-cost-tracking.sql
-          PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1739100000000_add-user-profiles.sql
-          PGPASSWORD=postgres psql -h localhost -p 7432 -U postgres -d whatsapp_assistant_test -f migrations/1739200000000_add-event-participants.sql
-
-      - name: 🧪 Run tests
-        run: npm test
-        continue-on-error: false
-
-      - name: 🔨 Build TypeScript
-        run: npm run build
-
-      - name: 📱 Send WhatsApp notification (Tests Failed)
-        if: failure()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script: |
-            cd /root/wAssitenceBot
-            COMMIT_HASH="${{ github.sha }}"
-            COMMIT_SHORT="${COMMIT_HASH:0:7}"
-            COMMIT_MSG=$(cat <<'COMMIT_EOF'
-            ${{ github.event.head_commit.message }}
-            COMMIT_EOF
-            )
-
-            MESSAGE="❌ *TESTS FAILED - DEPLOYMENT BLOCKED!*
-
-            🧪 Tests failed - deployment cancelled
-            📝 Commit: ${COMMIT_MSG} (${COMMIT_SHORT})
-
-            🔍 Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            ⚠️ Fix tests and push again to deploy"
-
-            node scripts/send-deployment-notification.js "failure" "$COMMIT_SHORT" "$MESSAGE" || echo "Failed to send WhatsApp notification"
-
   deploy:
-    name: Deploy to DigitalOcean
     runs-on: ubuntu-latest
-    needs: test
 
     steps:
-      - name: 🚀 Deploy to server
-        id: deploy
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script_stop: false
-          command_timeout: 10m
-          script: |
-            /root/deploy.sh
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: ✅ Deployment notification
-        if: success()
-        run: |
-          echo "🎉 Deployment successful!"
-          echo "Server: ${{ secrets.SSH_HOST }}"
-          echo "Time: $(date)"
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
 
-      - name: ❌ Send WhatsApp notification (Deploy Failed)
-        if: failure()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script: |
-            cd /root/wAssitenceBot
-            COMMIT_HASH="${{ github.sha }}"
-            COMMIT_SHORT="${COMMIT_HASH:0:7}"
-            COMMIT_MSG=$(cat <<'COMMIT_EOF'
-            ${{ github.event.head_commit.message }}
-            COMMIT_EOF
-            )
+    - name: Install dependencies
+      run: npm ci
 
-            MESSAGE="❌ *DEPLOYMENT FAILED!*
+    - name: Build TypeScript
+      run: npm run build
 
-            🚨 Deploy script failed to execute
-            📝 Commit: ${COMMIT_MSG} (${COMMIT_SHORT})
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H 167.71.145.9 >> ~/.ssh/known_hosts
 
-            🔍 Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    - name: Deploy to production
+      run: |
+        rsync -avz --delete \
+          --exclude='.git' \
+          --exclude='node_modules' \
+          --exclude='wwebjs_auth' \
+          --exclude='sessions' \
+          --exclude='.wwebjs_cache' \
+          --exclude='*.log' \
+          dist/ root@167.71.145.9:~/wAssitenceBot/dist/
 
-            ⚠️ Bot may still be running with old code"
+    - name: Restart PM2
+      run: |
+        ssh root@167.71.145.9 "cd ~/wAssitenceBot && pm2 restart ultrathink"
 
-            node scripts/send-deployment-notification.js "failure" "$COMMIT_SHORT" "$MESSAGE" || echo "Failed to send WhatsApp notification"
+    - name: Verify deployment
+      run: |
+        ssh root@167.71.145.9 "cd ~/wAssitenceBot && pm2 status ultrathink"
 
-      - name: ❌ Deployment failed notification
-        if: failure()
-        run: |
-          echo "⚠️ Deployment failed!"
-          echo "Check the logs above for details"
-          exit 1
+    - name: Get latest commit info
+      if: success()
+      run: |
+        echo "✅ Successfully deployed commit: $(git log -1 --pretty=%B)"
 
-  health-check:
-    name: Health Check
-    runs-on: ubuntu-latest
-    needs: deploy
-
-    steps:
-      - name: 🏥 Check server health
-        id: health
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script: |
-            echo "Checking PM2 status..."
-            pm2 status ultrathink
-
-            echo ""
-            echo "Checking if process is online..."
-            if pm2 status | grep -q "ultrathink.*online"; then
-              echo "✅ Process is running"
-              exit 0
-            else
-              echo "❌ Process is not running!"
-              exit 1
-            fi
-
-      - name: 📱 Send WhatsApp notification (Success)
-        if: success()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script: |
-            cd /root/wAssitenceBot
-            COMMIT_HASH="${{ github.sha }}"
-            COMMIT_SHORT="${COMMIT_HASH:0:7}"
-            COMMIT_MSG=$(cat <<'COMMIT_EOF'
-            ${{ github.event.head_commit.message }}
-            COMMIT_EOF
-            )
-
-            # Make status check script executable
-            chmod +x scripts/check-bot-status.sh
-
-            # Get bot status
-            BOT_STATUS=$(bash scripts/check-bot-status.sh)
-            echo "Bot status: $BOT_STATUS"
-
-            # Parse JSON
-            QR_REQUIRED=$(echo "$BOT_STATUS" | jq -r '.qr_required')
-            WA_CONNECTED=$(echo "$BOT_STATUS" | jq -r '.whatsapp_connected')
-
-            # Build message
-            if [ "$QR_REQUIRED" = "true" ]; then
-              MESSAGE="✅ Deployment successful but ⚠️ *QR CODE SCAN REQUIRED!*
-
-            📱 Bot is running but WhatsApp needs authentication.
-            🔍 Check server: ssh root@167.71.145.9
-            📋 View QR: cat /root/wAssitenceBot/sessions/qr-code.png
-
-            Commit: ${COMMIT_MSG} (${COMMIT_SHORT})"
-            elif [ "$WA_CONNECTED" = "true" ]; then
-              MESSAGE="✅ Deployment successful - Bot fully operational!
-
-            📱 WhatsApp connected
-            🚀 All systems running
-
-            Commit: ${COMMIT_MSG} (${COMMIT_SHORT})"
-            else
-              MESSAGE="✅ Deployment successful - Bot starting up
-
-            ⏳ WhatsApp connection initializing...
-
-            Commit: ${COMMIT_MSG} (${COMMIT_SHORT})"
-            fi
-
-            # Send notification
-            node scripts/send-deployment-notification.js "success" "$COMMIT_SHORT" "$MESSAGE" || true
-
-      - name: 📱 Send WhatsApp notification (Failure)
-        if: failure()
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script: |
-            cd /root/wAssitenceBot
-            COMMIT_HASH="${{ github.sha }}"
-            COMMIT_SHORT="${COMMIT_HASH:0:7}"
-            COMMIT_MSG=$(cat <<'COMMIT_EOF'
-            ${{ github.event.head_commit.message }}
-            COMMIT_EOF
-            )
-            node scripts/send-deployment-notification.js "failure" "$COMMIT_SHORT" "❌ Health check failed! Check GitHub Actions logs. Commit: ${COMMIT_MSG}" || true
-
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "❌ Deployment failed! Check logs above."
