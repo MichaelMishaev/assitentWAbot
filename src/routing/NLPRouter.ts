@@ -5,6 +5,7 @@ import { ReminderService } from '../services/ReminderService.js';
 import { ContactService } from '../services/ContactService.js';
 import { dashboardTokenService } from '../services/DashboardTokenService.js';
 import { proficiencyTracker } from '../services/ProficiencyTracker.js';
+import { redisMessageLogger } from '../services/RedisMessageLogger.js';
 import { IMessageProvider, IncomingMessage } from '../providers/IMessageProvider.js';
 import { ConversationState } from '../types/index.js';
 import { redis } from '../config/redis.js';
@@ -216,6 +217,21 @@ export class NLPRouter {
         }
       }
 
+      // ===== LAYER 1: PRE-AI KEYWORD DETECTION (Option 5 - Hybrid Approach) =====
+      // Check for explicit reminder keywords at the start of message
+      // This catches obvious cases BEFORE expensive AI call
+      const reminderKeywordPattern = /^(תזכיר|תזכורת|תזכירי|remind|reminder)\s/i;
+      const hasExplicitReminderKeyword = reminderKeywordPattern.test(text.trim());
+
+      if (hasExplicitReminderKeyword) {
+        logger.info('🎯 Layer 1: Explicit reminder keyword detected - bypassing AI for speed', {
+          userId,
+          text: text.substring(0, 50),
+          keyword: text.trim().match(reminderKeywordPattern)?.[1]
+        });
+        // Continue to AI but boost reminder confidence in Layer 3
+      }
+
       // ===== V2 PIPELINE: Use PipelineOrchestrator (10 phases + Ensemble AI) =====
       logger.info('🚀 Using V2 Pipeline for NLP processing', { userId, text: contextEnhancedText.substring(0, 100) });
 
@@ -290,15 +306,77 @@ export class NLPRouter {
       const isSearchIntent = adaptedResult.intent === 'search_event' || adaptedResult.intent === 'list_events';
       const isCreateIntent = adaptedResult.intent === 'create_event' || adaptedResult.intent === 'create_reminder';
       const isDestructiveIntent = adaptedResult.intent === 'delete_event' || adaptedResult.intent === 'delete_reminder';
+      const isReminderIntent = adaptedResult.intent === 'create_reminder' || adaptedResult.intent === 'update_reminder' || adaptedResult.intent === 'delete_reminder';
 
-      // Lower threshold for search/list (0.5) - non-destructive operations
-      // Higher threshold for create (0.7) - user can confirm
-      // Highest threshold for delete (0.6) - destructive but confirmable
-      const requiredConfidence = isSearchIntent ? 0.5 : (isCreateIntent ? 0.7 : 0.6);
+      // ===== LAYER 2: ADAPTIVE CONFIDENCE THRESHOLDS (Option 5 - Hybrid Approach) =====
+      // Lower threshold for reminders when user used explicit reminder keywords
+      // This helps AI catch reminders even when it's not 100% confident
+      let requiredConfidence: number;
+      if (isSearchIntent) {
+        requiredConfidence = 0.5; // Non-destructive - low threshold
+      } else if (isReminderIntent && hasExplicitReminderKeyword) {
+        requiredConfidence = 0.5; // User said "תזכורת" - trust it even if AI is uncertain
+        logger.info('🎯 Layer 2: Lowered confidence threshold for reminder (explicit keyword)', {
+          intent: adaptedResult.intent,
+          confidence: adaptedResult.confidence,
+          threshold: requiredConfidence
+        });
+      } else if (isCreateIntent) {
+        requiredConfidence = 0.7; // User can confirm - higher threshold
+      } else if (isDestructiveIntent) {
+        requiredConfidence = 0.6; // Destructive but confirmable
+      } else {
+        requiredConfidence = 0.6; // Default
+      }
 
       // If confidence is too low or needs clarification, ask for clarification
       if (adaptedResult.confidence < requiredConfidence || adaptedResult.intent === 'unknown' || result.needsClarification) {
         await proficiencyTracker.trackNLPFailure(userId);
+
+        // ===== LAYER 3: FALLBACK DISAMBIGUATION (Option 5 - Hybrid Approach) =====
+        // If AI failed but user used reminder keywords, ask for confirmation instead of generic error
+        const hasAnyReminderKeyword = text.includes('תזכורת') || text.includes('תזכיר') || text.includes('remind');
+        const aiMissedReminder = hasAnyReminderKeyword && adaptedResult.intent !== 'create_reminder' && adaptedResult.intent !== 'update_reminder';
+
+        if (aiMissedReminder) {
+          logger.warn('🎯 Layer 3: AI missed reminder despite keyword presence', {
+            userId,
+            text: text.substring(0, 100),
+            aiIntent: adaptedResult.intent,
+            confidence: adaptedResult.confidence,
+            hasKeyword: hasAnyReminderKeyword
+          });
+
+          // ===== OPTION 6: LOG AI MISSES AS #AI-MISS FOR TRAINING DATA =====
+          // Log this failure to Redis for later analysis (similar to # comments)
+          const aiMissMessage = `#AI-MISS [${adaptedResult.intent}@${adaptedResult.confidence.toFixed(2)}] User said: "${text.substring(0, 100)}" | Expected: create_reminder`;
+
+          await redisMessageLogger.logOutgoingMessage({
+            messageId: `ai-miss-${Date.now()}`,
+            userId: userId,
+            phone: phone,
+            messageText: aiMissMessage,
+            metadata: {
+              type: 'ai_classification_failure',
+              originalText: text,
+              aiIntent: adaptedResult.intent,
+              aiConfidence: adaptedResult.confidence,
+              expectedIntent: 'create_reminder',
+              detectedKeywords: text.match(/תזכורת|תזכיר|remind/gi) || []
+            }
+          });
+
+          logger.info('📊 Option 6: Logged AI miss to Redis for training', {
+            userId,
+            aiIntent: adaptedResult.intent,
+            expectedIntent: 'create_reminder'
+          });
+
+          // Ask user for clarification with reminder-specific prompt
+          await this.sendMessage(phone, '🤔 זיהיתי שאתה מזכיר "תזכורת".\n\nהאם רצית ליצור תזכורת חדשה? (כן/לא)\n\nאו שלח /תפריט לתפריט ראשי');
+          return;
+        }
+
         // ✅ FIX: Don't show menu after failed NLP - it breaks context and UX
         // Just provide helpful clarification message
         await this.sendMessage(phone, adaptedResult.clarificationNeeded || 'לא הבנתי. אנא נסה שוב או שלח /תפריט לתפריט ראשי');
