@@ -169,4 +169,89 @@ router.get('/api/dashboard/:token', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * API endpoint to fetch past events with aggregation
+ */
+router.get('/api/dashboard/:token/past-events', async (req: Request, res: Response) => {
+  try {
+    const { token } = req.params;
+    const {
+      limit,
+      offset,
+      startDate,
+      endDate,
+      groupBy,
+      includeStats
+    } = req.query;
+
+    // Validate token
+    const tokenData = await dashboardTokenService.validateToken(token);
+    if (!tokenData) {
+      return res.status(404).json({ error: 'Invalid or expired token' });
+    }
+
+    const userId = tokenData.userId;
+    const eventService = new EventService();
+
+    // Build options object
+    const options: any = {
+      limit: limit ? parseInt(limit as string) : 50,
+      offset: offset ? parseInt(offset as string) : 0,
+      includeStats: includeStats === 'true',
+    };
+
+    if (startDate) {
+      options.startDate = new Date(startDate as string);
+    }
+    if (endDate) {
+      options.endDate = new Date(endDate as string);
+    }
+    if (groupBy && ['day', 'week', 'month', 'year'].includes(groupBy as string)) {
+      options.groupBy = groupBy as 'day' | 'week' | 'month' | 'year';
+    }
+
+    // Fetch past events
+    const result = await eventService.getPastEvents(userId, options);
+
+    // Get TTL for the token
+    const ttl = await dashboardTokenService.getTokenTTL(token);
+
+    res.json({
+      success: true,
+      expiresIn: ttl,
+      data: {
+        events: result.events.map((e: any) => ({
+          id: e.id,
+          title: e.title,
+          startTsUtc: e.startTsUtc,
+          endTsUtc: e.endTsUtc,
+          location: e.location,
+          notes: e.notes,
+          isAllDay: e.isAllDay,
+        })),
+        stats: result.stats,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to fetch past events', { error });
+    res.status(500).json({ error: 'Failed to fetch past events' });
+  }
+});
+
+/**
+ * Serve the past events test/detailed report page
+ */
+router.get('/past-events-report', async (req: Request, res: Response) => {
+  try {
+    const templatePath = path.join(__dirname, '../templates/personal-report-test.html');
+    const html = await fs.readFile(templatePath, 'utf-8');
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    logger.error('Failed to serve past events report', { error });
+    res.status(500).send('Error loading report');
+  }
+});
+
 export default router;

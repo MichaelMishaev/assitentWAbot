@@ -174,12 +174,14 @@ export class AIEntityExtractor {
   private buildExtractionPrompt(text: string, intent: string, timezone: string): string {
     const now = DateTime.now().setZone(timezone);
     const today = now.toFormat('yyyy-MM-dd');
+    const currentYear = now.year;
 
     return `Extract entities from this Hebrew text for a calendar bot.
 
 Text: "${text}"
 Intent: ${intent}
 Today's date: ${today} (${now.toFormat('EEEE')})
+Current year: ${currentYear}
 Timezone: ${timezone}
 
 Extract and return JSON with these fields:
@@ -202,11 +204,21 @@ Extract and return JSON with these fields:
 
 Rules:
 1. Convert Hebrew relative dates: "היום"=today, "מחר"=tomorrow, "מחרתיים"=day after tomorrow
-2. Convert Hebrew time words: "בערב"=19:00, "בבוקר"=09:00, "אחרי הצהריים"=14:00
+2. Convert Hebrew time words: "בערב"=19:00, "בבוקר"=09:00, "אחרי הצהריים"=14:00, "בלילה"=22:00
 3. Extract participants from "עם X" patterns (e.g., "עם איתי" → ["איתי"])
 4. Title should NOT include date, time, or participants
 5. Return null for missing fields
 6. Be confident when patterns are clear
+7. **CRITICAL - Date Without Year:** If user provides date without year (e.g., "20.10", "20/10"):
+   - First try using current year (${currentYear})
+   - If that results in a PAST date, use NEXT year (${currentYear + 1})
+   - Example: Today is ${today}. User says "10.10" → that's October 10
+     * If using ${currentYear} would make it past (10-10-${currentYear} < ${today}), use ${currentYear + 1}
+     * Always prefer future dates for events
+8. **CRITICAL - Time Extraction:** ALWAYS extract time when present, even if on same line as date
+   - Examples: "20.10 בשעה 15:00" → date: "2025-10-20", time: "15:00"
+   - "פגישה 20.10 15:00" → date: "2025-10-20", time: "15:00"
+   - "20.10 ב-15:00" → date: "2025-10-20", time: "15:00"
 
 Return ONLY valid JSON, no explanation.`;
   }
@@ -232,8 +244,26 @@ Return ONLY valid JSON, no explanation.`;
 
     // Date
     if (parsed.date && typeof parsed.date === 'string') {
-      const dt = DateTime.fromISO(parsed.date, { zone: timezone });
+      let dt = DateTime.fromISO(parsed.date, { zone: timezone });
       if (dt.isValid) {
+        // SAFETY CHECK: If date is in the past, auto-increment year
+        // This catches cases where AI didn't follow the smart year detection rule
+        const now = DateTime.now().setZone(timezone);
+
+        // Only check date without time - if user specified a date, we assume they mean the future
+        const dateOnly = dt.startOf('day');
+        const todayStart = now.startOf('day');
+
+        if (dateOnly < todayStart) {
+          // Date is in the past - add one year
+          dt = dt.plus({ years: 1 });
+          logger.info('Auto-corrected past date to future', {
+            original: parsed.date,
+            corrected: dt.toFormat('yyyy-MM-dd'),
+            reason: 'Date was in the past, assuming user meant next year'
+          });
+        }
+
         result.date = dt.toJSDate();
         result.dateText = parsed.dateText || parsed.date;
       }

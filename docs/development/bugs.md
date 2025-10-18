@@ -724,6 +724,150 @@ Returns top 10 most visited locations
 5. Add calendar heatmap visualization
 
 ---
+
+## 🐛 PENDING BUGS
+
+### 9. Date Parsing Without Year + Time Recognition Issues
+**Reported:** 2025-10-18 via WhatsApp (#comment)
+**User Message:** `# רשם לי שהתאריך בעבר , ברגע שהוספתי שנה הוא הבין , בנוסף הוא לא מזהה את השעה של האירוע`
+
+**Translation:** "It registered the date as past, once I added the year it understood, also it doesn't recognize the event time"
+
+**Two Issues Identified:**
+
+#### Issue A: Date Without Year Interpreted as Past
+**Problem:**
+- When user enters a date without specifying the year (e.g., "20.10" or "20/10")
+- System interprets it as a past date instead of the upcoming occurrence
+- User must explicitly add the year (e.g., "20.10.2025") for correct parsing
+
+**Example:**
+```
+User: "פגישה 20.10 בשעה 15:00"
+Bot interprets: 20/10/2024 (past date) ❌
+Expected: 20/10/2025 (next occurrence) ✅
+```
+
+**Root Cause:**
+- Date parser likely defaults to current year without checking if the resulting date is in the past
+- Missing logic to "roll forward" to next year when parsed date < today
+
+**Expected Behavior:**
+- If parsed date (with current year) is in the past → automatically use next year
+- Example: Today is 2025-10-18, user says "10.10" → should parse as 2025-11-10 or 2026-10-10
+
+#### Issue B: Event Time Not Recognized
+**Problem:**
+- System doesn't recognize the time component of the event
+- Time is specified but not extracted/used
+
+**Example:**
+```
+User: "פגישה 20.10 בשעה 15:00"
+Bot extracts: Date 20/10, but NO time ❌
+Expected: Date 20/10 at 15:00 ✅
+```
+
+**Root Cause (Suspected):**
+- Time extraction in NLP might be failing when date and time are in same message
+- Possible regex/pattern issue in entity extraction phase
+- Could be related to Bug #3 (multi-line parsing) - time on same line not being detected
+
+**Files to Investigate:**
+1. `src/services/NLPService.ts` - Date/time entity extraction
+2. `src/pipeline/phases/EntityExtractionPhase.ts` - Entity parsing logic
+3. Date parsing utilities (if any exist)
+
+**Fix Applied:**
+
+**Files Modified:**
+
+1. **`src/domain/phases/phase3-entity-extraction/AIEntityExtractor.ts`**
+
+   **Lines 174-224** - Updated AI extraction prompt:
+   - Added Rule 7: CRITICAL instruction for smart year detection
+   - AI now checks if date without year would be past, and uses next year if needed
+   - Added explicit current year context: `Current year: ${currentYear}`
+
+   **Lines 245-270** - Added safety check in `parseAIResponse()`:
+   - Post-processing validation after AI extraction
+   - If AI returns past date, automatically increments year by 1
+   - Logs the correction for debugging: `'Auto-corrected past date to future'`
+
+   **Lines 212-221** - Enhanced Rule 8: CRITICAL emphasis on time extraction:
+   - Explicit examples showing time extraction from same line as date
+   - Formats covered: "20.10 בשעה 15:00", "20.10 15:00", "20.10 ב-15:00"
+
+2. **`src/utils/hebrewDateParser.ts`**
+
+   **Lines 304-318** - Implemented smart year detection:
+   ```typescript
+   if (!dateFormatMatch[3]) {
+     const testDate = DateTime.fromObject({ year, month, day }).startOf('day');
+     if (testDate.isValid && testDate < now.startOf('day')) {
+       year = now.year + 1;
+       console.log(`[SMART_YEAR] Date ${day}/${month} is past, using next year: ${year}`);
+     }
+   }
+   ```
+
+   **Lines 339-341** - Removed past date rejection:
+   - Old code rejected all past dates with error "לא ניתן להזין תאריך בעבר"
+   - Now accepts dates and auto-corrects them to next year
+
+**How It Works:**
+
+**Multi-Layer Defense:**
+1. **Layer 1 (AI Prompt)** - AI is instructed to use smart year logic
+2. **Layer 2 (parseAIResponse)** - If AI fails, post-processing fixes it
+3. **Layer 3 (hebrewDateParser)** - Fallback parser also has smart year detection
+
+**Examples:**
+```
+Today: 2025-10-18
+
+Input: "פגישה 10.10 בשעה 15:00"
+Old behavior: ❌ Rejected "לא ניתן להזין תאריך בעבר" OR created 2024-10-10 (past)
+New behavior: ✅ Creates event 2026-10-10 15:00 (next year, with time)
+
+Input: "פגישה 25.12 בשעה 14:00"
+Old behavior: ✅ Created 2025-12-25 but might miss time
+New behavior: ✅ Creates event 2025-12-25 14:00 (current year, with time)
+
+Input: "פגישה 20.10.2025 בשעה 16:00"
+Old behavior: ✅ Worked but might miss time
+New behavior: ✅ Creates event 2025-10-20 16:00 (specified year, with time)
+```
+
+**Testing:**
+
+Created comprehensive test script: `test-date-time-fixes.ts`
+
+**Test Results:**
+```
+✅ PASS: Date 25.12 → 2025-12-25 (future month, uses current year)
+✅ PASS: Date 10.10 → 2026-10-10 (past month, smart year detection!)
+✅ PASS: "20.10 בשעה 15:00" → extracted time 15:00
+✅ PASS: "20.10 15:00" → extracted time 15:00
+✅ PASS: "20.10 ב-15:00" → extracted time 15:00
+✅ PASS: "20.10.2025" → used specified year
+
+📊 Results: 6 passed, 0 failed
+```
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-18
+**Priority:** HIGH (affects event creation accuracy)
+**Impact:**
+- Users no longer need to specify year for future dates
+- Times are properly extracted even on same line as date
+- All date formats work correctly
+- System intelligently assumes future dates
+
+**Deployment:**
+Run `npm run build` to compile TypeScript changes to production.
+
+---
 ### 8. Default Time for Reminders + Hybrid Reminder Detection
 **Issue:** Multiple bugs reported by users:
 - Bug #5: "for reminders if time not set, set default 12:00"

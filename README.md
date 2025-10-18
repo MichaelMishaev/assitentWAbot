@@ -157,6 +157,65 @@ All 3 keys are **required** for the bot to work properly.
 
 ---
 
+## 🚀 Deployment (Auto-Deploy with GitHub Actions)
+
+### Quick Deploy
+
+**Just push to deploy:**
+
+```bash
+git add .
+git commit -m "your changes"
+git push
+```
+
+**That's it!** GitHub Actions automatically:
+- ✅ Builds TypeScript (~2 minutes)
+- ✅ Deploys to production server
+- ✅ Restarts PM2
+- ✅ Verifies bot is running
+
+### Monitor Deployments
+
+**GitHub Actions Dashboard:**
+https://github.com/MichaelMishaev/assitentWAbot/actions
+
+You'll see:
+- ⏳ **Yellow circle** = Building...
+- ✅ **Green checkmark** = Deployed successfully
+- ❌ **Red X** = Failed (check logs)
+
+### Deploy from Anywhere
+
+**From your phone:**
+1. Use GitHub mobile app
+2. Make a commit
+3. Auto-deploys in 2 minutes
+
+**Manual trigger:**
+1. Go to Actions tab
+2. Click "Deploy to Production"
+3. Click "Run workflow"
+
+### Rollback
+
+**If something breaks:**
+```bash
+git revert HEAD
+git push    # Deploys previous version
+```
+
+### Setup (One-Time)
+
+Already configured! The workflow uses:
+- **File:** `.github/workflows/deploy.yml`
+- **Secret:** `SSH_PRIVATE_KEY` (already in GitHub Secrets)
+- **Server:** `root@167.71.145.9`
+
+**No manual setup needed!** Just push and it works.
+
+---
+
 ## 📋 Timeline
 
 - **Week 1-2:** Foundation (DB, Baileys, BullMQ)

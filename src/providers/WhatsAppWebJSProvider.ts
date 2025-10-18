@@ -120,11 +120,31 @@ export class WhatsAppWebJSProvider implements IMessageProvider {
 
       // Disconnected event
       this.client.on('disconnected', (reason: any) => {
-        logger.warn('⚠️ WhatsApp disconnected:', reason);
+        logger.warn('⚠️ WhatsApp disconnected:', { reason });
         this.updateConnectionState({ status: 'disconnected' });
 
+        // Check if this is a LOGOUT (session invalidated by user)
+        // vs a temporary disconnection that can be auto-recovered
+        const isLogout = reason === 'LOGOUT' ||
+                        (typeof reason === 'string' && reason.includes('LOGOUT'));
+
+        if (isLogout) {
+          logger.error('🚨 CRITICAL: WhatsApp session LOGGED OUT by user!');
+          logger.error('🔐 Manual QR scan required. Bot will NOT auto-reconnect.');
+          logger.error('📱 Action needed: Restart bot and scan QR code');
+
+          // Stop auto-reconnect to prevent crash loop
+          this.shouldReconnect = false;
+
+          // Exit process to force manual intervention
+          // PM2 will keep process stopped until manual restart
+          logger.error('⏹️  Stopping bot to prevent crash loop. Run: pm2 restart ultrathink');
+          process.exit(1);
+        }
+
+        // For non-logout disconnections, try to reconnect
         if (this.shouldReconnect) {
-          logger.info('Attempting to reconnect...');
+          logger.info('Attempting to reconnect in 5 seconds...');
           setTimeout(() => {
             this.initialize();
           }, 5000);

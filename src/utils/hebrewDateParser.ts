@@ -282,7 +282,7 @@ export function parseHebrewDate(
   if (dateFormatMatch) {
     const day = parseInt(dateFormatMatch[1], 10);
     const month = parseInt(dateFormatMatch[2], 10);
-    const year = dateFormatMatch[3] ? parseInt(dateFormatMatch[3], 10) : now.year;
+    let year = dateFormatMatch[3] ? parseInt(dateFormatMatch[3], 10) : now.year;
 
     // Validate date components
     if (month < 1 || month > 12) {
@@ -299,6 +299,22 @@ export function parseHebrewDate(
         date: null,
         error: 'יום לא תקין. יש להזין יום בין 1-31',
       };
+    }
+
+    // SMART YEAR DETECTION: If no year provided and date would be in past, use next year
+    if (!dateFormatMatch[3]) {
+      // User didn't specify year - we defaulted to current year above
+      // Check if this would result in a past date
+      const testDate = DateTime.fromObject(
+        { year, month, day },
+        { zone: timezone }
+      ).startOf('day');
+
+      if (testDate.isValid && testDate < now.startOf('day')) {
+        // Date is in the past - user likely meant next year
+        year = now.year + 1;
+        console.log(`[SMART_YEAR] Date ${day}/${month} is past, using next year: ${year}`);
+      }
     }
 
     // Create date and check if it's valid
@@ -320,15 +336,9 @@ export function parseHebrewDate(
       };
     }
 
-    // Check if date is in the past (only if no time specified, or if both date and time are in the past)
-    const comparison = extractedTime ? parsedDate : parsedDate.startOf('day');
-    if (comparison < now.startOf(extractedTime ? 'minute' : 'day')) {
-      return {
-        success: false,
-        date: null,
-        error: 'לא ניתן להזין תאריך בעבר',
-      };
-    }
+    // REMOVED: No longer reject past dates since we auto-correct them above
+    // The old code rejected all past dates, but with smart year detection,
+    // dates without year are automatically moved to next year if needed
 
     return {
       success: true,

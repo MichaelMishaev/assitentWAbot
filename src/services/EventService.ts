@@ -680,6 +680,146 @@ export class EventService {
       throw error;
     }
   }
+
+  /**
+   * Get past events for user with optional filtering and aggregation
+   */
+  async getPastEvents(
+    userId: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      startDate?: Date;
+      endDate?: Date;
+      groupBy?: 'day' | 'week' | 'month' | 'year';
+      includeStats?: boolean;
+    }
+  ): Promise<{
+    events: Event[];
+    stats?: {
+      totalCount: number;
+      dateRange: { start: Date; end: Date };
+      groupedCounts?: Array<{ period: string; count: number; events: Event[] }>;
+      topLocations?: Array<{ location: string; count: number }>;
+      averageEventsPerDay?: number;
+    };
+  }> {
+    try {
+      const limit = options?.limit || 50;
+      const offset = options?.offset || 0;
+      const endDate = options?.endDate || new Date();
+
+      // Build the base query
+      let query = `
+        SELECT * FROM events
+        WHERE user_id = $1 AND start_ts_utc < $2
+      `;
+      const values: any[] = [userId, endDate];
+      let paramIndex = 3;
+
+      // Add optional start date filter
+      if (options?.startDate) {
+        query += ` AND start_ts_utc >= $${paramIndex}`;
+        values.push(options.startDate);
+        paramIndex++;
+      }
+
+      query += ` ORDER BY start_ts_utc DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+      values.push(limit, offset);
+
+      const result = await this.dbPool.query(query, values);
+      const events = result.rows.map(row => this.mapRowToEvent(row));
+
+      // If stats not requested, return just events
+      if (!options?.includeStats) {
+        return { events };
+      }
+
+      // Calculate statistics
+      const statsQuery = `
+        SELECT COUNT(*) as total_count, MIN(start_ts_utc) as earliest, MAX(start_ts_utc) as latest
+        FROM events
+        WHERE user_id = $1 AND start_ts_utc < $2
+        ${options?.startDate ? `AND start_ts_utc >= $${values.length - 1}` : ''}
+      `;
+      const statsResult = await this.dbPool.query(statsQuery, [userId, endDate, ...(options?.startDate ? [options.startDate] : [])]);
+      const statsRow = statsResult.rows[0];
+
+      // Group by period if requested
+      let groupedCounts;
+      if (options?.groupBy) {
+        const dateFormat = {
+          day: 'YYYY-MM-DD',
+          week: 'YYYY-"W"IW',
+          month: 'YYYY-MM',
+          year: 'YYYY'
+        }[options.groupBy];
+
+        const groupQuery = `
+          SELECT
+            TO_CHAR(start_ts_utc, '${dateFormat}') as period,
+            COUNT(*) as count,
+            json_agg(json_build_object(
+              'id', id,
+              'title', title,
+              'startTsUtc', start_ts_utc,
+              'location', location
+            ) ORDER BY start_ts_utc) as events
+          FROM events
+          WHERE user_id = $1 AND start_ts_utc < $2
+          ${options?.startDate ? `AND start_ts_utc >= $${values.length - 1}` : ''}
+          GROUP BY period
+          ORDER BY period DESC
+          LIMIT 50
+        `;
+        const groupResult = await this.dbPool.query(groupQuery, [userId, endDate, ...(options?.startDate ? [options.startDate] : [])]);
+        groupedCounts = groupResult.rows.map(row => ({
+          period: row.period,
+          count: parseInt(row.count),
+          events: row.events
+        }));
+      }
+
+      // Get top locations
+      const locationQuery = `
+        SELECT location, COUNT(*) as count
+        FROM events
+        WHERE user_id = $1 AND start_ts_utc < $2 AND location IS NOT NULL
+        ${options?.startDate ? `AND start_ts_utc >= $${values.length - 1}` : ''}
+        GROUP BY location
+        ORDER BY count DESC
+        LIMIT 10
+      `;
+      const locationResult = await this.dbPool.query(locationQuery, [userId, endDate, ...(options?.startDate ? [options.startDate] : [])]);
+      const topLocations = locationResult.rows.map(row => ({
+        location: row.location,
+        count: parseInt(row.count)
+      }));
+
+      // Calculate average events per day
+      const totalDays = statsRow.earliest && statsRow.latest
+        ? Math.max(1, Math.ceil((new Date(statsRow.latest).getTime() - new Date(statsRow.earliest).getTime()) / (1000 * 60 * 60 * 24)))
+        : 1;
+      const averageEventsPerDay = parseInt(statsRow.total_count) / totalDays;
+
+      return {
+        events,
+        stats: {
+          totalCount: parseInt(statsRow.total_count),
+          dateRange: {
+            start: statsRow.earliest ? new Date(statsRow.earliest) : new Date(),
+            end: statsRow.latest ? new Date(statsRow.latest) : new Date()
+          },
+          groupedCounts,
+          topLocations,
+          averageEventsPerDay: Math.round(averageEventsPerDay * 100) / 100
+        }
+      };
+    } catch (error) {
+      logger.error('Failed to get past events', { userId, options, error });
+      throw error;
+    }
+  }
 }
 
 // Export singleton instance

@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>אירועי העבר - דף ניסיון</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#667eea',
+            secondary: '#764ba2',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slideIn {
+      from { transform: translateX(-100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .fade-in { animation: fadeIn 0.5s ease-out; }
+    .slide-in { animation: slideIn 0.4s ease-out; }
+    .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+    .card-hover { transition: all 0.3s ease; }
+    .card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); }
+    .stat-card {
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.5s ease-out;
+    }
+    .stat-card.loaded::before {
+      transform: scaleX(1);
+    }
+    .toggle-btn {
+      transition: all 0.3s ease;
+      position: relative;
+    }
+    .toggle-btn.active {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    .filter-panel {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.4s ease-out;
+    }
+    .filter-panel.expanded {
+      max-height: 600px;
+    }
+    .event-card {
+      border-right: 4px solid #667eea;
+      transition: all 0.3s ease;
+    }
+    .event-card:hover {
+      transform: translateX(-4px);
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+    }
+    .group-section {
+      border-right: 3px solid #e5e7eb;
+      padding-right: 1rem;
+    }
+    .empty-state {
+      min-height: 400px;
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="gradient-bg text-white shadow-lg">
+    <div class="container mx-auto px-4 py-6">
+      <div class="flex flex-col gap-3">
+        <div class="flex items-center justify-center md:justify-start">
+          <h1 class="text-3xl md:text-4xl font-bold flex items-center gap-3">
+            <span>📊</span>
+            <span>דף ניסיון - אירועי העבר</span>
+          </h1>
+        </div>
+        <p class="text-purple-100 text-sm md:text-base">צפייה באירועי העבר עם סינונים ואגרגציה</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <div class="container mx-auto px-4 py-8">
+
+    <!-- Toggle Buttons -->
+    <div class="glass rounded-2xl shadow-xl p-6 mb-6 fade-in">
+      <div class="flex flex-wrap gap-3 justify-center md:justify-start">
+        <button
+          id="btn-future"
+          class="toggle-btn px-6 py-3 rounded-xl font-bold bg-gray-200 text-gray-700"
+          onclick="toggleView('future')">
+          📅 אירועים עתידיים
+        </button>
+        <button
+          id="btn-past"
+          class="toggle-btn active px-6 py-3 rounded-xl font-bold"
+          onclick="toggleView('past')">
+          🕐 אירועי העבר
+        </button>
+        <button
+          id="btn-filters"
+          class="px-6 py-3 rounded-xl font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-all"
+          onclick="toggleFilters()">
+          🔍 סינונים
+        </button>
+      </div>
+    </div>
+
+    <!-- Filter Panel -->
+    <div id="filter-panel" class="filter-panel glass rounded-2xl shadow-xl p-6 mb-6">
+      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span>⚙️</span>
+        <span>אפשרויות סינון</span>
+      </h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Start Date -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">תאריך התחלה</label>
+          <input
+            type="date"
+            id="filter-start-date"
+            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
+        </div>
+
+        <!-- End Date -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">תאריך סיום</label>
+          <input
+            type="date"
+            id="filter-end-date"
+            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          />
+        </div>
+
+        <!-- Group By -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">קיבוץ לפי</label>
+          <select
+            id="filter-group-by"
+            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          >
+            <option value="">ללא קיבוץ</option>
+            <option value="day">יום</option>
+            <option value="week">שבוע</option>
+            <option value="month" selected>חודש</option>
+            <option value="year">שנה</option>
+          </select>
+        </div>
+
+        <!-- Limit -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">מספר אירועים</label>
+          <select
+            id="filter-limit"
+            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          >
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mt-4 flex gap-3">
+        <button
+          onclick="applyFilters()"
+          class="px-6 py-2 rounded-lg font-bold gradient-bg text-white hover:shadow-lg transition-all">
+          ✓ החל סינונים
+        </button>
+        <button
+          onclick="resetFilters()"
+          class="px-6 py-2 rounded-lg font-bold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-all">
+          ↺ אפס סינונים
+        </button>
+      </div>
+    </div>
+
+    <!-- Statistics Overview -->
+    <div id="stats-section" class="glass rounded-2xl shadow-xl p-6 mb-6 slide-in">
+      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span>📈</span>
+        <span>סטטיסטיקות</span>
+      </h2>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="stat-card loaded glass rounded-xl p-4">
+          <div class="text-3xl mb-2">🎯</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-total">0</div>
+          <div class="text-sm text-gray-600">סה"כ אירועים</div>
+        </div>
+        <div class="stat-card loaded glass rounded-xl p-4">
+          <div class="text-3xl mb-2">📊</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-avg">0</div>
+          <div class="text-sm text-gray-600">ממוצע ליום</div>
+        </div>
+        <div class="stat-card loaded glass rounded-xl p-4">
+          <div class="text-3xl mb-2">📍</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-locations">0</div>
+          <div class="text-sm text-gray-600">מיקומים</div>
+        </div>
+        <div class="stat-card loaded glass rounded-xl p-4">
+          <div class="text-3xl mb-2">📅</div>
+          <div class="text-2xl font-bold text-gray-800" id="stat-period">-</div>
+          <div class="text-sm text-gray-600">תקופה</div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="bg-white rounded-xl p-4">
+        <canvas id="eventsChart" height="100"></canvas>
+      </div>
+    </div>
+
+    <!-- Top Locations -->
+    <div id="locations-section" class="glass rounded-2xl shadow-xl p-6 mb-6 slide-in" style="animation-delay: 0.1s">
+      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span>📍</span>
+        <span>מיקומים פופולריים</span>
+      </h2>
+      <div id="locations-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <!-- Locations will be populated here -->
+      </div>
+    </div>
+
+    <!-- Events List -->
+    <div id="events-section" class="glass rounded-2xl shadow-xl p-6 slide-in" style="animation-delay: 0.2s">
+      <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <span>🗂️</span>
+        <span>רשימת אירועים</span>
+      </h2>
+      <div id="events-list">
+        <!-- Events will be populated here -->
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Global state
+    let currentView = 'past';
+    let currentToken = 'TEST_TOKEN'; // Replace with actual token in production
+    let chartInstance = null;
+
+    // Mock data for testing (remove when connected to real API)
+    const mockData = {
+      events: generateMockEvents(50),
+      stats: {
+        totalCount: 50,
+        dateRange: {
+          start: new Date('2024-01-01'),
+          end: new Date('2025-10-17')
+        },
+        groupedCounts: [
+          { period: '2025-10', count: 8, events: [] },
+          { period: '2025-09', count: 12, events: [] },
+          { period: '2025-08', count: 15, events: [] },
+          { period: '2025-07', count: 10, events: [] },
+          { period: '2025-06', count: 5, events: [] }
+        ],
+        topLocations: [
+          { location: 'משרד', count: 15 },
+          { location: 'תל אביב', count: 12 },
+          { location: 'ירושלים', count: 8 },
+          { location: 'חיפה', count: 5 },
+          { location: 'בית', count: 10 }
+        ],
+        averageEventsPerDay: 0.17
+      }
+    };
+
+    function generateMockEvents(count) {
+      const events = [];
+      const titles = ['פגישה', 'ישיבה', 'אירוע', 'מפגש', 'כנס', 'הרצאה'];
+      const locations = ['משרד', 'תל אביב', 'ירושלים', 'חיפה', 'בית'];
+
+      for (let i = 0; i < count; i++) {
+        const daysAgo = Math.floor(Math.random() * 290);
+        const date = new Date();
+        date.setDate(date.getDate() - daysAgo);
+
+        events.push({
+          id: `event-${i}`,
+          title: `${titles[Math.floor(Math.random() * titles.length)]} ${i + 1}`,
+          startTsUtc: date.toISOString(),
+          location: locations[Math.floor(Math.random() * locations.length)],
+          notes: []
+        });
+      }
+      return events.sort((a, b) => new Date(b.startTsUtc) - new Date(a.startTsUtc));
+    }
+
+    function toggleView(view) {
+      currentView = view;
+
+      // Update button states
+      document.getElementById('btn-future').classList.toggle('active', view === 'future');
+      document.getElementById('btn-past').classList.toggle('active', view === 'past');
+
+      if (view === 'future') {
+        // In production, this would redirect to main dashboard
+        alert('עובר לתצוגת אירועים עתידיים... (בדף הבדיקה הזה מוצגים רק אירועי עבר)');
+      } else {
+        loadPastEvents();
+      }
+    }
+
+    function toggleFilters() {
+      const panel = document.getElementById('filter-panel');
+      panel.classList.toggle('expanded');
+    }
+
+    function applyFilters() {
+      loadPastEvents();
+      toggleFilters();
+    }
+
+    function resetFilters() {
+      document.getElementById('filter-start-date').value = '';
+      document.getElementById('filter-end-date').value = '';
+      document.getElementById('filter-group-by').value = 'month';
+      document.getElementById('filter-limit').value = '50';
+      loadPastEvents();
+    }
+
+    async function loadPastEvents() {
+      try {
+        // Build query parameters
+        const params = new URLSearchParams({
+          includeStats: 'true',
+          limit: document.getElementById('filter-limit').value || '50',
+        });
+
+        const startDate = document.getElementById('filter-start-date').value;
+        const endDate = document.getElementById('filter-end-date').value;
+        const groupBy = document.getElementById('filter-group-by').value;
+
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        if (groupBy) params.append('groupBy', groupBy);
+
+        // In production, use real API:
+        // const response = await fetch(`/api/dashboard/${currentToken}/past-events?${params}`);
+        // const data = await response.json();
+
+        // For testing, use mock data
+        const data = { success: true, data: mockData };
+
+        if (data.success) {
+          renderStats(data.data.stats);
+          renderLocations(data.data.stats.topLocations);
+          renderEvents(data.data.events, data.data.stats.groupedCounts);
+          renderChart(data.data.stats.groupedCounts);
+        }
+      } catch (error) {
+        console.error('Failed to load past events:', error);
+        showError('שגיאה בטעינת האירועים');
+      }
+    }
+
+    function renderStats(stats) {
+      if (!stats) return;
+
+      document.getElementById('stat-total').textContent = stats.totalCount;
+      document.getElementById('stat-avg').textContent = stats.averageEventsPerDay.toFixed(2);
+      document.getElementById('stat-locations').textContent = stats.topLocations?.length || 0;
+
+      if (stats.dateRange) {
+        const start = new Date(stats.dateRange.start).toLocaleDateString('he-IL');
+        const end = new Date(stats.dateRange.end).toLocaleDateString('he-IL');
+        document.getElementById('stat-period').textContent = `${start} - ${end}`;
+      }
+    }
+
+    function renderLocations(locations) {
+      const container = document.getElementById('locations-list');
+
+      if (!locations || locations.length === 0) {
+        container.innerHTML = '<div class="col-span-full text-center text-gray-500">אין מיקומים</div>';
+        return;
+      }
+
+      container.innerHTML = locations.map(loc => `
+        <div onclick="drillDownLocation('${loc.location.replace(/'/g, "\\'")}')"
+             class="bg-white rounded-lg p-4 flex items-center justify-between hover:shadow-md transition-all cursor-pointer hover:bg-purple-50 border-2 border-transparent hover:border-purple-300">
+          <div class="flex items-center gap-3">
+            <div class="text-2xl">📍</div>
+            <div>
+              <div class="font-bold text-gray-800">${loc.location}</div>
+              <div class="text-sm text-gray-500">${loc.count} אירועים • לחץ לפרטים</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="text-2xl font-bold text-purple-600">${loc.count}</div>
+            <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+            </svg>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderEvents(events, groupedCounts) {
+      const container = document.getElementById('events-list');
+
+      if (!events || events.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state flex flex-col items-center justify-center text-gray-400">
+            <div class="text-6xl mb-4">📭</div>
+            <div class="text-xl font-bold">אין אירועי עבר</div>
+            <div class="text-sm">נסה לשנות את הסינונים</div>
+          </div>
+        `;
+        return;
+      }
+
+      const groupBy = document.getElementById('filter-group-by').value;
+
+      if (groupBy && groupedCounts && groupedCounts.length > 0) {
+        // Render grouped events
+        container.innerHTML = groupedCounts.map(group => `
+          <div class="group-section mb-6">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="text-lg font-bold text-gray-700">${formatPeriod(group.period, groupBy)}</div>
+              <div class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-bold">${group.count}</div>
+            </div>
+            <div class="grid grid-cols-1 gap-3">
+              ${renderEventCards(group.events.slice(0, 10))}
+            </div>
+          </div>
+        `).join('');
+      } else {
+        // Render flat list
+        container.innerHTML = `<div class="grid grid-cols-1 gap-3">${renderEventCards(events)}</div>`;
+      }
+    }
+
+    function renderEventCards(events) {
+      return events.map(event => {
+        const date = new Date(event.startTsUtc);
+        const dateStr = date.toLocaleDateString('he-IL', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        const timeStr = date.toLocaleTimeString('he-IL', {
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        return `
+          <div class="event-card bg-white rounded-lg p-4 card-hover">
+            <div class="flex items-start justify-between">
+              <div class="flex-1">
+                <div class="font-bold text-gray-800 text-lg mb-1">${event.title}</div>
+                <div class="flex flex-wrap gap-2 text-sm text-gray-600">
+                  <span class="flex items-center gap-1">
+                    <span>📅</span>
+                    <span>${dateStr}</span>
+                  </span>
+                  <span class="flex items-center gap-1">
+                    <span>🕐</span>
+                    <span>${timeStr}</span>
+                  </span>
+                  ${event.location ? `
+                    <span class="flex items-center gap-1">
+                      <span>📍</span>
+                      <span>${event.location}</span>
+                    </span>
+                  ` : ''}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function formatPeriod(period, groupBy) {
+      if (groupBy === 'year') {
+        return `שנת ${period}`;
+      } else if (groupBy === 'month') {
+        const [year, month] = period.split('-');
+        const monthNames = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+        return `${monthNames[parseInt(month) - 1]} ${year}`;
+      } else if (groupBy === 'week') {
+        return `${period}`;
+      } else {
+        return period;
+      }
+    }
+
+    function renderChart(groupedCounts) {
+      if (!groupedCounts || groupedCounts.length === 0) return;
+
+      const ctx = document.getElementById('eventsChart');
+      if (!ctx) return;
+
+      // Destroy existing chart
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      const groupBy = document.getElementById('filter-group-by').value;
+
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: groupedCounts.map(g => formatPeriod(g.period, groupBy)).reverse(),
+          datasets: [{
+            label: 'מספר אירועים',
+            data: groupedCounts.map(g => g.count).reverse(),
+            backgroundColor: 'rgba(102, 126, 234, 0.7)',
+            borderColor: 'rgba(102, 126, 234, 1)',
+            borderWidth: 2,
+            borderRadius: 8,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            title: {
+              display: true,
+              text: 'התפלגות אירועים לאורך זמן',
+              font: { size: 16, weight: 'bold' },
+              color: '#374151'
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                stepSize: 1
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function showError(message) {
+      alert(message);
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      loadPastEvents();
+    });
+  </script>
+
+</body>
+</html>
