@@ -359,18 +359,41 @@ export class EventService {
   }
 
   /**
-   * Search events by title or location
+   * Search events by title, location, or notes
+   * Supports Hebrew tokenization for better matching
    */
   async searchEvents(userId: string, searchTerm: string): Promise<Event[]> {
     try {
+      // Normalize search term: trim whitespace and handle Hebrew
+      const normalized = searchTerm.trim();
+
+      // Split search term into words for better Hebrew matching
+      // e.g., "יקיר קדם" → search for both "יקיר" AND "קדם"
+      const words = normalized.split(/\s+/).filter(w => w.length > 0);
+
+      // Build query with word tokenization
+      // Search in title, location, AND notes fields
+      const conditions = words.map((_, i) =>
+        `(title ILIKE $${i + 2} OR location ILIKE $${i + 2} OR notes ILIKE $${i + 2})`
+      ).join(' AND ');
+
       const query = `
         SELECT * FROM events
-        WHERE user_id = $1 AND (title ILIKE $2 OR location ILIKE $2)
+        WHERE user_id = $1 AND (${conditions})
         ORDER BY start_ts_utc ASC
         LIMIT 20
       `;
 
-      const result = await this.dbPool.query(query, [userId, `%${searchTerm}%`]);
+      const params = [userId, ...words.map(w => `%${w}%`)];
+      const result = await this.dbPool.query(query, params);
+
+      logger.info('Event search executed', {
+        userId,
+        searchTerm: normalized,
+        words,
+        resultsCount: result.rows.length
+      });
+
       return result.rows.map(row => this.mapRowToEvent(row));
     } catch (error) {
       logger.error('Failed to search events', { userId, searchTerm, error });

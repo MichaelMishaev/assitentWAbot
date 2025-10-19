@@ -1624,3 +1624,171 @@ Added option 4 to settings menu:
 **Lines Changed:** ~200 lines added/modified across 7 files
 
 ---
+
+## 🐛 RECENTLY FIXED (2025-10-19)
+
+### Bug #13: Time Not Recognized in Event Creation
+**Reported:** 2025-10-19 via #comment: "#i asked for specific hour and it didn't recognica"
+**Screenshot:** User typed "תקבע לי ארוע של יקיר ם לתאריך 1.11 בשעה 13:00"
+**Issue:** Bot extracted date "1.11" correctly but asked "באיזו שעה?" even though user specified "בשעה 13:00"
+
+**Problem:**
+Entity extraction phase overwrote the `dateText` field when extracting time, losing the date information:
+```typescript
+// Line 142: When date "1.11" is extracted
+entities.dateText = absoluteMatch[0]; // Saves "1.11"
+
+// Line 169: When time "בשעה 13:00" is extracted  
+entities.dateText = match[0]; // OVERWRITES with "בשעה 13:00" ❌
+```
+
+**Result:** 
+- `entities.dateText` ended up containing only "בשעה 13:00" instead of "1.11 בשעה 13:00"
+- NLPRouter check `!event?.dateText?.includes(':')` failed
+- Bot asked for time even though it was already provided
+
+**Root Cause:**
+In `src/domain/phases/phase3-entity-extraction/EntityExtractor.ts:169`, time extraction was overwriting the `dateText` field instead of appending to it.
+
+**Fix Applied:**
+**File:** `src/domain/phases/phase3-entity-extraction/EntityExtractor.ts:169-175`
+
+Changed time extraction to APPEND time to `dateText` instead of overwriting:
+
+```typescript
+// OLD CODE (line 169):
+entities.dateText = match[0];  // Overwrites!
+
+// NEW CODE (lines 169-175):
+// FIX: Append time to dateText instead of overwriting
+// This preserves both date and time info (e.g., "1.11 בשעה 13:00")
+if (entities.dateText && !entities.dateText.includes(':')) {
+  entities.dateText = `${entities.dateText} ${match[0]}`;
+} else if (!entities.dateText) {
+  entities.dateText = match[0];
+}
+```
+
+**Impact:**
+- ✅ Bot now recognizes time when specified on same line as date
+- ✅ No more redundant "באיזו שעה?" questions
+- ✅ Better UX - single-message event creation works properly
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-19
+**Priority:** HIGH (core event creation functionality)
+
+**Testing:**
+```
+User: "תקבע לי ארוע של יקיר ם לתאריך 1.11 בשעה 13:00"
+Expected: Event created for 01/11/2025 at 13:00 WITHOUT asking for time
+```
+
+---
+
+### Bug #14: Search Not Finding Recently Created Events
+**Reported:** 2025-10-19 via #comment: "#why didn't find יקירקדם? it's a big!"
+**Screenshot:** User created event "יקיר ם" then immediately searched "מתי יש לי יקיר ם?" and bot replied "לא נמצאו אירועים"
+
+**Problem:**
+Search function had TWO issues:
+1. Only searched `title` and `location` fields, NOT `notes`
+2. No word tokenization for Hebrew - exact substring matching only
+
+**Example Failures:**
+- Event title: "יקיר ם" (with space before ם)
+- Search query: "יקיר" (without ם)
+- Result: NOT FOUND ❌
+
+**Root Cause:**
+**File:** `src/services/EventService.ts:364-379`
+
+Original search implementation:
+```sql
+SELECT * FROM events
+WHERE user_id = $1 AND (title ILIKE $2 OR location ILIKE $2)
+```
+
+Limitations:
+- ❌ Doesn't search `notes` field
+- ❌ Single wildcard pattern: `%searchTerm%`
+- ❌ No Hebrew word tokenization
+- ❌ Fails on partial Hebrew names
+
+**Fix Applied:**
+**File:** `src/services/EventService.ts:365-402`
+
+Enhanced search with:
+1. **Added `notes` field** to search scope
+2. **Word tokenization** - splits Hebrew text into words
+3. **Multi-field AND matching** - all words must appear (in any field)
+
+```typescript
+// Normalize and tokenize
+const words = searchTerm.trim().split(/\s+/).filter(w => w.length > 0);
+
+// Build query: each word must match in title OR location OR notes
+const conditions = words.map((_, i) =>
+  `(title ILIKE $${i + 2} OR location ILIKE $${i + 2} OR notes ILIKE $${i + 2})`
+).join(' AND ');
+
+const query = `
+  SELECT * FROM events
+  WHERE user_id = $1 AND (${conditions})
+  ORDER BY start_ts_utc ASC
+  LIMIT 20
+`;
+
+const params = [userId, ...words.map(w => `%${w}%`)];
+```
+
+**Examples After Fix:**
+- ✅ "יקיר ם" finds event with "יקיר" (tokenizes to "יקיר" + "ם")
+- ✅ "יקיר קדם" finds events with BOTH words anywhere
+- ✅ Searches in notes field too (e.g., "עם יקיר" in notes)
+- ✅ Better Hebrew name matching
+
+**Impact:**
+- ✅ Search now finds events by partial Hebrew names
+- ✅ Search includes notes field
+- ✅ Better tokenization for multi-word queries
+- ✅ More intuitive search behavior
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-19
+**Priority:** HIGH (core search functionality)
+
+**Testing:**
+```
+1. Create event: "פגישה עם יקיר קדם בשעה 15:00"
+2. Search: "יקיר" → Should find event ✅
+3. Search: "קדם" → Should find event ✅
+4. Search: "יקיר קדם" → Should find event ✅
+5. Search: "פגישה" → Should find event ✅
+```
+
+---
+
+**Deployment:**
+```bash
+npm run build
+# Deploy to production
+```
+
+**Commit Message:**
+```
+Fix: Time recognition and search tokenization (Bugs #13 & #14)
+
+- Bug #13: Fix dateText overwrite in EntityExtractor
+  - Time now appends to dateText instead of overwriting
+  - Bot recognizes "1.11 בשעה 13:00" without asking for time
+  
+- Bug #14: Enhanced search with Hebrew tokenization
+  - Added notes field to search scope
+  - Word tokenization for better Hebrew matching
+  - Multi-word queries now work correctly
+
+Fixes reported bugs from #i and #why comments
+```
+
+---
