@@ -216,6 +216,7 @@ export class MessageRouter {
       eventService,
       reminderService,
       contactService,
+      settingsService,
       messageProvider,
       this.commandRouter,
       this.sendMessage.bind(this),
@@ -594,7 +595,7 @@ export class MessageRouter {
           break;
 
         case '5': // Settings menu
-          await this.sendMessage(phone, '⚙️ הגדרות\n\n1️⃣ שינוי שפה\n2️⃣ שינוי אזור זמן\n3️⃣ תצוגת תפריט\n4️⃣ חזרה לתפריט\n\nבחר מספר');
+          await this.sendMessage(phone, '⚙️ הגדרות\n\n1️⃣ שינוי שפה\n2️⃣ שינוי אזור זמן\n3️⃣ תצוגת תפריט\n4️⃣ זמן תזכורת\n5️⃣ חזרה לתפריט\n\nבחר מספר');
           await this.stateManager.setState(userId, ConversationState.SETTINGS_MENU);
           break;
 

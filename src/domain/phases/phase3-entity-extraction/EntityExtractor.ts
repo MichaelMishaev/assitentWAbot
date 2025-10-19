@@ -166,7 +166,13 @@ export class EntityExtractor {
 
         entities.time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
         entities.confidence.time = 0.95;
-        entities.dateText = match[0];
+        // FIX: Append time to dateText instead of overwriting
+        // This preserves both date and time info (e.g., "1.11 בשעה 13:00")
+        if (entities.dateText && !entities.dateText.includes(':')) {
+          entities.dateText = `${entities.dateText} ${match[0]}`;
+        } else if (!entities.dateText) {
+          entities.dateText = match[0];
+        }
         break;
       }
     }

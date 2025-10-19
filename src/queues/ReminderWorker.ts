@@ -36,16 +36,41 @@ export class ReminderWorker {
   }
 
   private async processReminder(job: Job<ReminderJob>): Promise<void> {
-    const { reminderId, userId, title, phone } = job.data;
+    const { reminderId, userId, title, phone, leadTimeMinutes } = job.data;
 
-    logger.info('Processing reminder', { reminderId, userId });
+    logger.info('Processing reminder', { reminderId, userId, leadTimeMinutes });
 
     try {
-      // Send WhatsApp message
-      const message = `⏰ תזכורת\n\n${title}`;
+      // Build message with optional lead time info
+      let message = `⏰ תזכורת\n\n${title}`;
+
+      // Add lead time info if applicable
+      if (leadTimeMinutes && leadTimeMinutes > 0) {
+        if (leadTimeMinutes === 1) {
+          message += `\n\n⏳ בעוד דקה אחת`;
+        } else if (leadTimeMinutes < 60) {
+          message += `\n\n⏳ בעוד ${leadTimeMinutes} דקות`;
+        } else if (leadTimeMinutes === 60) {
+          message += `\n\n⏳ בעוד שעה`;
+        } else {
+          const hours = Math.floor(leadTimeMinutes / 60);
+          const minutes = leadTimeMinutes % 60;
+          if (minutes === 0) {
+            message += `\n\n⏳ בעוד ${hours} שעות`;
+          } else {
+            message += `\n\n⏳ בעוד ${hours} שעות ו-${minutes} דקות`;
+          }
+        }
+      }
+
       await this.messageProvider.sendMessage(phone, message);
 
-      logger.info('Reminder sent', { reminderId, userId, phone });
+      logger.info('Reminder sent with lead time', {
+        reminderId,
+        userId,
+        phone,
+        leadTimeMinutes
+      });
     } catch (error) {
       logger.error('Failed to send reminder', { reminderId, userId, error });
       throw error; // Will trigger retry

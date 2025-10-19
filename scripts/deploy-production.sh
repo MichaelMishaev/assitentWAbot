@@ -118,14 +118,29 @@ git pull origin main
 ENDSSH
 log "✅ Code updated"
 
-# Step 7: Install dependencies and build
+# Step 7: Install dependencies, rebuild natives, and build
 log "🔨 Step 7/8: Installing dependencies and building..."
 ssh "$SERVER" << 'ENDSSH'
 cd /root/wAssitenceBot
+
+# Install dependencies
 npm install --production=false
+
+# CRITICAL: Rebuild native modules for Linux platform
+# This prevents crash loops from macOS-compiled binaries (bcrypt, puppeteer)
+echo "🔧 Rebuilding native modules for Linux..."
+npm rebuild bcrypt
+npm rebuild puppeteer || true  # May not need rebuild but safe to try
+
+# Build TypeScript
 npm run build
+
+# Deploy PM2 ecosystem config if exists
+if [ -f ecosystem.config.cjs ]; then
+    echo "📋 PM2 ecosystem config found - will use for restart"
+fi
 ENDSSH
-log "✅ Dependencies installed and built"
+log "✅ Dependencies installed, natives rebuilt, and built"
 
 # Step 8: Check if QR code is needed
 log "🔐 Step 8/8: Checking authentication status..."
@@ -148,9 +163,23 @@ if [[ "$QR_NEEDED" == "true" ]]; then
     read -p "Press Enter after scanning QR code to continue..."
 fi
 
-# Restart PM2
+# Restart PM2 with ecosystem config
 log "♻️  Restarting application..."
-ssh "$SERVER" "cd $APP_DIR && pm2 restart $PM2_APP_NAME"
+ssh "$SERVER" << 'ENDSSH'
+cd /root/wAssitenceBot
+
+# Reset restart counter to clear old crash loop stats
+pm2 reset ultrathink 2>/dev/null || true
+
+# Use ecosystem config if available, otherwise standard restart
+if [ -f ecosystem.config.cjs ]; then
+    echo "🔄 Restarting with ecosystem.config.cjs (restart limits enabled)"
+    pm2 reload ecosystem.config.cjs --update-env
+else
+    echo "🔄 Restarting normally"
+    pm2 restart ultrathink
+fi
+ENDSSH
 sleep 5
 
 # Check if app is running

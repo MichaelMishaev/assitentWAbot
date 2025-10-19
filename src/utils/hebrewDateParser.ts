@@ -371,3 +371,74 @@ function getNextWeekday(from: DateTime, targetDay: number): DateTime {
 
   return from.plus({ days: daysToAdd });
 }
+
+/**
+ * Validate that a day name matches the actual day of a given date
+ * Used to catch user errors like "Friday 23.10" when 23.10 is actually Thursday
+ *
+ * @param dayName - Hebrew day name (e.g., "שישי", "יום שישי", "ו")
+ * @param date - Date to check against
+ * @param timezone - Timezone (default: Asia/Jerusalem)
+ * @returns Object with { isValid, expected, actual } or null if dayName not provided
+ */
+export function validateDayNameMatchesDate(
+  dayName: string | undefined | null,
+  date: Date,
+  timezone: string = 'Asia/Jerusalem'
+): { isValid: boolean; expectedDay: string; actualDay: string; warning: string } | null {
+  if (!dayName) return null;
+
+  const hebrewDayNames: Record<number, string[]> = {
+    0: ['ראשון', 'יום ראשון', 'א', 'יום א'],
+    1: ['שני', 'יום שני', 'ב', 'יום ב'],
+    2: ['שלישי', 'יום שלישי', 'ג', 'יום ג'],
+    3: ['רביעי', 'יום רביעי', 'ד', 'יום ד'],
+    4: ['חמישי', 'יום חמישי', 'ה', 'יום ה'],
+    5: ['שישי', 'יום שישי', 'ו', 'יום ו'],
+    6: ['שבת', 'יום שבת', 'שב"ת'],
+  };
+
+  const hebrewDayNamesLong: Record<number, string> = {
+    0: 'ראשון',
+    1: 'שני',
+    2: 'שלישי',
+    3: 'רביעי',
+    4: 'חמישי',
+    5: 'שישי',
+    6: 'שבת',
+  };
+
+  // Normalize day name for comparison
+  const normalizedDayName = dayName.toLowerCase().trim();
+
+  // Find which day number the user specified
+  let expectedDayNumber: number | null = null;
+  for (const [dayNum, variations] of Object.entries(hebrewDayNames)) {
+    if (variations.some(v => v.toLowerCase() === normalizedDayName)) {
+      expectedDayNumber = parseInt(dayNum);
+      break;
+    }
+  }
+
+  // If no day name matched, return null (user didn't specify a day)
+  if (expectedDayNumber === null) {
+    return null;
+  }
+
+  // Get actual day number from date
+  const dt = DateTime.fromJSDate(date).setZone(timezone);
+  const actualDayNumber = dt.weekday % 7; // Luxon: 1=Monday, 7=Sunday → convert to 0=Sunday
+
+  // Check if they match
+  if (expectedDayNumber === actualDayNumber) {
+    return null; // Valid - no warning needed
+  }
+
+  // Mismatch detected!
+  return {
+    isValid: false,
+    expectedDay: hebrewDayNamesLong[expectedDayNumber],
+    actualDay: hebrewDayNamesLong[actualDayNumber],
+    warning: `⚠️ יש אי-התאמה בין היום והתאריך!\n\nציינת: יום ${hebrewDayNamesLong[expectedDayNumber]}\nאבל ${dt.toFormat('dd/MM/yyyy')} הוא יום ${hebrewDayNamesLong[actualDayNumber]}\n\nהאם להמשיך בכל זאת? (כן/לא)`
+  };
+}

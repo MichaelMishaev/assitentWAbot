@@ -93,10 +93,20 @@ export class ParticipantPhase extends BasePhase {
     });
 
     // Pattern 1: "עם X ו-Y" (with X and Y)
-    // CRITICAL FIX: Stop at date/time keywords AND location prepositions to prevent false matches
-    // "עם איתי להיום" should capture "איתי", not "איתי להיום"
-    // "עם יוסי בקופת חולים" should capture "יוסי", not "יוסי בקופת חולים"
-    const withPattern = /עם\s+([א-ת\s,ו-]+?)(?:\s+(?:ל?היום|מחר|ב?שעה|ל?שעה|ב-?\d|בשבוע|בחודש|ב[א-ת]|ל[א-ת]|מ[א-ת])|$)/i;
+    // CRITICAL FIX #1: More restrictive name capture - only Hebrew letters (no spaces or ו inside names!)
+    // CRITICAL FIX #2: Explicit AND connector: look for " ו" or " ו-" between names (space before ו)
+    // This prevents matching "יהודית" as "יה ו דית" (the ו is PART of the name, not a connector!)
+    //
+    // Examples:
+    // ✅ "עם יהודית" → single name "יהודית" (ו is part of name)
+    // ✅ "עם יוסי ודני" → two names "יוסי", "דני" (space before ו indicates AND)
+    // ✅ "עם מיכאל, שרה ודן" → three names (comma and ו connectors)
+    //
+    // Pattern explanation:
+    // 1. First name: [א-תa-zA-Z]+ (letters only, no spaces or ו!)
+    // 2. Optional additional names: (?:\s+(?:ו-?|,)\s*([א-תa-zA-Z]+))* (space + connector + name)
+    // 3. Stop at: date/time keywords, location prepositions, or end of string
+    const withPattern = /עם\s+([א-תa-zA-Z]+(?:\s+(?:ו-?|,)\s*[א-תa-zA-Z]+)*)(?:\s+(?:ל?היום|מחר|ב?שעה|ל?שעה|ב-?\d{1,2}(?::|\s)|בשבוע|בחודש|בתאריך|ב[א-ת]{2,}|ל[א-ת]{2,})|$)/i;
     const withMatch = text.match(withPattern);
 
     if (withMatch) {
@@ -110,11 +120,18 @@ export class ParticipantPhase extends BasePhase {
     if (withMatch) {
       const namesText = withMatch[1];
 
-      // Split by "ו" or "," (and, or comma)
+      // Split by explicit connectors: " ו" (space before ו) or ","
+      // This ensures "יהודית" stays intact (ו inside name has no space before it)
       const names = namesText
-        .split(/\s*[ו,]\s*/)
+        .split(/\s+(?:ו-?|,)\s*/)  // Match " ו", " ו-", " , " (space required before ו!)
         .map(name => name.trim())
         .filter(name => name.length > 1);
+
+      logger.info('Detected participant names after split', {
+        rawNamesText: namesText,
+        splitNames: names,
+        count: names.length
+      });
 
       for (let i = 0; i < names.length; i++) {
         const name = this.cleanName(names[i]);

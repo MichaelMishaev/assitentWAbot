@@ -199,6 +199,10 @@ export class StateRouter {
         await this.handleEventConflictConfirm(phone, userId, text);
         break;
 
+      case ConversationState.CONFIRMING_DATE_MISMATCH:
+        await this.handleDateMismatchConfirm(phone, userId, text);
+        break;
+
       // ===== REMINDER CREATION FLOW =====
       case ConversationState.ADDING_REMINDER_TITLE:
         await this.handleReminderTitle(phone, userId, text);
@@ -301,6 +305,10 @@ export class StateRouter {
 
       case ConversationState.SETTINGS_MENU_DISPLAY:
         await this.handleSettingsMenuDisplay(phone, userId, text);
+        break;
+
+      case ConversationState.SETTINGS_REMINDER_TIME:
+        await this.handleSettingsReminderTime(phone, userId, text);
         break;
 
       // ===== TASKS =====
@@ -582,6 +590,83 @@ export class StateRouter {
 
     } catch (error) {
       logger.error('Failed to create event after conflict confirmation', { userId, error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.commandRouter.showMainMenu(phone);
+    }
+  }
+
+  /**
+   * BUG FIX #2: Handle date/day mismatch confirmation
+   * User says "Friday 23.10" but 23.10 is Thursday
+   */
+  private async handleDateMismatchConfirm(phone: string, userId: string, text: string): Promise<void> {
+    const choice = fuzzyMatchYesNo(text);
+
+    if (choice === 'no') {
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, '❌ האירוע בוטל. אנא נסח מחדש עם התאריך הנכון.');
+      await this.commandRouter.showMainMenu(phone);
+      return;
+    }
+
+    if (choice !== 'yes') {
+      await this.sendMessage(phone, 'אנא שלח "כן" להמשיך בכל זאת או "לא" לביטול');
+      return;
+    }
+
+    const session = await this.stateManager.getState(userId);
+    const { title, date, location, participants, notes } = session?.context || {};
+
+    if (!title || !date) {
+      await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.commandRouter.showMainMenu(phone);
+      return;
+    }
+
+    const eventDate = new Date(date);
+    const dt = DateTime.fromJSDate(eventDate).setZone('Asia/Jerusalem');
+
+    // Check if time is set
+    const hasTime = dt.hour !== 0 || dt.minute !== 0;
+
+    if (!hasTime) {
+      // No time set - ask for time
+      await this.sendMessage(phone, `📌 ${title}\n📅 ${dt.toFormat('dd/MM/yyyy')}\n\n⏰ באיזו שעה?\n\nהזן שעה (למשל: 14:00)\n\nאו שלח /ביטול`);
+      await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_TIME, {
+        title,
+        date,
+        location,
+        notes,
+        fromDateMismatch: true
+      });
+      return;
+    }
+
+    // Time is set - create event immediately
+    try {
+      let eventTitle = title;
+      if (participants && participants.length > 0) {
+        const participantNames = participants.map((p: any) => p.name).join(' ו');
+        eventTitle = `${title} עם ${participantNames}`;
+      }
+
+      await this.eventService.createEvent({
+        userId,
+        title: eventTitle,
+        startTsUtc: eventDate,
+        location: location || undefined
+      });
+
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.reactToLastMessage(userId, '👍');
+
+      await this.sendMessage(phone, `✅ ${eventTitle} - ${dt.toFormat('dd/MM/yyyy HH:mm')}`);
+      await this.commandRouter.showMainMenu(phone);
+
+    } catch (error) {
+      logger.error('Failed to create event after date mismatch confirmation', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת האירוע. נסה שוב מאוחר יותר.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.commandRouter.showMainMenu(phone);
@@ -877,13 +962,16 @@ export class StateRouter {
         notes: notes || undefined
       });
 
+      // Get user's reminder lead time preference (default: 15 minutes)
+      const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+
       // Schedule with BullMQ
       await scheduleReminder({
         reminderId: reminder.id,
         userId,
         title,
         phone
-      }, new Date(reminderDueDate));
+      }, new Date(reminderDueDate), leadTimeMinutes);
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.commandRouter.showMainMenu(phone);
@@ -2292,6 +2380,9 @@ export class StateRouter {
           // No rrule - this is a one-time reminder
         });
 
+        // Get user's reminder lead time preference
+        const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+
         // Schedule with BullMQ
         const { scheduleReminder } = await import('../queues/ReminderQueue.js');
         await scheduleReminder({
@@ -2299,7 +2390,7 @@ export class StateRouter {
           userId,
           title: newReminder.title,
           phone
-        }, updatedNextOccurrence);
+        }, updatedNextOccurrence, leadTimeMinutes);
 
         const displayDt = DateTime.fromJSDate(updatedNextOccurrence).setZone('Asia/Jerusalem');
         await this.sendMessage(phone, `✅ נוצרה תזכורת חד-פעמית!\n\n📌 ${newReminder.title}\n📅 ${displayDt.toFormat('dd/MM/yyyy HH:mm')}\n\n💡 התזכורת החוזרת המקורית ממשיכה כרגיל.`);
@@ -2367,6 +2458,9 @@ export class StateRouter {
         return;
       }
 
+      // Get user's reminder lead time preference
+      const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+
       // Reschedule with BullMQ
       const { cancelReminder, scheduleReminder } = await import('../queues/ReminderQueue.js');
       await cancelReminder(reminderId); // Cancel old job
@@ -2375,7 +2469,7 @@ export class StateRouter {
         userId,
         title: updated.title,
         phone
-      }, newDate); // Schedule new job
+      }, newDate, leadTimeMinutes); // Schedule new job
 
       const displayDt = DateTime.fromJSDate(newDate).setZone('Asia/Jerusalem');
       let successMessage = `✅ התזכורת עודכנה בהצלחה!\n\n📌 ${updated.title}\n📅 ${displayDt.toFormat('dd/MM/yyyy HH:mm')}`;
@@ -2399,7 +2493,7 @@ export class StateRouter {
   private async handleSettings(phone: string, userId: string, text: string): Promise<void> {
     const choice = text.trim();
 
-    if (choice === '4') {
+    if (choice === '5') {
       // Back to menu
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.commandRouter.showAdaptiveMenu(phone, userId, { isExplicitRequest: false });
@@ -2444,7 +2538,18 @@ export class StateRouter {
         return;
       }
 
-      await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר 1-4.');
+      if (choice === '4') {
+        // Reminder lead time setting
+        const currentLeadTime = settings.prefsJsonb?.reminderLeadTimeMinutes ?? 15;
+
+        await this.stateManager.setState(userId, ConversationState.SETTINGS_REMINDER_TIME);
+        await this.sendMessage(phone,
+          `⏰ זמן תזכורת\n\nכמה דקות לפני האירוע לשלוח תזכורת?\n\nזמן נוכחי: ${currentLeadTime} דקות לפני\n\nבחר אפשרות:\n\n1️⃣ 0 דקות (בדיוק בזמן)\n2️⃣ 5 דקות לפני\n3️⃣ 15 דקות לפני (ברירת מחדל)\n4️⃣ 30 דקות לפני\n5️⃣ 60 דקות לפני (שעה)\n6️⃣ 120 דקות לפני (שעתיים)\n\n(או שלח /ביטול)`
+        );
+        return;
+      }
+
+      await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר 1-5.');
 
     } catch (error) {
       logger.error('Failed to load settings', { userId, error });
@@ -2564,6 +2669,55 @@ export class StateRouter {
     } catch (error) {
       logger.error('Failed to update menu display mode', { userId, mode, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה בשינוי מצב תצוגת התפריט.');
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
+    }
+  }
+
+  private async handleSettingsReminderTime(phone: string, userId: string, text: string): Promise<void> {
+    const choice = text.trim();
+
+    let minutes: number;
+    let timeDescription: string;
+
+    switch (choice) {
+      case '1':
+        minutes = 0;
+        timeDescription = 'בדיוק בזמן';
+        break;
+      case '2':
+        minutes = 5;
+        timeDescription = '5 דקות לפני';
+        break;
+      case '3':
+        minutes = 15;
+        timeDescription = '15 דקות לפני';
+        break;
+      case '4':
+        minutes = 30;
+        timeDescription = '30 דקות לפני';
+        break;
+      case '5':
+        minutes = 60;
+        timeDescription = 'שעה לפני';
+        break;
+      case '6':
+        minutes = 120;
+        timeDescription = 'שעתיים לפני';
+        break;
+      default:
+        await this.sendMessage(phone, 'בחירה לא תקינה. אנא בחר 1-6.');
+        return;
+    }
+
+    try {
+      await this.settingsService.updateReminderLeadTime(userId, minutes);
+      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+      await this.sendMessage(phone, `✅ זמן תזכורת שונה ל-${timeDescription}!\n\nמעכשיו תקבל תזכורות ${timeDescription} האירוע.`);
+      await this.commandRouter.showAdaptiveMenu(phone, userId, { actionType: 'settings_updated' });
+    } catch (error) {
+      logger.error('Failed to update reminder lead time', { userId, minutes, error });
+      await this.sendMessage(phone, '❌ אירעה שגיאה בשינוי זמן התזכורת.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
       await this.commandRouter.showAdaptiveMenu(phone, userId, { isError: true });
     }

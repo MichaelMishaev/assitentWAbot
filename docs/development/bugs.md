@@ -515,6 +515,174 @@ open /Users/michaelmishayev/Desktop/Projects/wAssitenceBot/src/templates/persona
 
 ---
 
+### 11. Production Crash Loop - Native Module Compilation Issue
+**Reported:** 2025-10-19
+**Issue:** Production server crash-looping (397+ restarts), bot completely unresponsive
+
+**Incident Details:**
+```
+PM2 Status: 397 restarts, status "online" but non-functional
+Error: /root/wAssitenceBot/node_modules/bcrypt/lib/binding/napi-v3/bcrypt_lib.node: invalid ELF header
+Code: ERR_DLOPEN_FAILED
+```
+
+**Root Cause:**
+Native modules (bcrypt, puppeteer) compiled on macOS cannot run on Linux production server:
+1. **bcrypt** - Native C++ module with platform-specific binaries
+2. When `node_modules` copied from macOS to Linux → ELF header mismatch
+3. App crashes immediately on startup trying to load bcrypt
+4. PM2 auto-restarts → crashes again → infinite loop
+
+**Why This Happens:**
+- Native Node.js addons are compiled for specific OS/architecture
+- macOS uses Mach-O format, Linux uses ELF format
+- Files in `node_modules/bcrypt/lib/binding/` are compiled binaries, not JavaScript
+- Copying these files across platforms = guaranteed failure
+
+**Impact:**
+- Bot completely down despite appearing "online" in PM2
+- Hundreds of crash attempts waste resources
+- Logs get flooded with error traces
+- No circuit breaker to stop the crash loop
+
+**Fix Applied:**
+**Files Modified:**
+1. Created `scripts/deploy.sh` - Automated deployment script with native rebuild
+2. Created `ecosystem.config.js` - PM2 configuration with restart limits
+
+**Solution 1: Rebuild Native Modules on Server**
+```bash
+# On production server, run:
+cd ~/wAssitenceBot
+npm rebuild bcrypt
+npm run build
+pm2 restart ultrathink
+```
+
+**Solution 2: Clean Install on Server (Preferred)**
+```bash
+# Remove all binaries and reinstall from scratch
+rm -rf node_modules
+npm install  # Compiles native modules for Linux
+npm run build
+```
+
+**Prevention - Automated Deployment Script:**
+**File:** `scripts/deploy.sh`
+```bash
+#!/bin/bash
+# Automated deployment with native module rebuild
+# Pushes code, SSHs to server, rebuilds natives, restarts app
+```
+
+**Usage:**
+```bash
+./scripts/deploy.sh "commit message"
+```
+
+**Features:**
+- ✅ Auto-commits and pushes changes
+- ✅ SSHs to production server
+- ✅ Pulls latest code
+- ✅ Rebuilds native modules (bcrypt, puppeteer)
+- ✅ Runs TypeScript build
+- ✅ Restarts PM2 with clean state
+- ✅ Validates app stays running
+
+**Prevention - PM2 Restart Limits:**
+**File:** `ecosystem.config.js`
+
+PM2 configuration to prevent infinite restart loops:
+```javascript
+{
+  max_restarts: 10,        // Stop after 10 restart attempts
+  min_uptime: '30s',       // Must stay up 30s or restart doesn't count
+  restart_delay: 5000,     // Wait 5s between restarts (exponential backoff)
+  exp_backoff_restart_delay: 100, // Multiply delay by this factor
+  autorestart: true,       // Still auto-restart for real crashes
+  max_memory_restart: '500M' // Restart if memory exceeds 500MB
+}
+```
+
+**How It Helps:**
+- ✅ Limits restart attempts (stops after 10 failures)
+- ✅ Exponential backoff (5s → 10s → 20s → 40s delays)
+- ✅ Only counts "real" restarts (must stay up 30s)
+- ✅ Prevents resource waste from crash loops
+- ✅ Forces manual intervention after 10 failed attempts
+
+**Recovery Procedure:**
+If you see high restart count in PM2:
+```bash
+# 1. Check restart count
+pm2 list  # Look for high "restart" number
+
+# 2. Stop the crash loop
+pm2 stop ultrathink
+
+# 3. Check logs for error type
+pm2 logs ultrathink --lines 50 --err
+
+# 4. If native module error, rebuild:
+cd ~/wAssitenceBot
+rm -rf node_modules/bcrypt node_modules/puppeteer
+npm install
+
+# 5. Rebuild TypeScript
+npm run build
+
+# 6. Restart app
+pm2 restart ultrathink
+
+# 7. Monitor stability
+pm2 monit  # Watch for 60s to ensure no crashes
+```
+
+**Alternative: Docker Deployment (Future)**
+Using Docker eliminates this entire class of bugs:
+```dockerfile
+# Dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install  # Compiles natives inside container = Linux
+COPY . .
+RUN npm run build
+CMD ["node", "dist/index.js"]
+```
+
+**Testing After Fix:**
+```bash
+# Verify app is stable
+ssh root@167.71.145.9 "pm2 list"
+# Expected: uptime > 60s, restart count = 0-1
+
+# Check logs for errors
+ssh root@167.71.145.9 "pm2 logs ultrathink --lines 20 --nostream"
+# Expected: No ELF header errors, "Connected to Redis" message
+
+# Test functionality
+# Send WhatsApp message to bot → should respond
+```
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-19
+**Priority:** CRITICAL (production down)
+**Impact:**
+- Prevented 397+ restart loops
+- Bot now stable on production
+- Deployment script prevents recurrence
+- PM2 limits protect against future crash loops
+
+**Lessons Learned:**
+1. Never copy `node_modules` from macOS to Linux
+2. Always rebuild native modules on target platform
+3. Use PM2 restart limits as safety net
+4. Monitor restart counts as early warning signal
+5. Consider Docker for deployment consistency
+
+---
+
 ## Testing Instructions
 
 1. **Bug #1 (Nearest Event):**
@@ -725,7 +893,394 @@ Returns top 10 most visited locations
 
 ---
 
-## 🐛 PENDING BUGS
+## 🐛 RECENTLY FIXED (2025-10-19)
+
+### Bug #1: Event Search Not Finding Events
+**Reported:** 2025-10-18 via #comment: "הוא לא מוצא את האירוע , גם אם כתבתי אותו בדיוק כמו שהוא נרשם"
+**Translation:** "It can't find the event, even when I type it exactly as it was saved"
+
+**Problem:**
+- User searches for an event by exact title, but bot says "not found"
+- Fuzzy matching threshold was too high (0.45)
+- Search limit was too restrictive (100 events)
+
+**Root Causes:**
+1. Hebrew morphological variations reduce similarity scores
+2. Fuzzy match threshold of 0.45 was rejecting valid matches
+3. Limit of 100 events missed older events for power users
+
+**Fix Applied:**
+**Files Modified:**
+- `src/routing/NLPRouter.ts:823-833` - Lowered fuzzy match threshold from 0.45 to 0.3
+- `src/routing/NLPRouter.ts:819-825` - Increased search limit from 100 to 500 events
+- `src/routing/NLPRouter.ts:948-952` - Applied same 0.3 threshold to delete operations
+
+**Changes:**
+```typescript
+// OLD: events = await this.eventService.getAllEvents(userId, 100, 0, true);
+// NEW: events = await this.eventService.getAllEvents(userId, 500, 0, true);
+
+// OLD: events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.45);
+// NEW: events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.3);
+```
+
+**Status:** ✅ FIXED
+**Impact:** Higher recall - finds more valid matches, especially for Hebrew text variations
+
+---
+
+### Bug #2: Multiple Participants Incorrectly Detected
+**Reported:** 2025-10-19 via #comment: "#why the bit recognized 2 participants? It was simple event"
+**User Example:** "פגישה עם יהודית" (Meeting with Yehudit) was detected as 2 participants: "יה" and "דית"
+
+**Problem:**
+- Name "יהודית" contains the letter "ו" (vav)
+- Regex was splitting on ANY "ו" character, even inside names
+- Result: "יהודית" → "יה" + "דית" (incorrect split)
+
+**Root Cause:**
+Participant detection regex in Phase 9 was too greedy:
+```typescript
+// OLD REGEX: Split on ANY ו character
+.split(/\s*[ו,]\s*/)  // Matches ו anywhere, including inside "יהודית"
+```
+
+**Fix Applied:**
+**File:** `src/domain/phases/phase9-participants/ParticipantPhase.ts:95-151`
+
+**Changes:**
+1. **More restrictive name capture** - only Hebrew letters, no spaces or ו inside names:
+   ```typescript
+   // OLD: /עם\s+([א-ת\s,ו-]+?)(?:...)/
+   // NEW: /עם\s+([א-תa-zA-Z]+(?:\s+(?:ו-?|,)\s*[א-תa-zA-Z]+)*)/
+   ```
+
+2. **Explicit AND connector** - require space before ו:
+   ```typescript
+   // OLD: .split(/\s*[ו,]\s*/)  // Splits on any ו
+   // NEW: .split(/\s+(?:ו-?|,)\s*/)  // Only splits on " ו" (space before ו!)
+   ```
+
+3. **Better stopping conditions** - stop at date/time keywords:
+   ```typescript
+   (?:\s+(?:ל?היום|מחר|ב?שעה|ל?שעה|ב-?\d{1,2}(?::|\s)|בשבוע|...)|$)
+   ```
+
+**Examples After Fix:**
+- ✅ "עם יהודית" → 1 participant: "יהודית" (ו is part of name)
+- ✅ "עם יוסי ודני" → 2 participants: "יוסי", "דני" (space before ו = connector)
+- ✅ "עם מיכאל, שרה ודן" → 3 participants (comma and ו connectors)
+
+**Status:** ✅ FIXED
+**Impact:** Correctly identifies Hebrew names containing ו without false splits
+
+---
+
+### Bug #3: Date/Day Mismatch Not Validated
+**Reported:** 2025-10-18 via #comment: "הצלחתי להכניס את הפגישה אבל הוא התייחס רק לתאריך ולא התריע שיש טעות ביום"
+**Translation:** "I managed to enter the meeting but it only looked at the date and didn't warn about the day error"
+**User Example:** "Friday 23.10" but 23.10.2025 is actually Thursday
+
+**Problem:**
+- User specifies both day name AND date: "Friday 23.10"
+- Bot accepts the date without checking if Friday matches 23.10
+- Creates event on wrong day without warning
+
+**Root Cause:**
+- No validation to check if day name matches actual day of week for given date
+- Parser trusted date over day name
+
+**Fix Applied:**
+**Files Modified:**
+1. `src/utils/hebrewDateParser.ts:375-444` - Added `validateDayNameMatchesDate()` function
+2. `src/routing/NLPRouter.ts:30` - Import validation function
+3. `src/routing/NLPRouter.ts:488-515` - Added validation check in `handleNLPCreateEvent()`
+4. `src/types/index.ts:118` - Added `CONFIRMING_DATE_MISMATCH` state
+5. `src/routing/StateRouter.ts:202-204` - Added case handler
+6. `src/routing/StateRouter.ts:595-670` - Implemented `handleDateMismatchConfirm()` function
+
+**How It Works:**
+1. Extract day name from user text (e.g., "Friday", "יום שישי")
+2. Parse the date (e.g., "23.10")
+3. Check if day name matches actual day of week
+4. If mismatch: show warning and ask for confirmation
+
+**Validation Function:**
+```typescript
+export function validateDayNameMatchesDate(
+  dayName: string | undefined | null,
+  date: Date,
+  timezone: string = 'Asia/Jerusalem'
+): { isValid: boolean; expectedDay: string; actualDay: string; warning: string } | null
+```
+
+**User Experience:**
+```
+User: "יום שישי 23.10 פגישה עם דני"
+Bot: ⚠️ יש אי-התאמה בין היום והתאריך!
+
+ציינת: יום שישי
+אבל 23/10/2025 הוא יום חמישי
+
+האם להמשיך בכל זאת? (כן/לא)
+```
+
+**Status:** ✅ FIXED
+**Impact:** Prevents user errors from creating events on wrong days
+
+---
+
+## 🐛 RECENTLY FIXED (2025-10-19)
+
+### 10. Calendar Not Showing Events (Events & Reminders Missing)
+**Reported:** 2025-10-19 via screenshot
+**Re-reported:** 2025-10-19 - "on personal report, no events shown on calendar"
+**User Issue:** Calendar view displays no events/reminders, even though they exist in the system
+
+**Problem History:**
+
+**Initial Issue (2025-10-19 morning):**
+- Personal dashboard calendar (`/d/{token}`) was only showing future events
+- Past events were completely missing from the calendar view
+
+**Initial Fix Applied:**
+Modified `/api/dashboard/:token` to fetch BOTH past and upcoming events (see lines 102-106)
+
+**Re-Reported Issue (2025-10-19 evening):**
+After first fix, calendar STILL showed no events. Further investigation revealed:
+- ✅ Events were being fetched correctly (past + upcoming)
+- ❌ **Reminders were ONLY fetching today's reminders** instead of ALL reminders
+- Calendar needs ALL reminders to display them on their respective dates throughout the month
+
+**Root Cause:**
+The dashboard API was using `getRemindersForToday(userId)` which only returns today's reminders:
+```typescript
+// WRONG CODE (line 107)
+reminderService.getRemindersForToday(userId), // ❌ Only today's reminders!
+```
+
+This meant:
+- Calendar could only show reminders on TODAY's date
+- All other dates showed no reminder dots/items
+- User experience: "calendar has no events"
+
+**Final Fix Applied:**
+**File:** `src/api/dashboard.ts` (line 107)
+
+Changed from `getRemindersForToday` to `getAllReminders`:
+```typescript
+// Fetch both upcoming and past events + ALL reminders
+const [upcomingEvents, pastEventsResult, allReminders, allTasks] = await Promise.all([
+  eventService.getUpcomingEvents(userId, 50), // Get next 50 events
+  eventService.getPastEvents(userId, {
+    limit: 50,
+    startDate: DateTime.now().minus({ days: 90 }).toJSDate() // Last 90 days
+  }),
+  reminderService.getAllReminders(userId, 100), // ✅ Get ALL reminders for calendar display
+  taskService.getAllTasks(userId, true), // Include completed for stats
+]);
+
+// Combine past and upcoming events
+const events = [...pastEventsResult.events, ...upcomingEvents];
+```
+
+**What Changed:**
+- ✅ API fetches past events (last 90 days, up to 50 events)
+- ✅ API fetches upcoming events (next 50 events)
+- ✅ API fetches ALL reminders (up to 100, not just today's!)
+- ✅ Both sets are combined and sent to the dashboard
+- ✅ Calendar can now display events AND reminders on all dates
+
+**Impact:**
+- Calendar shows full event history (last 90 days)
+- Calendar shows all reminders on their respective dates
+- Users can navigate through months and see all scheduled items
+- No changes needed to frontend - it already supported displaying all items
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-19 (initial), 2025-10-19 evening (final fix)
+**Priority:** HIGH (core calendar functionality)
+
+**Testing:**
+1. Create events in the past (e.g., last week)
+2. Create reminders for different dates (not just today)
+3. Get dashboard link: Send "תן לי דף סיכום" to bot
+4. Open dashboard and navigate to calendar tab
+5. Navigate to previous/next weeks/months
+6. Verify:
+   - Past events are visible ✅
+   - Future events are visible ✅
+   - Reminders on all dates are visible ✅
+   - Dots appear on calendar days with items ✅
+
+**Lesson Learned:**
+When implementing calendar views, ensure ALL time-based data is fetched, not just "today" or "upcoming". The calendar needs a complete dataset to render properly across all visible dates.
+
+---
+
+### 10b. Calendar UI Enhancement - iOS-Style Event Display
+**Reported:** 2025-10-19 - User requested calendar to look like iOS Calendar app
+**Issue:** Calendar was showing small dots instead of full event labels
+
+**Problem:**
+- Calendar displayed small colored dots to indicate events/reminders/tasks
+- Users couldn't see event titles without clicking on the day
+- Limited visibility - only 2 events + 1 reminder shown per day
+- Not intuitive like iOS Calendar which shows event labels directly
+
+**Fix Applied:**
+**File:** `src/templates/dashboard.html`
+
+**Changes Made:**
+
+1. **Removed Dots, Added Event Labels** (lines 1724-1792)
+   - Removed the dots-based indicator system
+   - Show actual event titles as colored pills/cards (like iOS Calendar)
+   - Events: Blue background (`bg-blue-100 text-blue-800`)
+   - Reminders: Amber/Orange background (`bg-amber-100 text-amber-800`)
+   - Tasks: Green background (`bg-green-100 text-green-800`)
+
+2. **Increased Items Per Day** (line 1763)
+   - Current month: Up to 5 items per day
+   - Other months: Up to 3 items per day
+   - "+X more" indicator if more items exist
+
+3. **Enhanced Styling** (lines 40-45, 71-94)
+   - Increased calendar cell height: 140px → 160px (mobile: 100px → 120px)
+   - Better event-item styling: font-weight 600, subtle shadows
+   - Improved padding: 3px/6px → 4px/8px
+   - Tighter spacing: margin-bottom 3px → 2px
+
+4. **Combined All Item Types**
+   - Previously: Only events and reminders
+   - Now: Events + Reminders + Tasks all displayed together
+   - Sorted by type (events first, then reminders, then tasks)
+
+**Visual Improvements:**
+- ✅ Event titles visible at a glance (no clicking needed)
+- ✅ Color-coded by type (blue/amber/green)
+- ✅ iOS-like appearance with colored pills
+- ✅ Better space utilization (5 items vs 3)
+- ✅ "+X more" indicator for overflow
+- ✅ Cleaner, more professional look
+
+**User Experience:**
+- Quick visual scan shows all upcoming events
+- Color coding helps distinguish event types instantly
+- Clicking events still opens detailed modal
+- Better mobile experience with adjusted sizing
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-19
+**Priority:** MEDIUM (UX enhancement)
+
+**Mobile Optimizations:**
+To ensure the iOS-style calendar works well on mobile devices, additional responsive enhancements were made:
+
+1. **Adaptive Item Limits** (line 1771-1772)
+   - Desktop: Up to 5 items per day (current month), 3 for other months
+   - Mobile: Up to 4 items per day (current month), 2 for other months
+   - Prevents overcrowding on small screens
+
+2. **Mobile Cell Height** (lines 47-51)
+   - Increased from 120px to 140px for better label visibility
+   - Adjusted padding to 0.375rem for comfortable spacing
+
+3. **Mobile Event Item Styling** (lines 92-97)
+   - Font size: 0.65rem (slightly larger than before)
+   - Padding: 3px 6px (better touch targets)
+   - Tighter margins: 1.5px between items
+   - Smaller border radius: 3px
+
+4. **Grid Spacing** (lines 52-54)
+   - Reduced gap to 0.15rem on mobile for more screen space
+   - Maintains visual separation without wasting space
+
+**Testing:**
+1. Open dashboard with multiple events/reminders/tasks
+2. Navigate to calendar tab
+3. **Desktop:** Verify:
+   - Event labels are visible (not dots) ✅
+   - Colors match types (blue/amber/green) ✅
+   - Up to 5 items shown per day ✅
+   - "+X more" appears when needed ✅
+   - Clicking events opens modal ✅
+
+4. **Mobile:** Verify:
+   - Calendar cells are 140px tall ✅
+   - Event labels are readable (0.65rem font) ✅
+   - Up to 4 items shown per day (current month) ✅
+   - Touch targets are comfortable ✅
+   - Grid spacing is optimized ✅
+   - "+X more" appears when needed ✅
+
+---
+
+### 10c. Weekly View Not Showing All 7 Days
+**Reported:** 2025-10-19 - User screenshot showing only 3 days in weekly view
+**Issue:** Weekly calendar view was only showing 3 days instead of the full 7-day week on mobile
+
+**Problem:**
+- Weekly view renders all 7 days in the code (lines 2117-2125)
+- On mobile screens, only 3 days were visible
+- The remaining 4 days were cut off/hidden
+- No horizontal scrolling was enabled to see the hidden days
+
+**Root Cause:**
+The `#week-view-content` container had Tailwind class `overflow-x-auto` in HTML, but no explicit CSS overflow property was defined. On some browsers/devices, this wasn't enabling horizontal scrolling properly.
+
+**Fix Applied:**
+**File:** `src/templates/dashboard.html` (lines 204-220)
+
+Added explicit overflow-x styling to the container:
+
+```css
+#week-view-content {
+  overflow-x: auto;  /* Enable horizontal scrolling */
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Mobile: Force scrollbar */
+@media (max-width: 768px) {
+  .week-grid {
+    min-width: 800px; /* 60px time + 7*105px days = 795px */
+    grid-template-columns: 60px repeat(7, minmax(100px, 1fr));
+  }
+  #week-view-content {
+    overflow-x: scroll; /* Force scrollbar on mobile */
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+    scroll-behavior: smooth;
+  }
+}
+```
+
+**What Changed:**
+- ✅ Added explicit `overflow-x: auto` for desktop (scroll appears when needed)
+- ✅ Changed to `overflow-x: scroll` on mobile (always shows scrollbar)
+- ✅ Week grid min-width set to 800px on mobile
+- ✅ Smooth touch scrolling enabled for iOS/mobile devices
+
+**User Experience:**
+- **Desktop:** All 7 days may fit on screen, or scroll horizontally if needed
+- **Mobile:** Users can swipe left/right to see all 7 days of the week
+- **Smooth scrolling:** iOS-optimized touch scrolling for better UX
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-19
+**Priority:** HIGH (core weekly view functionality)
+
+**Testing:**
+1. Open dashboard on mobile device
+2. Navigate to "תצוגת שבוע" (Weekly View) tab
+3. Verify you can see the first 3 days (Sunday, Monday, Tuesday)
+4. **Swipe left** to scroll horizontally
+5. Verify you can see all 7 days (Sunday through Saturday)
+6. Check that scrolling is smooth and responsive
+
+**Note:** The weekly view is designed to be horizontally scrollable on mobile. This is intentional to maintain readable column widths while showing the full week.
+
+---
 
 ### 9. Date Parsing Without Year + Time Recognition Issues
 **Reported:** 2025-10-18 via WhatsApp (#comment)
@@ -909,5 +1464,163 @@ View AI classification failures with analytics (most common misclassifications, 
 - Reminder detection accuracy significantly improved
 - Default time saves user time
 - AI failures logged for continuous improvement
+
+---
+
+## 🎯 FEATURES
+
+### 12. Customizable Reminder Lead Time
+**Feature Request:** User wanted control over how many minutes before an event they receive reminder notifications
+
+**Implementation:**
+Comprehensive feature allowing users to configure reminder lead time (0-120 minutes) via settings menu.
+
+**Changes Applied:**
+
+#### 1. Database Schema - User Preferences
+**Type:** `src/types/index.ts:21`
+Added `reminderLeadTimeMinutes?: number` to UserPreferences interface with valid range 0-120.
+
+#### 2. Settings Service
+**File:** `src/services/SettingsService.ts`
+- `getReminderLeadTime(userId)` - Lines 122-139
+  - Retrieves user preference with default 15 minutes
+  - Validates range (0-120)
+  - Fallback on error
+- `updateReminderLeadTime(userId, minutes)` - Lines 147-183
+  - Critical validation for number type and range
+  - Updates prefs_jsonb with floor(minutes)
+
+#### 3. Reminder Queue Scheduling
+**File:** `src/queues/ReminderQueue.ts`
+- `scheduleReminder()` - Lines 38-133
+  - Added `leadTimeMinutes` optional parameter
+  - Validates and clamps to [0, 120]
+  - Calculates: targetSendTime = dueDateMs - leadTimeMs
+  - **Safety Check #1:** Past time handling (skip if >5 min past, send immediately if <5 min)
+  - **Safety Check #2:** Lead time exceeds time until due (logs warning, proceeds)
+  - Comprehensive logging with timestamps
+
+**Interface:**
+```typescript
+export interface ReminderJob {
+  reminderId: string;
+  userId: string;
+  title: string;
+  phone: string;
+  leadTimeMinutes?: number; // NEW
+}
+```
+
+#### 4. Reminder Worker - Message Format
+**File:** `src/queues/ReminderWorker.ts:38-78`
+Enhanced message format with Hebrew time formatting:
+```
+⏰ תזכורת
+
+[Title]
+
+⏳ בעוד [X] דקות/שעות
+```
+
+Hebrew pluralization logic:
+- 1 minute: "בעוד דקה אחת"
+- 2-59 minutes: "בעוד X דקות"
+- 60 minutes: "בעוד שעה"
+- 61+ minutes: "בעוד X שעות ו-Y דקות"
+
+#### 5. State Router - Reminder Creation
+**File:** `src/routing/StateRouter.ts`
+Updated ALL 3 reminder creation points to fetch and pass lead time:
+- `handleReminderConfirm()` - Line 962
+- Recurring reminder update (one-time) - Line 2380
+- Reminder reschedule - Line 2458
+
+```typescript
+const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+await scheduleReminder({...job}, dueDate, leadTimeMinutes);
+```
+
+#### 6. NLP Router Integration
+**File:** `src/routing/NLPRouter.ts`
+- Added SettingsService dependency injection - Line 158
+- Updated comment-reminder creation - Line 1669
+- Updated MessageRouter.ts instantiation - Line 219
+
+#### 7. Settings Menu UI
+**File:** `src/services/MessageRouter.ts:598`
+Added option 4 to settings menu:
+```
+⚙️ הגדרות
+
+1️⃣ שינוי שפה
+2️⃣ שינוי אזור זמן
+3️⃣ תצוגת תפריט
+4️⃣ זמן תזכורת         ← NEW
+5️⃣ חזרה לתפריט
+```
+
+#### 8. Settings Handler
+**File:** `src/routing/StateRouter.ts`
+- Added ConversationState.SETTINGS_REMINDER_TIME - types/index.ts:145
+- Settings menu handler - Line 2537-2546
+  - Shows current lead time
+  - 6 preset options (0, 5, 15, 30, 60, 120 minutes)
+- `handleSettingsReminderTime()` - Lines 2677-2724
+  - Maps choices to minutes
+  - Updates database
+  - Confirmation message with Hebrew description
+
+**Status:** ✅ IMPLEMENTED
+**Complexity:** MEDIUM (2-3 hours actual)
+**Regression Risk:** LOW-MEDIUM
+- Extensive validation in multiple layers
+- Backward compatible (defaults to 15 min)
+- Safety checks prevent past-time failures
+- No breaking changes to existing functionality
+
+**Test Plan:**
+1. **Settings Menu Access:**
+   - Main menu → Option 5 (Settings) → Option 4 (זמן תזכורת)
+   - Verify current setting displayed
+
+2. **Update Lead Time:**
+   - Select each option (1-6)
+   - Verify confirmation message
+   - Check database: `SELECT prefs_jsonb FROM users WHERE id = 'test-user'`
+
+3. **Reminder Creation:**
+   - Create reminder for 30 minutes from now
+   - Set lead time to 10 minutes
+   - Verify reminder scheduled for (now + 20 minutes)
+   - Check BullMQ: job delay should be 20 minutes
+
+4. **Edge Cases:**
+   - Lead time > time until due (e.g., 60 min lead for reminder in 10 min) → Should send immediately
+   - Lead time = 0 → Should send at exact event time
+   - Past reminder → Should skip if >5 min past, send immediately if <5 min past
+
+5. **Hebrew Message Format:**
+   - Lead time 1 min → "בעוד דקה אחת"
+   - Lead time 5 min → "בעוד 5 דקות"
+   - Lead time 60 min → "בעוד שעה"
+   - Lead time 90 min → "בעוד שעה ו-30 דקות"
+
+**Deployment:**
+1. Run `npm run build` to compile TypeScript
+2. Deploy to production
+3. Restart PM2: `pm2 restart ultrathink`
+4. Monitor logs for any scheduling errors
+
+**Files Modified:**
+- src/types/index.ts
+- src/services/SettingsService.ts
+- src/queues/ReminderQueue.ts
+- src/queues/ReminderWorker.ts
+- src/routing/StateRouter.ts (3 locations)
+- src/routing/NLPRouter.ts
+- src/services/MessageRouter.ts
+
+**Lines Changed:** ~200 lines added/modified across 7 files
 
 ---

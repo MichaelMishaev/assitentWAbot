@@ -3,6 +3,7 @@ import { AuthService } from '../services/AuthService.js';
 import { EventService } from '../services/EventService.js';
 import { ReminderService } from '../services/ReminderService.js';
 import { ContactService } from '../services/ContactService.js';
+import { SettingsService } from '../services/SettingsService.js';
 import { dashboardTokenService } from '../services/DashboardTokenService.js';
 import { proficiencyTracker } from '../services/ProficiencyTracker.js';
 import { redisMessageLogger } from '../services/RedisMessageLogger.js';
@@ -27,7 +28,7 @@ import { DateTime } from 'luxon';
 import { scheduleReminder } from '../queues/ReminderQueue.js';
 import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';
 import { CommandRouter } from './CommandRouter.js';
-import { parseHebrewDate } from '../utils/hebrewDateParser.js';
+import { parseHebrewDate, validateDayNameMatchesDate } from '../utils/hebrewDateParser.js';
 import { pipelineOrchestrator } from '../domain/orchestrator/PipelineOrchestrator.js';
 
 /**
@@ -154,6 +155,7 @@ export class NLPRouter {
     private eventService: EventService,
     private reminderService: ReminderService,
     private contactService: ContactService,
+    private settingsService: SettingsService,
     private messageProvider: IMessageProvider,
     private commandRouter: CommandRouter,
     private sendMessage: (to: string, message: string) => Promise<string>,
@@ -484,6 +486,35 @@ export class NLPRouter {
     }
 
     let eventDate: Date = dateQuery.date;
+
+    // BUG FIX #2: Validate day name matches actual date
+    // Bug report: "הצלחתי להכניס את הפגישה אבל הוא התייחס רק לתאריך ולא התריע שיש טעות ביום"
+    // Example: User says "Friday 23.10" but 23.10 is actually Thursday
+    if (event?.dateText) {
+      const dayValidation = validateDayNameMatchesDate(event.dateText, eventDate, 'Asia/Jerusalem');
+      if (dayValidation && !dayValidation.isValid) {
+        // Day/date mismatch detected! Ask user for confirmation
+        logger.warn('Day/date mismatch detected', {
+          userText: event.dateText,
+          expectedDay: dayValidation.expectedDay,
+          actualDay: dayValidation.actualDay,
+          date: eventDate.toISOString()
+        });
+
+        await this.sendMessage(phone, dayValidation.warning);
+        await this.stateManager.setState(userId, ConversationState.CONFIRMING_DATE_MISMATCH, {
+          title: event.title,
+          date: eventDate.toISOString(),
+          location: event.location,
+          participants: event.participants,
+          notes: event.notes,
+          expectedDay: dayValidation.expectedDay,
+          actualDay: dayValidation.actualDay,
+          fromNLP: true
+        });
+        return;
+      }
+    }
 
     // CRITICAL FIX: Check if time is included in the date
     // Check if NLP provided explicit time by examining the original date field
@@ -816,16 +847,20 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
           }
         }
       } else if (titleFilter) {
-        // CRITICAL FIX: User only specified title, no date - search recent events (past and future) by title
-        // Get 100 most recent events (DESC order) to include both past and upcoming events
-        events = await this.eventService.getAllEvents(userId, 100, 0, true);
+        // CRITICAL FIX: User only specified title, no date - search ALL events (past and future) by title
+        // INCREASED LIMIT: Get up to 500 most recent events (DESC order) to ensure we don't miss old events
+        // BUG FIX: User reported "הוא לא מוצא את האירוע , גם אם כתבתי אותו בדיוק כמו שהוא נרשם"
+        // Root cause: 100 limit was too restrictive for users with many events
+        events = await this.eventService.getAllEvents(userId, 500, 0, true);
         dateDescription = '';
       }
 
       // Filter by title if provided using fuzzy matching
-      // Lowered to 0.45 for better Hebrew matching (morphology variations)
+      // BUG FIX: Lowered threshold from 0.45 to 0.3 for better Hebrew matching
+      // Hebrew has many morphological variations that can reduce similarity scores
+      // Lower threshold = higher recall (finds more potential matches)
       if (titleFilter && events.length > 0) {
-        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.45);
+        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.3);
       }
 
       // Log for debugging
@@ -940,10 +975,11 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         events = await this.eventService.getUpcomingEvents(userId, 50);
       }
 
-      // Filter by title if provided using fuzzy matching (45% threshold for Hebrew flexibility)
+      // Filter by title if provided using fuzzy matching
+      // BUG FIX: Lowered threshold to 0.3 (same as search) for consistent Hebrew matching
       const titleFilter = sanitizeTitleFilter(event.title);
       if (titleFilter && events.length > 0) {
-        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.45);
+        events = filterByFuzzyMatch(events, titleFilter, e => e.title, 0.3);
       }
 
       if (events.length === 0) {
@@ -1629,13 +1665,16 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
           reminderId: reminder.id,
         });
 
+        // Get user's reminder lead time preference
+        const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+
         // Schedule reminder
         await scheduleReminder({
           reminderId: reminder.id,
           userId,
           title: reminder.title,
           phone,
-        }, reminderDate);
+        }, reminderDate, leadTimeMinutes);
 
         // Send confirmation with reminder
         const message = formatCommentWithReminder(newComment, event, reminderDate);

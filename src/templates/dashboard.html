@@ -38,14 +38,19 @@
     .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
     .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
     .calendar-day {
-      min-height: 140px;
+      min-height: 160px;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       position: relative;
+      overflow: hidden;
     }
     @media (max-width: 768px) {
       .calendar-day {
-        min-height: 100px;
+        min-height: 140px;
         font-size: 0.85rem;
+        padding: 0.375rem;
+      }
+      #calendar-grid {
+        gap: 0.15rem;
       }
     }
     .calendar-day:hover {
@@ -68,24 +73,30 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
     .event-item {
-      font-size: 0.75rem;
-      padding: 3px 6px;
-      border-radius: 6px;
-      margin-bottom: 3px;
+      font-size: 0.7rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-bottom: 2px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       cursor: pointer;
       transition: all 0.2s ease;
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      line-height: 1.2;
     }
     .event-item:hover {
       transform: translateX(-2px);
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      opacity: 0.9;
     }
     @media (max-width: 768px) {
       .event-item {
         font-size: 0.65rem;
-        padding: 2px 4px;
+        padding: 3px 6px;
+        border-radius: 3px;
+        margin-bottom: 1.5px;
       }
       .event-dot {
         width: 6px;
@@ -190,6 +201,11 @@
       overflow: hidden;
       min-width: 100%;
     }
+    #week-view-content {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+    }
     /* Mobile: ensure week grid is wide enough to show all 7 days */
     @media (max-width: 768px) {
       .week-grid {
@@ -197,6 +213,7 @@
         grid-template-columns: 60px repeat(7, minmax(100px, 1fr));
       }
       #week-view-content {
+        overflow-x: scroll; /* Force scrollbar on mobile */
         -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
         scroll-behavior: smooth;
       }
@@ -519,19 +536,6 @@
             <div class="progress-fill bg-green-500" id="progress-completed" style="width: 0%"></div>
           </div>
         </div>
-      </div>
-
-      <!-- Past Events Button Row -->
-      <div class="mt-4 flex justify-center">
-        <button onclick="showPastEventsModal()" class="glass rounded-2xl p-4 shadow-lg card-hover px-8 py-4 bg-gradient-to-r from-purple-50 to-indigo-50 hover:from-purple-100 hover:to-indigo-100 border-2 border-purple-400 transition-all">
-          <div class="flex items-center gap-3">
-            <span class="text-3xl">🕐</span>
-            <div class="text-right">
-              <div class="text-xl font-bold text-gray-800">אירועי העבר</div>
-              <div class="text-sm text-gray-600">צפייה באירועים שהיו</div>
-            </div>
-          </div>
-        </button>
       </div>
     </div>
 
@@ -1290,6 +1294,20 @@
               <span class="font-bold text-5xl drop-shadow-md">${items.length}</span>
               <span class="text-xl opacity-90">פריטים</span>
             </div>
+
+            ${cardType === 'events' ? `
+            <div class="mt-4">
+              <button onclick="event.stopPropagation(); showPastEventsModal();"
+                      class="group inline-flex items-center gap-2 px-6 py-3 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-xl font-bold transition-all duration-300 active:scale-95 border border-white/30">
+                <span>🕐</span>
+                <span>אירועי העבר</span>
+                <span class="text-sm opacity-80">צפייה באירועים שהיו</span>
+                <svg class="w-4 h-4 group-hover:translate-x-[-4px] transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l-5 5 5 5"></path>
+                </svg>
+              </button>
+            </div>
+            ` : ''}
           </div>
         </div>
         <div class="p-6 md:p-8 max-h-[55vh] overflow-y-auto" style="scrollbar-gutter: stable;">`;
@@ -1488,23 +1506,11 @@
                    class="group inline-flex items-center gap-2 px-6 py-3 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-xl font-bold transition-all duration-300 active:scale-95 border border-white/30">
                   <span>📊</span>
                   <span>עבור לדוח המפורט</span>
-                  <span class="text-sm opacity-80">סינונים, גרפים ואגרגציה</span>
+                  <span class="text-sm opacity-80">סינונים, סטטיסטיקות ומיקומים</span>
                   <svg class="w-4 h-4 group-hover:translate-x-[-4px] transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l-5 5 5 5"></path>
                   </svg>
                 </a>
-              </div>
-
-              <!-- Stats Summary (Compact for mobile) -->
-              <div class="grid grid-cols-2 gap-2 mt-4">
-                <div class="bg-white/20 backdrop-blur-sm rounded-lg p-2.5">
-                  <div class="text-2xl font-bold text-white">${stats?.totalCount || 0}</div>
-                  <div class="text-white/80 text-xs mt-0.5">סה"כ אירועים</div>
-                </div>
-                <div class="bg-white/20 backdrop-blur-sm rounded-lg p-2.5">
-                  <div class="text-2xl font-bold text-white">${stats?.topLocations?.length || 0}</div>
-                  <div class="text-white/80 text-xs mt-0.5">מיקומים</div>
-                </div>
               </div>
             </div>
           </div>
@@ -1546,32 +1552,6 @@
           });
 
           content += '</div></div>';
-
-          // Show top locations if available
-          if (stats?.topLocations && stats.topLocations.length > 0) {
-            const displayedLocations = Math.min(5, stats.topLocations.length);
-            const totalLocations = stats.topLocations.length;
-
-            content += `<div class="mb-6">
-              <div class="flex items-center justify-between mb-3">
-                <h3 class="text-lg font-bold text-gray-800">מיקומים פופולריים</h3>
-                ${totalLocations > 5 ? `<span class="text-sm text-gray-500">מציג ${displayedLocations} מתוך ${totalLocations}</span>` : ''}
-              </div>
-              <div class="grid grid-cols-2 gap-3">`;
-
-            stats.topLocations.slice(0, 5).forEach((loc) => {
-              content += `
-                <div class="bg-white rounded-lg p-3 border border-gray-200 flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xl">📍</span>
-                    <span class="font-medium text-gray-800 text-sm">${escapeHtml(loc.location)}</span>
-                  </div>
-                  <span class="text-lg font-bold text-purple-600">${loc.count}</span>
-                </div>`;
-            });
-
-            content += '</div></div>';
-          }
         } else {
           content += `
             <div class="text-center py-16">
@@ -1758,62 +1738,75 @@
         // Get items for this day
         const dayItems = getItemsForDate(dateStr);
 
-        // Show dots for items
+        // Show event labels (like iOS calendar) - no dots
         if (dayItems.events.length + dayItems.reminders.length + dayItems.tasks.length > 0) {
-          const dotsContainer = document.createElement('div');
-          dotsContainer.className = 'flex gap-1 mb-1 flex-wrap';
+          const itemsPreview = document.createElement('div');
+          itemsPreview.className = 'space-y-1 mt-1';
 
-          dayItems.events.slice(0, 3).forEach(() => {
-            const dot = document.createElement('div');
-            dot.className = 'event-dot bg-blue-500';
-            dotsContainer.appendChild(dot);
-          });
+          // Combine all items and limit to 5 total per day
+          const allItems = [];
 
-          dayItems.reminders.slice(0, 3).forEach(() => {
-            const dot = document.createElement('div');
-            dot.className = 'event-dot bg-amber-500';
-            dotsContainer.appendChild(dot);
-          });
-
-          dayItems.tasks.slice(0, 3).forEach(() => {
-            const dot = document.createElement('div');
-            dot.className = 'event-dot bg-green-500';
-            dotsContainer.appendChild(dot);
-          });
-
-          dayCell.appendChild(dotsContainer);
-
-          // Show first few items as mini labels (only for current month)
-          if (isCurrentMonth) {
-            const itemsPreview = document.createElement('div');
-            itemsPreview.className = 'space-y-1';
-
-            [...dayItems.events.slice(0, 2)].forEach(event => {
-              const item = document.createElement('div');
-              item.className = 'event-item bg-blue-100 text-blue-800';
-              item.textContent = event.title;
-              item.title = event.title;
-              item.onclick = (e) => {
-                e.stopPropagation();
-                showEventModal(data.events.indexOf(event), 'event');
-              };
-              itemsPreview.appendChild(item);
+          // Add events (blue)
+          dayItems.events.forEach(event => {
+            allItems.push({
+              type: 'event',
+              data: event,
+              color: 'bg-blue-100 text-blue-800',
+              onClick: () => showEventModal(data.events.indexOf(event), 'event')
             });
+          });
 
-            [...dayItems.reminders.slice(0, 1)].forEach(reminder => {
-              const item = document.createElement('div');
-              item.className = 'event-item bg-amber-100 text-amber-800';
-              item.textContent = reminder.title;
-              item.title = reminder.title;
-              item.onclick = (e) => {
-                e.stopPropagation();
-                showEventModal(data.reminders.indexOf(reminder), 'reminder');
-              };
-              itemsPreview.appendChild(item);
+          // Add reminders (amber/orange)
+          dayItems.reminders.forEach(reminder => {
+            allItems.push({
+              type: 'reminder',
+              data: reminder,
+              color: 'bg-amber-100 text-amber-800',
+              onClick: () => showEventModal(data.reminders.indexOf(reminder), 'reminder')
             });
+          });
 
-            dayCell.appendChild(itemsPreview);
+          // Add tasks (green)
+          dayItems.tasks.forEach(task => {
+            allItems.push({
+              type: 'task',
+              data: task,
+              color: 'bg-green-100 text-green-800',
+              onClick: () => showEventModal(data.tasks.indexOf(task), 'task')
+            });
+          });
+
+          // Show up to 5 items per day on desktop, 4 on mobile (like iOS calendar)
+          const isMobile = window.innerWidth <= 768;
+          const maxItems = isCurrentMonth ? (isMobile ? 4 : 5) : (isMobile ? 2 : 3);
+          const itemsToShow = allItems.slice(0, maxItems);
+
+          itemsToShow.forEach(({ type, data, color, onClick }) => {
+            const item = document.createElement('div');
+            item.className = `event-item ${color}`;
+            item.textContent = data.title;
+            item.title = data.title;
+            item.onclick = (e) => {
+              e.stopPropagation();
+              onClick();
+            };
+            itemsPreview.appendChild(item);
+          });
+
+          // Show "+X more" if there are more items
+          if (allItems.length > maxItems) {
+            const moreItem = document.createElement('div');
+            moreItem.className = 'event-item bg-gray-100 text-gray-600 text-center font-semibold';
+            moreItem.textContent = `+${allItems.length - maxItems} עוד`;
+            moreItem.title = `לחץ לראות את כל ${allItems.length} הפריטים`;
+            moreItem.onclick = (e) => {
+              e.stopPropagation();
+              showDayDetails(dateStr, currentDay, currentMonth_local, currentYear_local);
+            };
+            itemsPreview.appendChild(moreItem);
           }
+
+          dayCell.appendChild(itemsPreview);
         }
 
         // Click handler

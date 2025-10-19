@@ -113,6 +113,73 @@ export class SettingsService {
       throw error;
     }
   }
+
+  /**
+   * Get reminder lead time preference (minutes before event to send reminder)
+   * @param userId User ID
+   * @returns Lead time in minutes (default: 15)
+   */
+  async getReminderLeadTime(userId: string): Promise<number> {
+    try {
+      const settings = await this.getUserSettings(userId);
+      const leadTime = settings.prefsJsonb?.reminderLeadTimeMinutes;
+
+      // Validate and return
+      if (typeof leadTime === 'number' && leadTime >= 0 && leadTime <= 120) {
+        return leadTime;
+      }
+
+      // Default fallback
+      logger.info('Using default reminder lead time', { userId, storedValue: leadTime });
+      return 15; // Default: 15 minutes before
+    } catch (error) {
+      logger.error('Failed to get reminder lead time, using default', { userId, error });
+      return 15; // Fallback on error
+    }
+  }
+
+  /**
+   * Update reminder lead time preference
+   * @param userId User ID
+   * @param minutes Minutes before event (0-120)
+   * @throws Error if validation fails
+   */
+  async updateReminderLeadTime(userId: string, minutes: number): Promise<void> {
+    // CRITICAL VALIDATION
+    if (typeof minutes !== 'number' || isNaN(minutes)) {
+      throw new Error('Reminder lead time must be a valid number');
+    }
+
+    if (minutes < 0) {
+      throw new Error('Reminder lead time cannot be negative');
+    }
+
+    if (minutes > 120) {
+      throw new Error('Reminder lead time cannot exceed 120 minutes (2 hours)');
+    }
+
+    // Round to integer to avoid float precision issues
+    const validatedMinutes = Math.floor(minutes);
+
+    try {
+      const query = `
+        UPDATE users
+        SET prefs_jsonb = jsonb_set(
+          COALESCE(prefs_jsonb, '{}'::jsonb),
+          '{reminderLeadTimeMinutes}',
+          to_jsonb($1::integer)
+        ),
+        updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `;
+
+      await this.dbPool.query(query, [validatedMinutes, userId]);
+      logger.info('Reminder lead time updated', { userId, minutes: validatedMinutes });
+    } catch (error) {
+      logger.error('Failed to update reminder lead time', { userId, minutes: validatedMinutes, error });
+      throw error;
+    }
+  }
 }
 
 // Export singleton instance

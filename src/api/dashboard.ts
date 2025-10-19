@@ -97,11 +97,19 @@ router.get('/api/dashboard/:token', async (req: Request, res: Response) => {
     const reminderService = new ReminderService();
     const taskService = new TaskService();
 
-    const [events, allReminders, allTasks] = await Promise.all([
+    // Fetch both upcoming and past events
+    const [upcomingEvents, pastEventsResult, allReminders, allTasks] = await Promise.all([
       eventService.getUpcomingEvents(userId, 50), // Get next 50 events
-      reminderService.getRemindersForToday(userId),
+      eventService.getPastEvents(userId, {
+        limit: 50,
+        startDate: DateTime.now().minus({ days: 90 }).toJSDate() // Last 90 days
+      }),
+      reminderService.getAllReminders(userId, 100), // Get all reminders for calendar display
       taskService.getAllTasks(userId, true), // Include completed for stats
     ]);
+
+    // Combine past and upcoming events
+    const events = [...pastEventsResult.events, ...upcomingEvents];
 
     // Filter active and completed tasks
     const activeTasks = allTasks.filter((t: any) => t.status === 'pending' || t.status === 'in_progress');
