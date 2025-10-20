@@ -1,0 +1,13 @@
+Bug #2 - Context Loss When Replying with Time After Reminder Creation
+
+#me
+תזכיר לי עוד 20 ימים לבטל את המנוי של אמזון
+
+#bot
+תזכורת נקבעה
+
+#me
+14:00
+
+#bot
+!FAIL תזכורת should already be created with default time, not ask for clarification

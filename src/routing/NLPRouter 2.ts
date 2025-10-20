@@ -3,7 +3,6 @@ import { AuthService } from '../services/AuthService.js';
 import { EventService } from '../services/EventService.js';
 import { ReminderService } from '../services/ReminderService.js';
 import { ContactService } from '../services/ContactService.js';
-import { SettingsService } from '../services/SettingsService.js';
 import { dashboardTokenService } from '../services/DashboardTokenService.js';
 import { proficiencyTracker } from '../services/ProficiencyTracker.js';
 import { redisMessageLogger } from '../services/RedisMessageLogger.js';
@@ -63,26 +62,6 @@ function sanitizeTitleFilter(title: string | undefined): string | undefined {
 
   if (isQuestionStart || isShortQuestion) {
     logger.info('Ignoring question phrase as title filter', { title, reason: isQuestionStart ? 'starts-with-question' : 'short-question-mark' });
-    return undefined;
-  }
-
-  // BUG FIX: Check if it's a "list all" meta-phrase (כל האירועים שלי, הכל, etc.)
-  // This prevents queries like "show me all my events" from being treated as a title filter
-  const listAllPatterns = [
-    /^כל ה/,           // "כל ה..." (all the...)
-    /^הכל$/,           // "הכל" (everything)
-    /כל האירועים/,    // "כל האירועים" (all events)
-    /כל הפגישות/,     // "כל הפגישות" (all meetings)
-    /כל התזכורות/,    // "כל התזכורות" (all reminders)
-    /האירועים שלי/,   // "האירועים שלי" (my events)
-    /הפגישות שלי/,    // "הפגישות שלי" (my meetings)
-    /התזכורות שלי/    // "התזכורות שלי" (my reminders)
-  ];
-
-  const isListAllPhrase = listAllPatterns.some(pattern => pattern.test(trimmed));
-
-  if (isListAllPhrase) {
-    logger.info('Ignoring list-all meta-phrase as title filter', { title });
     return undefined;
   }
 
@@ -175,7 +154,6 @@ export class NLPRouter {
     private eventService: EventService,
     private reminderService: ReminderService,
     private contactService: ContactService,
-    private settingsService: SettingsService,
     private messageProvider: IMessageProvider,
     private commandRouter: CommandRouter,
     private sendMessage: (to: string, message: string) => Promise<string>,
@@ -507,35 +485,6 @@ export class NLPRouter {
 
     let eventDate: Date = dateQuery.date;
 
-    // BUG FIX #2: Validate day name matches actual date
-    // Bug report: "הצלחתי להכניס את הפגישה אבל הוא התייחס רק לתאריך ולא התריע שיש טעות ביום"
-    // Example: User says "Friday 23.10" but 23.10 is actually Thursday
-    if (event?.dateText) {
-      const dayValidation = validateDayNameMatchesDate(event.dateText, eventDate, 'Asia/Jerusalem');
-      if (dayValidation && !dayValidation.isValid) {
-        // Day/date mismatch detected! Ask user for confirmation
-        logger.warn('Day/date mismatch detected', {
-          userText: event.dateText,
-          expectedDay: dayValidation.expectedDay,
-          actualDay: dayValidation.actualDay,
-          date: eventDate.toISOString()
-        });
-
-        await this.sendMessage(phone, dayValidation.warning);
-        await this.stateManager.setState(userId, ConversationState.CONFIRMING_DATE_MISMATCH, {
-          title: event.title,
-          date: eventDate.toISOString(),
-          location: event.location,
-          participants: event.participants,
-          notes: event.notes,
-          expectedDay: dayValidation.expectedDay,
-          actualDay: dayValidation.actualDay,
-          fromNLP: true
-        });
-        return;
-      }
-    }
-
     // CRITICAL FIX: Check if time is included in the date
     // Check if NLP provided explicit time by examining the original date field
     const dt = DateTime.fromJSDate(eventDate).setZone('Asia/Jerusalem');
@@ -766,56 +715,22 @@ export class NLPRouter {
       }
     }
 
-    // UX IMPROVEMENT: Skip confirmation, directly create reminder with summary
-    try {
-      // Create reminder in database
-      const createdReminder = await this.reminderService.createReminder({
-        userId,
-        title: reminder.title,
-        dueTsUtc: dueDate,
-        rrule: reminder.recurrence || undefined,
-        notes: reminder.notes || undefined
-      });
-
-      // Get user's reminder lead time preference (default: 15 minutes)
-      const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
-
-      // Schedule with BullMQ
-      await scheduleReminder({
-        reminderId: createdReminder.id,
-        userId,
-        title: reminder.title,
-        phone
-      }, dueDate, leadTimeMinutes);
-
-      // Send success summary (not confirmation question)
-      const summaryMessage = `✅ תזכורת נקבעה:
+    const confirmMessage = `✅ זיהיתי תזכורת חדשה:
 
 📌 ${reminder.title}
 📅 ${displayDate}
-${recurrenceText ? recurrenceText + '\n' : ''}${reminder.notes ? '📝 הערות: ' + reminder.notes + '\n' : ''}
-${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת ' + reminder.title + '"\n' : ''}`;
+${recurrenceText ? recurrenceText + '\n' : ''}
+${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת ' + reminder.title + '"\n' : ''}
+האם לקבוע את התזכורת? (כן/לא)`;
 
-      await this.sendMessage(phone, summaryMessage);
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-
-      // Respect menu display preferences
-      const menuPreference = await this.settingsService.getMenuDisplayMode(userId);
-      const shouldShow = await proficiencyTracker.shouldShowMenu(userId, menuPreference, {
-        isError: false,
-        isIdle: false,
-        isExplicitRequest: false
-      });
-
-      if (shouldShow.show) {
-        await this.commandRouter.showMainMenu(phone);
-      }
-
-    } catch (error) {
-      logger.error('Failed to create NLP reminder', { userId, error });
-      await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת התזכורת. נסה שוב מאוחר יותר.');
-      await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-    }
+    await this.sendMessage(phone, confirmMessage);
+    await this.stateManager.setState(userId, ConversationState.ADDING_REMINDER_CONFIRM, {
+      title: reminder.title,
+      dueTsUtc: dueDate,
+      rrule: reminder.recurrence || null, // ✅ FIX: Pass RRULE to context
+      notes: reminder.notes || null, // ✅ NEW: Pass notes to context
+      fromNLP: true
+    });
   }
 
   private async handleNLPSearchEvents(phone: string, userId: string, intent: any): Promise<void> {
@@ -1719,16 +1634,13 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
           reminderId: reminder.id,
         });
 
-        // Get user's reminder lead time preference
-        const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
-
         // Schedule reminder
         await scheduleReminder({
           reminderId: reminder.id,
           userId,
           title: reminder.title,
           phone,
-        }, reminderDate, leadTimeMinutes);
+        }, reminderDate);
 
         // Send confirmation with reminder
         const message = formatCommentWithReminder(newComment, event, reminderDate);

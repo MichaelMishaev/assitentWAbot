@@ -1,0 +1,84 @@
+Long Conversation #4 - Edge Cases & Error Handling (10 turns)
+
+Test: Bot handles ambiguous inputs, corrections, and errors gracefully
+
+# Turn 1: Ambiguous date
+#me
+תקבע פגישה עם יוסי ביום שלישי
+
+#bot
+BUTTON יוסי
+BUTTON שלישי
+!שגיאה
+
+# Turn 2: Clarify which Tuesday
+#me
+השלישי הבא
+
+#bot
+אירוע נוסף
+!שגיאה
+
+# Turn 3: Search non-existent event
+#me
+מתי הפגישה עם מיכל
+
+#bot
+לא נמצא
+!מיכל
+
+# Turn 4: Typo in name
+#me
+מתי הפגישה עם יוסו
+
+#bot
+BUTTON יוסי
+!לא נמצא
+
+# Turn 5: Update non-specific event
+#me
+שנה את השעה ל-15:00
+
+#bot
+!עודכן
+איזה אירוע
+
+# Turn 6: Specify event to update
+#me
+הפגישה עם יוסי
+
+#bot
+עודכן
+BUTTON 15:00
+
+# Turn 7: Create event with past date (should warn)
+#me
+תקבע פגישה עם רונית ב-1.10
+
+#bot
+!עבר
+202[56]
+
+# Turn 8: Correct to future date
+#me
+1.11
+
+#bot
+BUTTON רונית
+BUTTON 1.11
+
+# Turn 9: Delete ambiguous
+#me
+מחק את האירוע
+
+#bot
+איזה אירוע
+!נמחק
+
+# Turn 10: Specify which to delete
+#me
+את הפגישה עם רונית
+
+#bot
+נמחק
+BUTTON רונית

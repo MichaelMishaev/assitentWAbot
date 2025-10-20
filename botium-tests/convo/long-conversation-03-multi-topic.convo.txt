@@ -1,0 +1,102 @@
+Long Conversation #3 - Multi-Topic Switching (12 turns)
+
+Test: Bot handles rapid topic changes and maintains accuracy
+
+# Turn 1: Create event
+#me
+פגישה עם לקוח חשוב ביום שני 10:00
+
+#bot
+BUTTON לקוח
+BUTTON שני
+
+# Turn 2: Immediate topic switch - create reminder
+#me
+תזכיר לי לקנות מתנה ליום הולדת של אמא
+
+#bot
+תזכורת נקבעה
+BUTTON מתנה
+!לקוח
+
+# Turn 3: Back to event - search
+#me
+מתי הפגישה עם הלקוח
+
+#bot
+BUTTON לקוח
+BUTTON שני
+BUTTON 10:00
+
+# Turn 4: New topic - list all
+#me
+מה יש לי השבוע
+
+#bot
+BUTTON לקוח
+!שגיאה
+
+# Turn 5: Update first event
+#me
+הוסף למיקום של הפגישה עם הלקוח - קפה ארומה
+
+#bot
+עודכן
+BUTTON ארומה
+
+# Turn 6: Check reminder
+#me
+מה התזכורות שלי
+
+#bot
+BUTTON מתנה
+!לקוח
+
+# Turn 7: Add date to reminder
+#me
+התזכורת של המתנה תהיה מחרתיים
+
+#bot
+עודכן
+BUTTON מתנה
+
+# Turn 8: Create third item - task
+#me
+הוסף משימה - לסיים דוח רבעוני
+
+#bot
+משימה נוספה
+BUTTON דוח
+
+# Turn 9: List everything
+#me
+הכל
+
+#bot
+BUTTON לקוח
+BUTTON מתנה
+BUTTON דוח
+
+# Turn 10: Update task
+#me
+סמן את הדוח הרבעוני כבוצע
+
+#bot
+סומן כבוצע
+BUTTON דוח
+
+# Turn 11: Search specific event again
+#me
+איפה הפגישה עם הלקוח
+
+#bot
+BUTTON ארומה
+BUTTON לקוח
+
+# Turn 12: Delete reminder
+#me
+מחק את התזכורת של המתנה
+
+#bot
+נמחק
+BUTTON מתנה

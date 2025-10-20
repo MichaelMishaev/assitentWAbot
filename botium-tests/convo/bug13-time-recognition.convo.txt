@@ -1,0 +1,8 @@
+Bug #13 - Time Recognition in Event Creation
+
+#me
+תקבע לי אירוע של ריקודים לתאריך 1.11 בשעה 13:00
+
+#bot
+BUTTON ריקודים ב-1.11 בשעה 13:00
+

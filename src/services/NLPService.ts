@@ -124,7 +124,8 @@ Parse the message and return JSON with this structure:
     "date": "ISO 8601 datetime (alias for dueDate, use for updates)",
     "dateText": "Hebrew date text (optional, e.g., 'מחר', 'יום ראשון')",
     "time": "Time string HH:MM (optional, for update_reminder without full date)",
-    "recurrence": "RRULE format (optional)"
+    "recurrence": "RRULE format (optional)",
+    "notes": "additional notes or comments (optional)"
   },
   "message": {
     "recipient": "contact name",
@@ -166,6 +167,15 @@ EVENTS:
 - "מה מתוכנן", "מה בתכנון", "מה על הפרק", "מה מסתדר" (what's planned/arranged)
 - "איזה אירועים", "אילו אירועים" (which events)
 - "מתי", "מתי יש לי", "מתי ה", "מתי זה", "when is", "when's", "when do I have" (asking when specific event is)
+
+CRITICAL - TITLE EXTRACTION RULES:
+⚠️ NEVER extract meta-phrases as event titles:
+- "כל", "כל ה", "הכל", "כולם" = ALL (NOT a title!)
+- "האירועים שלי", "הפגישות שלי" = my events/meetings (NOT a title!)
+- If phrase contains "כל ה" + generic noun (אירועים, פגישות, תזכורות) → NO title field!
+- If phrase is just possessive descriptor ("שלי", "שלנו", "שלך") → NO title field!
+- Generic questions ("מה", "איזה", "אילו") + generic noun → NO title field!
+⚠️ Only extract SPECIFIC event names as titles: "רופא שיניים", "פגישה עם דני", "משחק כדורגל"
 - "מתי הבר מצווה", "מתי הפגישה", "מתי האירוע" (when is the bar mitzvah/meeting/event)
 - English: "what do I have", "what have I got", "what's on", "what events", "my events", "my schedule"
 → search_event/list_events
@@ -201,7 +211,14 @@ DELETE (ALL CONJUGATIONS & SLANG):
 - FORGET: "תשכח", "שכח", "לשכוח", "forget it", "never mind"
 - SLANG: "תעיף", "עיף" (kick out), "תוריד" (take down)
 - English: "delete", "cancel", "remove", "drop"
-- BULK DELETE: "מחק הכל", "תמחוק את כל", "תבטל את כל", "delete all", "cancel all" → set deleteAll: true
+- **BULK DELETE (BUG FIX #18 - CRITICAL):**
+  * "מחק הכל", "מחק את כל האירועים", "מחק את כולם"
+  * "תמחוק הכל", "תמחוק את כל", "תמחוק את כולם"
+  * "בטל הכל", "תבטל הכל", "תבטל את כל האירועים", "בטל את כולם"
+  * "נקה הכל", "תנקה הכל", "ניקוי כולל"
+  * "הסר הכל", "תסיר הכל", "תסיר את כולם"
+  * English: "delete all", "cancel all", "remove all", "delete everything", "clear all"
+  * **→ MUST set deleteAll: true in event object**
 → delete_event/delete_reminder
 
 COMPLETE:
@@ -319,10 +336,16 @@ KEY EXAMPLES (cover all intents):
 2. CREATE EVENT EXPLICIT TIME: "קבע למחר פגישה עם יולי לשעה 14:00" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם יולי","date":"2025-11-12T14:00:00+02:00","dateText":"מחר לשעה 14:00","contactName":"יולי"}} (CRITICAL: "לשעה 14:00" = 14:00 in ISO!)
 3. COMPLEX EVENT WITH ALL DETAILS: "משחק כדורגל נתניה סכנין יום ראשון 5 באוקטובר 20:00 אצטדיון נתניה" → {"intent":"create_event","confidence":0.95,"event":{"title":"משחק כדורגל נתניה סכנין","date":"2025-10-05T20:00:00+03:00","dateText":"יום ראשון 5 באוקטובר 20:00","location":"אצטדיון נתניה"}} (CRITICAL: Extract ALL details - title, date with time, and location!)
 4. CREATE REMINDER: "תזכיר לי בעוד שעתיים להתקשר לאמא" → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"התקשר לאמא","dueDate":"<now+2h ISO>"}}
+4b. CREATE REMINDER WITH NOTES (CRITICAL): "תזכיר לי לבדוק על הטיסה של תומר , ביום רביעי בשעה 11 בבוקר. הערות - טיסה מאבו דאבי צריכה לנחות ב16:45" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"בדוק על הטיסה של תומר","dueDate":"2025-10-22T11:00:00+03:00","notes":"טיסה מאבו דאבי צריכה לנחות ב16:45"}} (CRITICAL: Extract notes after "הערות -", "הערה:", "note:", "notes:", or any dash/colon separator!)
+4c. REMINDER WITH INLINE NOTES (CRITICAL): "תזכיר לי לקנות חלב מחר - חשוב! 3 ליטר" → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"לקנות חלב","dueDate":"<tomorrow 12:00 ISO>","notes":"חשוב! 3 ליטר"}} (CRITICAL: Text after " - " is notes if it's not a date/time!)
 5. SEARCH BY TITLE: "מתי רופא שיניים?" → {"intent":"search_event","confidence":0.95,"event":{"title":"רופא שיניים"}} (CRITICAL: "מתי" = search, NOT create!)
 6. LIST EVENTS TODAY: "מה יש לי היום?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"היום"}} (CRITICAL: ALWAYS extract "היום" to dateText!)
 6b. LIST EVENTS TODAY (PAST TENSE): "מה היה לי היום?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"היום"}} (CRITICAL: "היה" = past tense, still means TODAY!)
 7. LIST EVENTS THIS WEEK: "מה יש לי השבוע?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"השבוע"}} (use dateText for Hebrew relative dates)
+7a. LIST ALL EVENTS - NO TITLE FILTER (CRITICAL): "כל האירועים שלי" → {"intent":"list_events","confidence":0.95,"event":{}} (CRITICAL: "כל האירועים" = list ALL, NOT a title! Return empty event object, NO title field!)
+7b. LIST ALL EVENTS VARIATIONS (CRITICAL): "הראה לי את כל האירועים" → {"intent":"list_events","confidence":0.95,"event":{}} (CRITICAL: "כל" = ALL, not a specific event title!)
+7c. LIST ALL EVENTS WITH POSSESSIVE (CRITICAL): "כל הפגישות שלי" → {"intent":"list_events","confidence":0.95,"event":{}} (CRITICAL: "כל ה..." + "שלי" = list all, NO title!)
+7d. LIST EVERYTHING (CRITICAL): "הכל" → {"intent":"list_events","confidence":0.95,"event":{}} (CRITICAL: "הכל" alone means show everything, NO title!)
 7. DELETE WITH TITLE: "תבטל בדיקת דם" → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}} (CRITICAL: partial title, fuzzy match)
 8. DELETE ALL: "מחק את כל הפגישות" → {"intent":"delete_event","confidence":0.95,"event":{"deleteAll":true}} (CRITICAL: set deleteAll flag for bulk operations!)
 9. UPDATE EVENT: "עדכן פגישה עם דני ל-5 אחרי הצהריים" → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today 17:00 ISO>","dateText":"5 אחרי הצהריים"}}
@@ -390,7 +413,7 @@ Example patterns:
       });
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4.1-mini', // Using GPT-4.1 mini - better performance at $0.40/$1.60 per 1M tokens
+        model: 'gpt-4o-mini', // Using GPT-4o mini - best performance at $0.15/$0.60 per 1M tokens
         messages,
         response_format: { type: 'json_object' },
         temperature: 0.3, // Lower temperature for more consistent parsing
@@ -430,7 +453,7 @@ Example patterns:
   async testConnection(): Promise<boolean> {
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4.1-mini',
+        model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: 'Test' }],
         max_tokens: 5
       });

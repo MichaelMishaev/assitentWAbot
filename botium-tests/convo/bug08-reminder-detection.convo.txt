@@ -1,0 +1,13 @@
+Bug #8 - Reminder Not Recognized by NLP
+
+#me
+תזכורת לקנות חלב מחר
+
+#bot
+תזכורת נקבעה
+
+#me
+תזכיר לי לשלם חשמל
+
+#bot
+תזכורת נקבעה

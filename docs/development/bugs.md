@@ -1792,3 +1792,374 @@ Fixes reported bugs from #i and #why comments
 ```
 
 ---
+
+### Bug #15: Reminder Notes Not Being Extracted + Menu Appearing When It Shouldn't
+**Reported:** 2025-10-20 08:10 AM via #comment
+**User:** 972542101057
+**Hebrew:** "# הוא לא התייחס להערות שלי , בנוסף הוא שם לי תפריט שלפי ההגדרות זה אמור לעלות רק שיש באגים"
+**Translation:** "He didn't relate to my comments, also he gave me a menu that according to settings should only appear when there are bugs"
+
+**Context:**
+User sent: "תזכיר לי לבדוק על הטיסה של תומר , ביום רביעי בשעה 11 בבוקר. הערות - טיסה מאבו דאבי צריכה לנחות ב16:45"
+
+Bot response:
+```
+✅ זיהיתי תזכורת חדשה:
+
+📌 בדוק על הטיסה של תומר
+📅 22/10/2025 11:00
+
+האם לקבוע את התזכורת? (כן/לא)
+```
+❌ Missing: Notes "טיסה מאבו דאבי צריכה לנחות ב16:45"
+
+After user confirmed "כן", bot showed main menu even though user has `menuDisplayMode: 'errors_only'` preference.
+
+---
+
+**Problem Analysis:**
+
+**Issue #1: Notes Not Being Extracted**
+- User explicitly wrote "הערות - [notes text]" but NLP ignored it
+- Root cause: `reminder` schema in NLP prompt didn't include `notes` field (line 121-128)
+- The field existed for `event` schema (line 118) but not for `reminder`
+- NLPRouter.ts line 762 already tried to pass notes to context, but NLP never extracted them
+
+**Issue #2: Menu Appearing After Confirmation**
+- User has preference `menuDisplayMode: 'errors_only'` in their settings
+- StateRouter.ts lines 1001-1002 **always showed menu** after reminder confirmation
+- Code didn't check user preferences before showing menu
+- This violates user's explicit setting that menu should only appear on errors
+
+---
+
+**Fix Applied:**
+
+**Part 1: Add Notes Field to Reminder Schema**
+**File:** `src/services/NLPService.ts`
+
+1. **Line 128** - Added `notes` field to reminder schema:
+   ```typescript
+   "reminder": {
+     "title": "string",
+     "dueDate": "ISO 8601 datetime...",
+     ...
+     "recurrence": "RRULE format (optional)",
+     "notes": "additional notes or comments (optional)"  // ✅ NEW
+   },
+   ```
+
+2. **Lines 330-331** - Added comprehensive examples showing notes extraction:
+   ```typescript
+   4b. CREATE REMINDER WITH NOTES (CRITICAL): "תזכיר לי לבדוק על הטיסה של תומר , ביום רביעי בשעה 11 בבוקר. הערות - טיסה מאבו דאבי צריכה לנחות ב16:45" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"בדוק על הטיסה של תומר","dueDate":"2025-10-22T11:00:00+03:00","notes":"טיסה מאבו דאבי צריכה לנחות ב16:45"}} (CRITICAL: Extract notes after "הערות -", "הערה:", "note:", "notes:", or any dash/colon separator!)
+
+   4c. REMINDER WITH INLINE NOTES (CRITICAL): "תזכיר לי לקנות חלב מחר - חשוב! 3 ליטר" → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"לקנות חלב","dueDate":"<tomorrow 12:00 ISO>","notes":"חשוב! 3 ליטר"}} (CRITICAL: Text after " - " is notes if it's not a date/time!)
+   ```
+
+**Part 2: Show Notes in Confirmation Message**
+**File:** `src/routing/NLPRouter.ts` (line 753)
+
+Added notes display to confirmation message:
+```typescript
+${reminder.notes ? '📝 הערות: ' + reminder.notes + '\n' : ''}
+```
+
+Now the confirmation will show:
+```
+✅ זיהיתי תזכורת חדשה:
+
+📌 בדוק על הטיסה של תומר
+📅 22/10/2025 11:00
+📝 הערות: טיסה מאבו דאבי צריכה לנחות ב16:45
+
+האם לקבוע את התזכורת? (כן/לא)
+```
+
+**Part 3: Respect Menu Display Preferences**
+**File:** `src/routing/StateRouter.ts`
+
+1. **Line 6** - Added import:
+   ```typescript
+   import { proficiencyTracker } from '../services/ProficiencyTracker.js';
+   ```
+
+2. **Lines 1003-1015** - Replace hardcoded menu display with preference-aware logic:
+   ```typescript
+   await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+
+   // BUG FIX (#15): Respect user's menu display preference
+   // User reported: "הוא שם לי תפריט שלפי ההגדרות זה אמור לעלות רק שיש באגים"
+   // If user has 'errors_only' preference, don't show menu after successful reminder creation
+   const menuPreference = await this.settingsService.getMenuDisplayMode(userId);
+   const shouldShow = await proficiencyTracker.shouldShowMenu(userId, menuPreference, {
+     isError: false,
+     isIdle: false,
+     isExplicitRequest: false
+   });
+
+   if (shouldShow.show) {
+     await this.commandRouter.showMainMenu(phone);
+   }
+   ```
+
+3. **Lines 1022-1032** - Also applied to error case (menu shows on errors even with 'errors_only'):
+   ```typescript
+   // Show menu on error (respects all preferences including 'errors_only')
+   const menuPreference = await this.settingsService.getMenuDisplayMode(userId);
+   const shouldShow = await proficiencyTracker.shouldShowMenu(userId, menuPreference, {
+     isError: true,  // ✅ Error context = menu will show even for 'errors_only'
+     isIdle: false,
+     isExplicitRequest: false
+   });
+
+   if (shouldShow.show) {
+     await this.commandRouter.showMainMenu(phone);
+   }
+   ```
+
+---
+
+**How It Works:**
+
+**Menu Display Modes:**
+- `always` - Always show menu
+- `adaptive` - Show based on proficiency (default)
+- `errors_only` - Only show on errors ✅ User's preference
+- `never` - Never show menu
+
+**Behavior After Fix:**
+- ✅ Notes extracted from "הערות -" pattern
+- ✅ Notes displayed in confirmation message
+- ✅ Notes saved to database with reminder
+- ✅ Menu respects user's `errors_only` preference
+- ✅ Menu only appears after errors (not after success)
+- ✅ Menu still appears on explicit request (`/תפריט`)
+
+---
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-20
+**Priority:** HIGH (user experience + respecting preferences)
+**Impact:**
+- Users can now add notes to reminders naturally
+- Menu display respects user preferences
+- Users with `errors_only` preference won't see unnecessary menus
+- Better UX - only show menu when needed or requested
+
+**Testing:**
+1. Create reminder with notes:
+   ```
+   User: "תזכיר לי לבדוק על הטיסה של תומר ביום רביעי בשעה 11 בבוקר. הערות - טיסה מאבו דאבי צריכה לנחות ב16:45"
+   ```
+   Expected: Confirmation shows notes, notes are saved
+
+2. Confirm reminder with `errors_only` preference:
+   ```
+   User: "כן"
+   ```
+   Expected: No menu appears (unless error occurs)
+
+3. Trigger error with `errors_only` preference:
+   ```
+   User: [something that causes error]
+   ```
+   Expected: Menu appears on error
+
+**Related Bugs:**
+- Similar to Bug #6 (fixed earlier) - same menu display preference issue
+- This fix extends the preference logic to reminder confirmation flow
+
+---
+
+### UX Improvement: Skip Reminder Confirmation Step
+**Implemented:** 2025-10-20
+**Requested By:** User feedback - "when setting reminder, do not ask if im sure, just set it and summarise"
+
+**Previous Flow:**
+1. User: "תזכיר לי לבדוק על הטיסה של תומר ביום רביעי בשעה 11"
+2. Bot: "✅ זיהיתי תזכורת חדשה... האם לקבוע את התזכורת? (כן/לא)" ← **Confirmation required**
+3. User: "כן"
+4. Bot: Reminder created
+
+**New Flow:**
+1. User: "תזכיר לי לבדוק על הטיסה של תומר ביום רביעי בשעה 11"
+2. Bot: "✅ תזכורת נקבעה: ..." ← **Directly created with summary**
+
+**Rationale:**
+- Reduces friction in reminder creation
+- Faster user experience (one less step)
+- AI already validated the input, confirmation is redundant
+- Users can still delete if they made a mistake
+
+**Changes Applied:**
+**File:** `src/routing/NLPRouter.ts` (lines 749-798)
+
+Replaced confirmation flow with direct creation:
+```typescript
+// OLD CODE:
+const confirmMessage = `✅ זיהיתי תזכורת חדשה:
+...
+האם לקבוע את התזכורת? (כן/לא)`;
+await this.sendMessage(phone, confirmMessage);
+await this.stateManager.setState(userId, ConversationState.ADDING_REMINDER_CONFIRM, {...});
+
+// NEW CODE:
+try {
+  // Create reminder directly
+  const createdReminder = await this.reminderService.createReminder({...});
+
+  // Schedule with BullMQ
+  await scheduleReminder({...}, dueDate, leadTimeMinutes);
+
+  // Send success summary (not question)
+  const summaryMessage = `✅ תזכורת נקבעה:
+
+  📌 ${reminder.title}
+  📅 ${displayDate}
+  ${recurrenceText}
+  ${notes}`;
+
+  await this.sendMessage(phone, summaryMessage);
+  await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
+}
+```
+
+**Impact:**
+- ✅ 50% faster reminder creation (1 step instead of 2)
+- ✅ Better UX - no unnecessary confirmation
+- ✅ Summary message still shows all details
+- ✅ Users can delete reminder if needed: "ביטול תזכורת [title]"
+- ✅ Consistent with modern app UX patterns
+
+**Status:** ✅ IMPLEMENTED
+**Priority:** MEDIUM (UX enhancement)
+
+---
+
+## Bug #16: "כל האירועים שלי" Treated as Event Title Instead of List-All Query
+
+**Date Reported:** 2025-10-20
+**Reported By:** Production logs analysis
+**Date Fixed:** 2025-10-20
+
+**Symptom:**
+When user asks "כל האירועים שלי" (all my events), the system incorrectly treats it as a title filter, resulting in:
+```
+titleFilter: "כל האירועים שלי"
+eventCount: 0
+message: "📭 לא נמצאו אירועים עבור 'כל האירועים שלי'"
+```
+
+Instead of listing all events, it searches for an event titled "כל האירועים שלי".
+
+**Production Log Evidence:**
+```
+NLP search events result
+ℹ️  Meta: {
+  "titleFilter": "כל האירועים שלי",
+  "dateDescription": "היום (אירועים עתידיים)",
+  "eventCount": 0
+}
+📤 Sent message: "📭 לא נמצאו אירועים עבור "כל האירועים שלי"."
+```
+
+**Root Cause:**
+NLP (Claude AI) incorrectly extracts meta-phrases like "כל האירועים שלי" as specific event titles. These phrases should be recognized as "list all" commands, not title filters.
+
+**Affected Phrases:**
+- "כל האירועים שלי" (all my events)
+- "כל הפגישות שלי" (all my meetings)
+- "כל התזכורות שלי" (all my reminders)
+- "הכל" (everything)
+- "כל ה..." (all the...)
+- "האירועים שלי" (my events)
+- "הפגישות שלי" (my meetings)
+- "התזכורות שלי" (my reminders)
+
+**Solution Approach (Multi-Layer Defense):**
+
+User requested: "how to solve it once and for all??"
+
+Implemented **two defensive layers** to ensure robust, permanent fix:
+
+### Layer 1: NLP Prompt Enhancement
+**File:** `src/services/NLPService.ts`
+
+**Changes:**
+1. Added critical title extraction rules (lines 171-178):
+```typescript
+CRITICAL - TITLE EXTRACTION RULES:
+⚠️ NEVER extract meta-phrases as event titles:
+- "כל", "כל ה", "הכל", "כולם" = ALL (NOT a title!)
+- "האירועים שלי", "הפגישות שלי" = my events/meetings (NOT a title!)
+- If phrase contains "כל ה" + generic noun → NO title field!
+- If phrase is just possessive descriptor → NO title field!
+⚠️ Only extract SPECIFIC event names as titles
+```
+
+2. Added 4 explicit examples (lines 336-339):
+```typescript
+7a. LIST ALL EVENTS - NO TITLE FILTER (CRITICAL): "כל האירועים שלי" → {"intent":"list_events","confidence":0.95,"event":{}}
+7b. LIST ALL EVENTS VARIATIONS (CRITICAL): "הראה לי את כל האירועים" → {"intent":"list_events","confidence":0.95,"event":{}}
+7c. LIST ALL EVENTS WITH POSSESSIVE (CRITICAL): "כל הפגישות שלי" → {"intent":"list_events","confidence":0.95,"event":{}}
+7d. LIST EVERYTHING (CRITICAL): "הכל" → {"intent":"list_events","confidence":0.95,"event":{}}
+```
+
+### Layer 2: Post-Processing Validation
+**File:** `src/routing/NLPRouter.ts`
+
+**Changes:**
+Enhanced `sanitizeTitleFilter()` function (lines 69-87) with pattern matching:
+```typescript
+// BUG FIX: Check if it's a "list all" meta-phrase
+const listAllPatterns = [
+  /^כל ה/,           // "כל ה..." (all the...)
+  /^הכל$/,           // "הכל" (everything)
+  /כל האירועים/,    // "כל האירועים" (all events)
+  /כל הפגישות/,     // "כל הפגישות" (all meetings)
+  /כל התזכורות/,    // "כל התזכורות" (all reminders)
+  /האירועים שלי/,   // "האירועים שלי" (my events)
+  /הפגישות שלי/,    // "הפגישות שלי" (my meetings)
+  /התזכורות שלי/    // "התזכורות שלי" (my reminders)
+];
+
+const isListAllPhrase = listAllPatterns.some(pattern => pattern.test(trimmed));
+
+if (isListAllPhrase) {
+  logger.info('Ignoring list-all meta-phrase as title filter', { title });
+  return undefined;  // ✅ No title filter = list ALL events
+}
+```
+
+**Why Two Layers?**
+1. **Layer 1 (NLP)**: Guides AI to classify correctly at the source
+2. **Layer 2 (Validation)**: Catches any mistakes that slip through
+3. **Redundancy**: If AI behavior changes or makes mistakes, validation layer still protects
+4. **"Once and for all"**: Double protection ensures permanent solution
+
+**Testing:**
+```
+User: "כל האירועים שלי"
+Expected: Lists all events (no title filter)
+
+User: "הראה לי את כל הפגישות שלי"
+Expected: Lists all meetings (no title filter)
+
+User: "הכל"
+Expected: Lists all events (no title filter)
+```
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-20
+**Priority:** HIGH (critical user experience bug - recurring issue)
+**Impact:**
+- Users can now query all their events/meetings/reminders naturally
+- Multi-layer defense ensures robust, permanent fix
+- Both Hebrew possessive phrases and "all" keywords properly handled
+- No more false "no events found" messages
+
+**Related Bugs:**
+- None - this is a new classification of bug (meta-phrase extraction)
+- Similar pattern to question phrase filtering (already handled in same function)
+
+---

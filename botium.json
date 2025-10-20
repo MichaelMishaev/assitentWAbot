@@ -1,0 +1,24 @@
+{
+  "botium": {
+    "Capabilities": {
+      "PROJECTNAME": "WhatsApp Assistant Bot",
+      "CONTAINERMODE": "webdriverio",
+      "WEBDRIVERIO_OPTIONS": {
+        "desiredCapabilities": {
+          "browserName": "chrome",
+          "chromeOptions": {
+            "args": ["--headless", "--disable-gpu", "--no-sandbox"]
+          }
+        }
+      },
+      "WEBDRIVERIO_URL": "https://web.whatsapp.com",
+      "WEBDRIVERIO_OPENBOT": "#main",
+      "WEBDRIVERIO_SENDBUTTON": "span[data-icon='send']",
+      "WEBDRIVERIO_INPUT": "div[contenteditable='true'][data-tab='1']"
+    },
+    "Sources": {
+      "LOCALPATH": "./botium-tests"
+    },
+    "Envs": {}
+  }
+}

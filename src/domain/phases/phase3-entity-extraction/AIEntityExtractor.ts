@@ -5,7 +5,6 @@
  * Falls back to regex patterns if AI fails
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import logger from '../../../utils/logger.js';
 import { DateTime } from 'luxon';
@@ -30,35 +29,20 @@ export interface AIExtractedEntities {
 
 export class AIEntityExtractor {
   private openai: OpenAI;
-  private anthropic: Anthropic;
 
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
-
-    this.anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
   }
 
   /**
-   * Extract entities using GPT-4 Mini (primary) with Claude Haiku fallback
+   * Extract entities using GPT-4 Mini only
    */
   async extract(text: string, intent: string, timezone: string = 'Asia/Jerusalem'): Promise<AIExtractedEntities> {
     try {
-      // Try GPT-4 Mini first (cheaper + better Hebrew)
+      // Use GPT-4 Mini (gpt-4o-mini) for extraction
       const result = await this.extractWithGPT4Mini(text, intent, timezone);
-
-      // If GPT-4 confidence is low, try Claude Haiku as fallback
-      if (result.confidence.overall < 0.7) {
-        logger.info('GPT-4 Mini confidence low, trying Claude Haiku fallback');
-        const fallback = await this.extractWithClaudeHaiku(text, intent, timezone);
-
-        // Return whichever has higher confidence
-        return fallback.confidence.overall > result.confidence.overall ? fallback : result;
-      }
-
       return result;
 
     } catch (error) {
@@ -111,52 +95,6 @@ export class AIEntityExtractor {
     const result = this.parseAIResponse(parsed, timezone);
 
     logger.info('GPT-4 Mini extraction complete', {
-      duration,
-      confidence: result.confidence.overall.toFixed(2),
-      hasTitle: !!result.title,
-      hasDate: !!result.date,
-      hasTime: !!result.time,
-      hasParticipants: (result.participants?.length || 0) > 0,
-    });
-
-    return result;
-  }
-
-  /**
-   * Extract using Claude Haiku (fallback)
-   */
-  private async extractWithClaudeHaiku(text: string, intent: string, timezone: string): Promise<AIExtractedEntities> {
-    const prompt = this.buildExtractionPrompt(text, intent, timezone);
-
-    const startTime = Date.now();
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-haiku-20240307',
-      max_tokens: 1024,
-      temperature: 0.1,
-      messages: [{
-        role: 'user',
-        content: prompt
-      }]
-    });
-
-    const duration = Date.now() - startTime;
-    const content = response.content[0];
-
-    if (content.type !== 'text') {
-      throw new Error('Claude Haiku returned non-text content');
-    }
-
-    // Extract JSON from response (Claude may wrap in markdown)
-    let jsonText = content.text;
-    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[0];
-    }
-
-    const parsed = JSON.parse(jsonText);
-    const result = this.parseAIResponse(parsed, timezone);
-
-    logger.info('Claude Haiku extraction complete', {
       duration,
       confidence: result.confidence.overall.toFixed(2),
       hasTitle: !!result.title,

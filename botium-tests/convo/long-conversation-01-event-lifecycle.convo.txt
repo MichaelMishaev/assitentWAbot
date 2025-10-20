@@ -1,0 +1,83 @@
+Long Conversation #1 - Complete Event Lifecycle (10 turns)
+
+Test: Create → Search → Update → Comment → Reminder → Delete
+
+# Turn 1: Create event
+#me
+תקבע לי פגישה עם דני במשרד ביום רביעי הבא בשעה 14:00
+
+#bot
+BUTTON פגישה.*דני
+BUTTON רביעי
+
+# Turn 2: Confirm details
+#me
+כן, קבע את הפגישה
+
+#bot
+אירוע נוסף
+!שגיאה
+
+# Turn 3: Search for the event
+#me
+מתי הפגישה עם דני
+
+#bot
+BUTTON דני
+BUTTON 14:00
+
+# Turn 4: Add location
+#me
+עדכן את הפגישה עם דני - המיקום משרד תל אביב
+
+#bot
+עודכן
+BUTTON תל אביב
+
+# Turn 5: Add comment
+#me
+הוסף הערה לפגישה עם דני - להביא מצגת
+
+#bot
+הערה נוספה
+BUTTON מצגת
+
+# Turn 6: View comments
+#me
+הראה לי את ההערות של הפגישה עם דני
+
+#bot
+BUTTON מצגת
+BUTTON הערות
+
+# Turn 7: Add reminder before event
+#me
+תזכיר לי יום לפני הפגישה עם דני
+
+#bot
+תזכורת נקבעה
+BUTTON דני
+
+# Turn 8: Check upcoming events
+#me
+מה האירועים הקרובים שלי
+
+#bot
+BUTTON דני
+BUTTON 14:00
+
+# Turn 9: Update time
+#me
+שנה את השעה של הפגישה עם דני ל-15:30
+
+#bot
+עודכן
+BUTTON 15:30
+
+# Turn 10: Delete event
+#me
+בטל את הפגישה עם דני
+
+#bot
+האירוע נמחק
+!שגיאה

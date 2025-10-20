@@ -3,10 +3,11 @@ import { EventService } from '../services/EventService.js';
 import { ReminderService } from '../services/ReminderService.js';
 import { TaskService } from '../services/TaskService.js';
 import { SettingsService } from '../services/SettingsService.js';
+import { proficiencyTracker } from '../services/ProficiencyTracker.js';
 import { IMessageProvider } from '../providers/IMessageProvider.js';
 import { ConversationState, MenuDisplayMode } from '../types/index.js';
 import { redis } from '../config/redis.js';
-import { parseHebrewDate } from '../utils/hebrewDateParser.js';
+import { parseHebrewDate, validateDayNameMatchesDate } from '../utils/hebrewDateParser.js';
 import { safeParseDate } from '../utils/dateValidator.js';
 import { DateTime } from 'luxon';
 import { scheduleReminder } from '../queues/ReminderQueue.js';
@@ -401,6 +402,18 @@ export class StateRouter {
     if (!result.success) {
       await this.sendMessage(phone, `❌ ${result.error}\n\nנסה שוב או שלח /ביטול`);
       return;
+    }
+
+    // BUG FIX #16: Validate day-date mismatch
+    const dayValidation = validateDayNameMatchesDate(text.trim(), result.date!, 'Asia/Jerusalem');
+    if (dayValidation && !dayValidation.isValid) {
+      logger.warn('[Bug #16] Day/date mismatch detected in StateRouter', {
+        userText: text,
+        expectedDay: dayValidation.expectedDay,
+        actualDay: dayValidation.actualDay
+      });
+      await this.sendMessage(phone, dayValidation.warning);
+      return; // Don't proceed with mismatched date
     }
 
     // Save date and move to time
@@ -831,6 +844,19 @@ export class StateRouter {
         await this.sendMessage(phone, `❌ ${dateResult.error}\n\nנסה שוב או שלח /ביטול`);
         return;
       }
+
+      // BUG FIX #16: Validate day-date mismatch for reminders
+      const dayValidation = validateDayNameMatchesDate(datePart, dateResult.date!, 'Asia/Jerusalem');
+      if (dayValidation && !dayValidation.isValid) {
+        logger.warn('[Bug #16] Day/date mismatch in reminder date', {
+          userText: datePart,
+          expectedDay: dayValidation.expectedDay,
+          actualDay: dayValidation.actualDay
+        });
+        await this.sendMessage(phone, dayValidation.warning);
+        return;
+      }
+
       baseDate = dateResult.date!;
     }
 
@@ -974,13 +1000,37 @@ export class StateRouter {
       }, new Date(reminderDueDate), leadTimeMinutes);
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.commandRouter.showMainMenu(phone);
+
+      // BUG FIX (#15): Respect user's menu display preference
+      // User reported: "הוא שם לי תפריט שלפי ההגדרות זה אמור לעלות רק שיש באגים"
+      // If user has 'errors_only' preference, don't show menu after successful reminder creation
+      const menuPreference = await this.settingsService.getMenuDisplayMode(userId);
+      const shouldShow = await proficiencyTracker.shouldShowMenu(userId, menuPreference, {
+        isError: false,
+        isIdle: false,
+        isExplicitRequest: false
+      });
+
+      if (shouldShow.show) {
+        await this.commandRouter.showMainMenu(phone);
+      }
 
     } catch (error) {
       logger.error('Failed to create reminder', { userId, error });
       await this.sendMessage(phone, '❌ אירעה שגיאה ביצירת התזכורת. נסה שוב מאוחר יותר.');
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
-      await this.commandRouter.showMainMenu(phone);
+
+      // Show menu on error (respects all preferences including 'errors_only')
+      const menuPreference = await this.settingsService.getMenuDisplayMode(userId);
+      const shouldShow = await proficiencyTracker.shouldShowMenu(userId, menuPreference, {
+        isError: true,
+        isIdle: false,
+        isExplicitRequest: false
+      });
+
+      if (shouldShow.show) {
+        await this.commandRouter.showMainMenu(phone);
+      }
     }
   }
 
@@ -1148,6 +1198,21 @@ export class StateRouter {
         await this.sendMessage(phone, `❌ ${result.error}\n\nנסה שוב או שלח "דלג"`);
         return;
       }
+
+      // BUG FIX #16: Validate day-date mismatch for task due dates
+      if (result.date) {
+        const dayValidation = validateDayNameMatchesDate(text.trim(), result.date, 'Asia/Jerusalem');
+        if (dayValidation && !dayValidation.isValid) {
+          logger.warn('[Bug #16] Day/date mismatch in task due date', {
+            userText: text,
+            expectedDay: dayValidation.expectedDay,
+            actualDay: dayValidation.actualDay
+          });
+          await this.sendMessage(phone, dayValidation.warning);
+          return;
+        }
+      }
+
       dueDate = result.date || null;
     }
 
@@ -1763,6 +1828,19 @@ export class StateRouter {
                 await this.sendMessage(phone, '❌ פורמט תאריך לא תקין. נסה שוב:\n\nדוגמה: "מחר 14:00" או "05/01/2025 10:30"\n\n(או שלח /ביטול)');
                 return;
               }
+
+              // BUG FIX #16: Validate day-date mismatch when editing event
+              const editDayValidation = validateDayNameMatchesDate(text, parseResult.date, 'Asia/Jerusalem');
+              if (editDayValidation && !editDayValidation.isValid) {
+                logger.warn('[Bug #16] Day/date mismatch in event edit', {
+                  userText: text,
+                  expectedDay: editDayValidation.expectedDay,
+                  actualDay: editDayValidation.actualDay
+                });
+                await this.sendMessage(phone, editDayValidation.warning);
+                return;
+              }
+
               await this.eventService.updateEvent(selectedEvent.id, userId, { startTsUtc: parseResult.date });
               await resetFailureCount(userId, ConversationState.EDITING_EVENT_FIELD);
               const newDt = DateTime.fromJSDate(parseResult.date).setZone('Asia/Jerusalem');

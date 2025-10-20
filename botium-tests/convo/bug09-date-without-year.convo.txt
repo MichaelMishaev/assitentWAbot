@@ -1,0 +1,15 @@
+Bug #9 - Date Parsing Without Year + Time Recognition
+
+#me
+פגישה 20.10 בשעה 15:00
+
+#bot
+BUTTON פגישה
+BUTTON 20/10/202[56]
+BUTTON 15:00
+
+#me
+אירוע 10.10
+
+#bot
+!202[56] Date should be in 2025 or 2026 (next occurrence), not past

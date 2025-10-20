@@ -1,0 +1,124 @@
+Long Conversation #2 - Context Retention Test (15 turns)
+
+Test: Bot remembers context across many messages
+
+# Turn 1: Start creating event
+#me
+תקבע לי אירוע
+
+#bot
+מה שם האירוע
+!שגיאה
+
+# Turn 2: Provide title
+#me
+ימי הולדת של שרה
+
+#bot
+באיזה תאריך
+!שגיאה
+
+# Turn 3: Provide date
+#me
+25.12
+
+#bot
+באיזו שעה
+!שגיאה
+
+# Turn 4: Provide time
+#me
+18:00
+
+#bot
+האם יש מיקום
+!שגיאה
+
+# Turn 5: Provide location
+#me
+הבית שלנו
+
+#bot
+אירוע נוסף
+!שגיאה
+
+# Turn 6: Verify event was created
+#me
+מתי יום ההולדת של שרה
+
+#bot
+BUTTON שרה
+BUTTON 25/12
+BUTTON 18:00
+
+# Turn 7: Add another event (different context)
+#me
+תקבע פגישה עם רופא שיניים מחר ב-10:00
+
+#bot
+BUTTON רופא שיניים
+!שגיאה
+
+# Turn 8: Search for first event again
+#me
+מתי יום ההולדת
+
+#bot
+BUTTON שרה
+BUTTON 25/12
+
+# Turn 9: Create reminder for different event
+#me
+תזכיר לי יום לפני הפגישה עם הרופא
+
+#bot
+תזכורת נקבעה
+BUTTON רופא
+
+# Turn 10: List all events
+#me
+תראה לי את כל האירועים שלי
+
+#bot
+BUTTON שרה
+BUTTON רופא
+
+# Turn 11: Update first event (context switch)
+#me
+שנה את השעה של יום ההולדת ל-19:00
+
+#bot
+עודכן
+BUTTON 19:00
+
+# Turn 12: Verify update
+#me
+באיזו שעה יום ההולדת של שרה
+
+#bot
+BUTTON 19:00
+!18:00
+
+# Turn 13: Add comment to second event
+#me
+הוסף הערה לפגישה עם הרופא - להביא תוצאות רנטגן
+
+#bot
+הערה נוספה
+BUTTON רנטגן
+
+# Turn 14: View all reminders
+#me
+תראה לי את כל התזכורות
+
+#bot
+BUTTON רופא
+!שגיאה
+
+# Turn 15: Delete second event
+#me
+בטל את הפגישה עם הרופא
+
+#bot
+נמחק
+BUTTON רופא

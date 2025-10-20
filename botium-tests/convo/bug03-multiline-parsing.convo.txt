@@ -1,0 +1,12 @@
+Bug #3 - Multi-line Message Not Parsing Time
+
+#me
+פגישה עם מיכאל על בירה
+20.10
+16:00
+מרפיס פולג
+
+#bot
+BUTTON פגישה.*מיכאל
+BUTTON 20/10/2025.*16:00
+BUTTON מרפיס פולג

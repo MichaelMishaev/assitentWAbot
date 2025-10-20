@@ -1,0 +1,19 @@
+Bug #16 - "כל האירועים שלי" Treated as Event Title
+
+#me
+כל האירועים שלי
+
+#bot
+!לא נמצאו אירועים Should list events, not search for title "כל האירועים"
+
+#me
+הראה לי את כל הפגישות שלי
+
+#bot
+BUTTON פגישה OR אין לך אירועים
+
+#me
+הכל
+
+#bot
+BUTTON אירוע OR אין לך אירועים OR תזכורת

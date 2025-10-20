@@ -23,7 +23,7 @@
  *   ✅ Skips messages >5 minutes old during first 5 minutes after restart
  *   ✅ Prevents reprocessing old WhatsApp-delivered messages
  *
- * MODEL: GPT-4.1-nano only ($0.10/$0.40 per 1M tokens)
+ * MODEL: GPT-4o-mini only ($0.15/$0.60 per 1M tokens)
  *   - Ensemble DISABLED to prevent cost spikes
  *   - 90% cheaper than dual ensemble
  *
@@ -97,9 +97,9 @@ export class EnsembleClassifier extends BasePhase {
       // Build prompt for GPT
       const prompt = this.buildClassificationPrompt(message, context);
 
-      // USE ONLY GPT-4.1-nano (cheapest, most reliable)
+      // USE ONLY GPT-4o-mini (best performance, low cost)
       // Ensemble disabled to reduce costs during testing
-      logger.info('Using GPT-4.1-nano only (cost protection mode)', {
+      logger.info('Using GPT-4o-mini only (cost protection mode)', {
         message: message.substring(0, 50)
       });
 
@@ -135,7 +135,7 @@ export class EnsembleClassifier extends BasePhase {
       logger.info('✅ Classification complete (GPT-only mode)', {
         intent: result.finalIntent,
         confidence: result.finalConfidence,
-        model: 'GPT-4.1-nano',
+        model: 'gpt-4o-mini',
         needsClarification: result.needsClarification,
         cached: true
       });
@@ -149,7 +149,7 @@ export class EnsembleClassifier extends BasePhase {
   }
 
   /**
-   * Classify with GPT-4.1 nano (cheapest OpenAI model)
+   * Classify with GPT-4o-mini (best OpenAI model for the price)
    */
   private async classifyWithGPT(prompt: string, context: PhaseContext): Promise<ModelVote> {
     try {
@@ -157,7 +157,7 @@ export class EnsembleClassifier extends BasePhase {
       const { NLPService } = await import('../../../services/NLPService.js');
       const nlpService = new NLPService();
 
-      // Parse intent using existing service (now uses GPT-4.1 nano)
+      // Parse intent using existing service (now uses GPT-4o-mini)
       const result = await nlpService.parseIntent(
         context.processedText,
         [], // No contacts for intent classification
@@ -165,7 +165,7 @@ export class EnsembleClassifier extends BasePhase {
       );
 
       return {
-        model: 'gpt-4.1-nano',
+        model: 'gpt-4o-mini',
         intent: result.intent,
         confidence: result.confidence,
         reasoning: `GPT classified as ${result.intent}`

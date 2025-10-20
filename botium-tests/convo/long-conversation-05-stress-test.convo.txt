@@ -1,0 +1,163 @@
+Long Conversation #5 - Stress Test (20 turns)
+
+Test: Bot handles many operations in sequence without degradation
+
+# Turn 1: Create event 1
+#me
+פגישה עם אלון ביום ראשון 09:00
+
+#bot
+BUTTON אלון
+
+# Turn 2: Create event 2
+#me
+פגישה עם מיכל ביום שני 10:30
+
+#bot
+BUTTON מיכל
+
+# Turn 3: Create event 3
+#me
+פגישה עם דוד ביום שלישי 14:00
+
+#bot
+BUTTON דוד
+
+# Turn 4: Create reminder 1
+#me
+תזכיר לי לשלוח מייל לספק
+
+#bot
+תזכורת נקבעה
+BUTTON מייל
+
+# Turn 5: Create reminder 2
+#me
+תזכיר לי להתקשר לבנק מחר
+
+#bot
+תזכורת נקבעה
+BUTTON בנק
+
+# Turn 6: List all events
+#me
+כל האירועים שלי
+
+#bot
+BUTTON אלון
+BUTTON מיכל
+BUTTON דוד
+
+# Turn 7: Search specific
+#me
+מתי הפגישה עם מיכל
+
+#bot
+BUTTON מיכל
+BUTTON שני
+BUTTON 10:30
+
+# Turn 8: Update event 1
+#me
+שנה את השעה של הפגישה עם אלון ל-10:00
+
+#bot
+עודכן
+BUTTON 10:00
+
+# Turn 9: Add location to event 2
+#me
+הוסף מיקום לפגישה עם מיכל - משרד הראשי
+
+#bot
+עודכן
+BUTTON משרד הראשי
+
+# Turn 10: Add comment to event 3
+#me
+הוסף הערה לפגישה עם דוד - להביא חוזה
+
+#bot
+הערה נוספה
+BUTTON חוזה
+
+# Turn 11: View reminders
+#me
+תראה לי תזכורות
+
+#bot
+BUTTON מייל
+BUTTON בנק
+
+# Turn 12: Update reminder 1
+#me
+שנה את התזכורת של המייל לשעה 16:00
+
+#bot
+עודכן
+BUTTON 16:00
+
+# Turn 13: Create event 4
+#me
+ארוחת צהריים עם הצוות ביום חמישי 13:00
+
+#bot
+BUTTON צוות
+
+# Turn 14: Search by day
+#me
+מה יש לי ביום שלישי
+
+#bot
+BUTTON דוד
+BUTTON 14:00
+
+# Turn 15: List upcoming
+#me
+מה האירועים הקרובים
+
+#bot
+BUTTON אלון
+BUTTON מיכל
+
+# Turn 16: Delete event 2
+#me
+בטל את הפגישה עם מיכל
+
+#bot
+נמחק
+BUTTON מיכל
+
+# Turn 17: Verify deletion
+#me
+מתי הפגישה עם מיכל
+
+#bot
+לא נמצא
+!מיכל
+
+# Turn 18: Update event 4
+#me
+שנה את ארוחת הצהריים לשעה 12:30
+
+#bot
+עודכן
+BUTTON 12:30
+
+# Turn 19: List all again
+#me
+הכל
+
+#bot
+BUTTON אלון
+BUTTON דוד
+BUTTON צוות
+!מיכל
+
+# Turn 20: Delete reminder 2
+#me
+מחק את התזכורת של הבנק
+
+#bot
+נמחק
+BUTTON בנק

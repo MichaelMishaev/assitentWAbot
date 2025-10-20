@@ -1,0 +1,29 @@
+Search with Hebrew Tokenization
+
+# Create event first
+#me
+פגישה עם יקיר קדם ב-15.10 בשעה 16:00
+
+#bot
+BUTTON יקיר קדם
+
+# Search by partial name
+#me
+מתי יקיר
+
+#bot
+BUTTON יקיר קדם
+
+# Search by last name only
+#me
+מתי קדם
+
+#bot
+BUTTON יקיר קדם
+
+# Search with exact spelling
+#me
+מתי יקיר קדם
+
+#bot
+BUTTON יקיר קדם

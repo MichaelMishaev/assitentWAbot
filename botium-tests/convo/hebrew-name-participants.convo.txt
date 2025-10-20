@@ -1,0 +1,15 @@
+Hebrew Names with ו (vav) - Participant Detection
+
+#me
+פגישה עם יהודית
+
+#bot
+BUTTON יהודית
+!2 participants Should be 1 participant only
+
+#me
+פגישה עם יוסי ודני
+
+#bot
+BUTTON יוסי
+BUTTON דני
