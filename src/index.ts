@@ -165,6 +165,11 @@ async function main() {
  * 🔒 SINGLE INSTANCE LOCK
  * Prevents multiple bot instances from running simultaneously
  * Uses Redis SET NX (set if not exists) with TTL for automatic cleanup
+ *
+ * MULTI-LAYER PROTECTION:
+ * 1. TTL (60s) - auto-expires if heartbeat stops
+ * 2. PID validation - check if locked PID is actually running
+ * 3. Age validation - override locks older than 5 minutes
  */
 async function acquireInstanceLock(): Promise<boolean> {
   try {
@@ -174,8 +179,27 @@ async function acquireInstanceLock(): Promise<boolean> {
     const result = await redis.set(INSTANCE_LOCK_KEY, processInfo, 'EX', INSTANCE_LOCK_TTL, 'NX');
 
     if (result !== 'OK') {
-      // Lock already held by another instance
+      // Lock already held - validate if it's still valid
       const existingLock = await redis.get(INSTANCE_LOCK_KEY);
+      logger.warn('Instance lock already exists:', { lockInfo: existingLock });
+
+      // 🛡️ VALIDATION LAYER 1: Check if the locked PID is still running
+      const isStale = await isLockStale(existingLock);
+
+      if (isStale) {
+        logger.warn('🧹 Stale lock detected - forcing override');
+        await redis.del(INSTANCE_LOCK_KEY);
+
+        // Retry acquiring lock after cleanup
+        const retryResult = await redis.set(INSTANCE_LOCK_KEY, processInfo, 'EX', INSTANCE_LOCK_TTL, 'NX');
+        if (retryResult === 'OK') {
+          logger.info('✅ Instance lock acquired after stale lock cleanup', { processInfo });
+          startLockHeartbeat();
+          return true;
+        }
+      }
+
+      logger.error('❌ Another instance is running with valid lock');
       logger.error('Instance lock held by:', { lockInfo: existingLock });
       return false;
     }
@@ -189,6 +213,60 @@ async function acquireInstanceLock(): Promise<boolean> {
   } catch (error) {
     logger.error('Failed to acquire instance lock', { error });
     return false; // Fail-safe: don't start if we can't acquire lock
+  }
+}
+
+/**
+ * 🛡️ Validate if instance lock is stale (process no longer running)
+ * Returns true if lock should be overridden
+ */
+async function isLockStale(lockInfo: string | null): Promise<boolean> {
+  if (!lockInfo) return true; // No lock = not stale, but shouldn't happen
+
+  try {
+    // Parse lock info: "pid:116576|started:2025-10-23T13:30:44.140Z"
+    const pidMatch = lockInfo.match(/pid:(\d+)/);
+    const startedMatch = lockInfo.match(/started:([^|]+)/);
+
+    if (!pidMatch || !startedMatch) {
+      logger.warn('Malformed lock info, treating as stale', { lockInfo });
+      return true;
+    }
+
+    const lockedPid = parseInt(pidMatch[1], 10);
+    const startedAt = new Date(startedMatch[1]);
+    const ageMinutes = (Date.now() - startedAt.getTime()) / 60000;
+
+    logger.info('Validating lock', {
+      lockedPid,
+      startedAt: startedAt.toISOString(),
+      ageMinutes: ageMinutes.toFixed(1)
+    });
+
+    // 🛡️ VALIDATION 1: Age check - locks older than 5 minutes are stale
+    if (ageMinutes > 5) {
+      logger.warn(`Lock is ${ageMinutes.toFixed(1)} minutes old (> 5 min threshold)`, { lockedPid });
+      return true;
+    }
+
+    // 🛡️ VALIDATION 2: PID check - verify process is actually running
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+
+    try {
+      // Check if PID exists (works on Linux & macOS)
+      await execAsync(`ps -p ${lockedPid} -o pid=`);
+      logger.info('✅ Locked PID is still running', { lockedPid });
+      return false; // Process exists, lock is valid
+    } catch (error) {
+      logger.warn('❌ Locked PID not found - process must have crashed', { lockedPid });
+      return true; // Process doesn't exist, lock is stale
+    }
+
+  } catch (error) {
+    logger.error('Error validating lock, treating as stale', { error });
+    return true; // On error, assume stale to prevent deadlock
   }
 }
 
