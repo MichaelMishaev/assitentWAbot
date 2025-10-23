@@ -13,6 +13,39 @@ import type { MessageRouter } from './services/MessageRouter.js';
 // Load environment variables
 dotenv.config();
 
+// 🛡️ ENVIRONMENT VALIDATION: Prevent running in wrong mode on production
+// This catches cases where PM2 is started without the ecosystem config
+function validateEnvironment() {
+  const nodeEnv = process.env.NODE_ENV;
+  const redisUrl = process.env.REDIS_URL;
+
+  // Check if we're on production server by Redis URL or other indicators
+  const isProductionServer = redisUrl?.includes('167.71.145.9') ||
+                             redisUrl?.includes('redis://redis:') ||
+                             process.env.DATABASE_URL?.includes('167.71.145.9');
+
+  if (isProductionServer && nodeEnv !== 'production') {
+    console.error('❌ FATAL: Running on production server without NODE_ENV=production!');
+    console.error(`   Current NODE_ENV: ${nodeEnv || 'undefined'}`);
+    console.error(`   REDIS_URL: ${redisUrl}`);
+    console.error('');
+    console.error('🔧 Fix:');
+    console.error('   1. Stop PM2: pm2 stop all && pm2 delete all');
+    console.error('   2. Start using ecosystem config: pm2 start ecosystem.config.cjs');
+    console.error('   3. Never use: pm2 start dist/index.js (misses environment vars)');
+    console.error('');
+    console.error('🛑 Exiting to prevent production issues...');
+    process.exit(1);
+  }
+
+  // Log environment for debugging
+  if (nodeEnv === 'production') {
+    console.log('✅ Environment validation passed: Running in PRODUCTION mode');
+  }
+}
+
+validateEnvironment();
+
 // Global instances
 let whatsappProvider: WhatsAppWebJSProvider | null = null;
 let messageRouter: MessageRouter | null = null;

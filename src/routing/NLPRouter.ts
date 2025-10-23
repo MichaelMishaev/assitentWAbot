@@ -66,6 +66,22 @@ function sanitizeTitleFilter(title: string | undefined): string | undefined {
     return undefined;
   }
 
+  // BUG FIX #18: Filter out generic category words that are NOT specific item names
+  // User report: "Show me all reminders" → NLP extracts "תזכורות" → bot says "no reminders found for 'תזכורות'"
+  // These are meta-words referring to the category, not a specific reminder/event name
+  const genericWords = [
+    'תזכורות', 'תזכורת',     // reminders
+    'אירועים', 'אירוע',      // events
+    'פגישות', 'פגישה',        // meetings
+    'משימות', 'משימה',        // tasks
+    'רשימות', 'רשימה'         // lists
+  ];
+  const cleanedTitle = trimmed.toLowerCase().replace(/[?!.,]/g, '').trim();
+  if (genericWords.includes(cleanedTitle)) {
+    logger.info('Ignoring generic category word as title filter', { title, cleanedTitle });
+    return undefined;
+  }
+
   // BUG FIX: Check if it's a "list all" meta-phrase (כל האירועים שלי, הכל, etc.)
   // This prevents queries like "show me all my events" from being treated as a title filter
   const listAllPatterns = [

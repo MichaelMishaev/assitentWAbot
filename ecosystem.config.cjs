@@ -1,6 +1,10 @@
 /**
  * PM2 Ecosystem Configuration
  *
+ * ⚠️  CRITICAL: ALWAYS use this file to start PM2!
+ * ✅  Correct: pm2 start ecosystem.config.cjs
+ * ❌  Wrong:   pm2 start dist/index.js  (misses NODE_ENV and other config)
+ *
  * Prevents crash loops and provides production-grade process management
  *
  * Key Features:
@@ -8,11 +12,12 @@
  * - Exponential backoff (5s → 10s → 20s → 40s...)
  * - Memory limits auto-restart if app leaks memory
  * - Detailed logging with timestamps
+ * - Forces NODE_ENV=production (prevents dev mode on prod server)
  *
  * Usage:
- *   pm2 start ecosystem.config.js
- *   pm2 restart ecosystem.config.js
- *   pm2 reload ecosystem.config.js  # Zero-downtime restart
+ *   pm2 start ecosystem.config.cjs
+ *   pm2 restart ecosystem.config.cjs
+ *   pm2 reload ecosystem.config.cjs  # Zero-downtime restart
  */
 
 module.exports = {
@@ -38,7 +43,7 @@ module.exports = {
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     merge_logs: true,
 
-    // Environment
+    // Environment - CRITICAL: Forces production mode
     env: {
       NODE_ENV: 'production',
       TZ: 'Asia/Jerusalem'
