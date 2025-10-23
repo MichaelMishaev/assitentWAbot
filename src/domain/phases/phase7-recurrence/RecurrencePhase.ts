@@ -74,15 +74,10 @@ export class RecurrencePhase extends BasePhase {
    * Detect recurrence pattern from text
    */
   private detectRecurrencePattern(text: string): RecurrencePattern | null {
-    // Daily patterns
-    if (/כל יום|daily|every day/i.test(text)) {
-      return {
-        frequency: 'daily',
-        interval: 1
-      };
-    }
+    // BUG FIX #19: Weekly patterns MUST be checked BEFORE daily patterns
+    // Otherwise "כל יום ד" matches "כל יום" and returns daily instead of weekly
 
-    // Weekly patterns
+    // Weekly patterns - full names (e.g., "כל יום רביעי", "כל רביעי")
     const weeklyMatch = text.match(/כל (יום )?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)/i);
     if (weeklyMatch) {
       const dayName = weeklyMatch[2];
@@ -92,6 +87,31 @@ export class RecurrencePhase extends BasePhase {
         frequency: 'weekly',
         interval: 1,
         byweekday: dayOfWeek
+      };
+    }
+
+    // Weekly patterns - abbreviations (e.g., "כל יום ד", "כל ד")
+    // א=Sunday, ב=Monday, ג=Tuesday, ד=Wednesday, ה=Thursday, ו=Friday
+    const weeklyAbbrevMatch = text.match(/כל (יום )?([א-ו])\b/i);
+    if (weeklyAbbrevMatch) {
+      const dayAbbrev = weeklyAbbrevMatch[2];
+      const dayOfWeek = this.hebrewDayAbbrevToNumber(dayAbbrev);
+
+      if (dayOfWeek !== null) {
+        return {
+          frequency: 'weekly',
+          interval: 1,
+          byweekday: dayOfWeek
+        };
+      }
+    }
+
+    // Daily patterns - MUST come AFTER weekly checks
+    // Use negative lookahead to prevent matching "כל יום ד" (every Wednesday)
+    if (/כל יום(?!\s*[א-ו]|\s*(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת))/i.test(text) || /daily|every day/i.test(text)) {
+      return {
+        frequency: 'daily',
+        interval: 1
       };
     }
 
@@ -179,6 +199,30 @@ export class RecurrencePhase extends BasePhase {
       'שבת': RRule.SA.weekday
     };
     return map[dayName] || RRule.MO.weekday;
+  }
+
+  /**
+   * Convert Hebrew day abbreviation to number (0=Sunday, 6=Saturday)
+   * BUG FIX #19: Support day abbreviations like "כל יום ד" (every Wednesday)
+   *
+   * א = Sunday (ראשון)
+   * ב = Monday (שני)
+   * ג = Tuesday (שלישי)
+   * ד = Wednesday (רביעי)
+   * ה = Thursday (חמישי)
+   * ו = Friday (שישי)
+   * Note: Saturday (שבת) typically uses full name, not abbreviation
+   */
+  private hebrewDayAbbrevToNumber(dayAbbrev: string): number | null {
+    const map: Record<string, number> = {
+      'א': RRule.SU.weekday,  // Sunday
+      'ב': RRule.MO.weekday,  // Monday
+      'ג': RRule.TU.weekday,  // Tuesday
+      'ד': RRule.WE.weekday,  // Wednesday
+      'ה': RRule.TH.weekday,  // Thursday
+      'ו': RRule.FR.weekday   // Friday
+    };
+    return map[dayAbbrev] !== undefined ? map[dayAbbrev] : null;
   }
 
   /**
