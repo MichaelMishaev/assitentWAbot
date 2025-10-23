@@ -683,6 +683,118 @@ ssh root@167.71.145.9 "pm2 logs ultrathink --lines 20 --nostream"
 
 ---
 
+### Bug #18: List Reminders Returns "Not Found" After Creation
+**Date Reported:** 2025-10-23
+**Reported By:** User screenshot
+**Date Fixed:** 2025-10-23
+
+**Symptom:**
+User creates a reminder, then immediately asks "Show me all reminders" and bot responds with "לא נמצאו תזכורות עבור 'תזכורות'" even though the reminder was just created.
+
+**Example:**
+```
+User: "קבע תזכורת כל יום רביעי בשעה 18:00 ללכת לאימון"
+Bot: "✅ תזכורת נקבעה" (Reminder created successfully)
+
+User: "תראה את כל התזכורות שיש לי?"
+Bot: "❌ לא נמצאו תזכורות עבור 'תזכורות'" (Not found!)
+```
+
+**Root Cause:**
+The `sanitizeTitleFilter()` function in NLPRouter.ts was not filtering out generic category words. When user said "תזכורות" (reminders), the NLP extracted it as a title filter (`reminder.title = "תזכורות"`), and the search looked for a reminder NAMED "תזכורות" instead of listing ALL reminders.
+
+**Fix Applied:**
+**File:** `src/routing/NLPRouter.ts` (lines 69-83)
+
+Added generic category word filtering:
+```typescript
+// BUG FIX #18: Filter out generic category words that are NOT specific item names
+const genericWords = [
+  'תזכורות', 'תזכורת',     // reminders
+  'אירועים', 'אירוע',      // events
+  'פגישות', 'פגישה',        // meetings
+  'משימות', 'משימה',        // tasks
+  'רשימות', 'רשימה'         // lists
+];
+const cleanedTitle = trimmed.toLowerCase().replace(/[?!.,]/g, '').trim();
+if (genericWords.includes(cleanedTitle)) {
+  logger.info('Ignoring generic category word as title filter', { title, cleanedTitle });
+  return undefined;
+}
+```
+
+**Impact:**
+- ✅ "תראה את כל התזכורות שלי" now lists ALL reminders (no filter)
+- ✅ "מה האירועים שלי" now lists ALL events (no filter)
+- ✅ Generic category words no longer treated as specific titles
+- ✅ Search works correctly for meta-queries
+
+**QA Test Added:** `reminderCreation6` in `run-hebrew-qa-conversations.ts` (lines 307-331)
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-23
+**Priority:** HIGH (core reminder/event listing functionality)
+**Deployment:** Production deployed 2025-10-23
+
+---
+
+### Bug #4 (NEW): "יום לפני" (One Day Before) Not Recognized for Offset Reminders
+**Date Reported:** From Redis pending bugs
+**User Message:** "ביקשתי תזכורת להובלה יום לפני, גם בהודעה וגם בבקשה נפרדת הוא לא הבין"
+**Translation:** "I asked for a reminder for moving one day before, both in message and separate request he didn't understand"
+**Date Fixed:** 2025-10-23
+
+**Symptom:**
+User tries to create a reminder "one day before an event" using "יום לפני", but the bot doesn't understand the request.
+
+**Example:**
+```
+User: "תזכיר לי יום לפני ההובלה"
+Bot: Doesn't recognize the offset pattern ❌
+```
+
+**Root Cause:**
+The NLP prompt in `GeminiNLPService.ts` had examples for hour-based offsets ("שעה לפני" → -60, "שעתיים לפני" → -120) but was **missing an example for day-based offsets** ("יום לפני" → -1440 minutes).
+
+Without an example, the AI model doesn't learn the pattern that "יום" = 24 hours = 1440 minutes.
+
+**Investigation:**
+- Feature DOES exist: `add_comment` intent supports `reminderOffset` field
+- Handler processes it correctly in `NLPRouter.ts:1703-1719`
+- **Missing:** NLP prompt example for "יום לפני" pattern
+
+**Fix Applied:**
+**File:** `src/services/GeminiNLPService.ts` (line 307)
+
+Added day-based offset example:
+```typescript
+15b. ADD COMMENT WITH DAY OFFSET (BUG FIX #4): "תזכיר לי יום לפני ההובלה" → {"intent":"add_comment","confidence":0.9,"comment":{"eventTitle":"הובלה","text":"תזכורת יום לפני","reminderOffset":-1440}} (CRITICAL: -1440 = 1440 minutes = 24 hours BEFORE event)
+```
+
+**Impact:**
+- ✅ "תזכיר לי יום לפני [event]" now works correctly
+- ✅ AI extracts reminderOffset: -1440 (24 hours before)
+- ✅ Reminder scheduled one day before the event time
+- ✅ Completes the offset reminder feature
+
+**QA Test Added:** `reminderCreation7` in `run-hebrew-qa-conversations.ts` (lines 333-357)
+
+**Test Case:**
+```
+Message 1: "קבע אירוע הובלה מחר בשעה 14:00"
+Expected: Event created
+
+Message 2: "תזכיר לי יום לפני ההובלה"
+Expected: add_comment intent with reminderOffset: -1440
+```
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-23
+**Priority:** HIGH (requested feature not working)
+**Deployment:** Production deployed 2025-10-23
+
+---
+
 ## Testing Instructions
 
 1. **Bug #1 (Nearest Event):**

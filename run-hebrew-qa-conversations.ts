@@ -304,6 +304,58 @@ const reminderCreation5: TestConversation = {
   ],
 };
 
+const reminderCreation6: TestConversation = {
+  id: 'RC-6',
+  category: 'Reminder Creation',
+  name: 'Bug #18: List Reminders After Creation',
+  description: 'Test that bot lists reminders correctly after creating one (Bug #18 fix verification)',
+  phone: '+972502222006',
+  priority: 'high',
+  messages: [
+    {
+      from: '+972502222006',
+      text: 'קבע תזכורת כל יום רביעי בשעה 18:00 ללכת לאימון',
+      expectedIntent: 'create_reminder',
+      shouldContain: ['18:00', 'ללכת לאימון', 'רביעי'],
+      delay: 500,
+    },
+    {
+      from: '+972502222006',
+      text: 'תראה את כל התזכורות שיש לי?',
+      expectedIntent: 'list_reminders',
+      shouldContain: ['תזכורות', '18:00', 'ללכת לאימון'],
+      shouldNotContain: ['לא נמצאו תזכורות עבור', 'תזכורות', 'אין לך תזכורות'],
+      delay: 500,
+    },
+  ],
+};
+
+const reminderCreation7: TestConversation = {
+  id: 'RC-7',
+  category: 'Reminder Creation',
+  name: 'Bug #4: Reminder One Day Before Event',
+  description: 'Test that bot understands "יום לפני" (one day before) for offset-based reminders (Bug #4 fix verification)',
+  phone: '+972502222007',
+  priority: 'high',
+  messages: [
+    {
+      from: '+972502222007',
+      text: 'קבע אירוע הובלה מחר בשעה 14:00',
+      expectedIntent: 'create_event',
+      shouldContain: ['הובלה', '14:00'],
+      delay: 500,
+    },
+    {
+      from: '+972502222007',
+      text: 'תזכיר לי יום לפני ההובלה',
+      expectedIntent: 'add_comment',
+      shouldContain: ['תזכורת', 'הובלה'],
+      shouldNotContain: ['לא הבנתי', 'לא מזהה', 'נסה שוב'],
+      delay: 500,
+    },
+  ],
+};
+
 // ============================================================================
 // 3️⃣ EVENT QUERY CONVERSATIONS (8 conversations)
 // ============================================================================
@@ -1063,8 +1115,8 @@ const ALL_CONVERSATIONS: TestConversation[] = [
   // Event Creation (6)
   eventCreation1, eventCreation2, eventCreation3, eventCreation4, eventCreation5, eventCreation6,
 
-  // Reminder Creation (5)
-  reminderCreation1, reminderCreation2, reminderCreation3, reminderCreation4, reminderCreation5,
+  // Reminder Creation (7)
+  reminderCreation1, reminderCreation2, reminderCreation3, reminderCreation4, reminderCreation5, reminderCreation6, reminderCreation7,
 
   // Event Queries (8)
   eventQuery1, eventQuery2, eventQuery3, eventQuery4, eventQuery5, eventQuery6, eventQuery7, eventQuery8,

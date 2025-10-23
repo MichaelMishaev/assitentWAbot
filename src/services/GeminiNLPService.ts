@@ -304,6 +304,7 @@ KEY EXAMPLES (cover all intents):
 13. CREATE EVENT WITH MIXED COMMENT (CRITICAL - Natural language): "הפגישה היא עם מיכאל, לא לשכוח להביא מזומנים זאת הערה" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם מיכאל","contactName":"מיכאל","notes":"לא לשכוח להביא מזומנים"}} (CRITICAL: "זאת הערה" is meta-instruction, extract "לא לשכוח להביא מזומנים" as notes!)
 14. ADD COMMENT WITH OFFSET REMINDER: "תזכיר לי שעה לפני פגישה עם אשתי" → {"intent":"add_comment","confidence":0.9,"comment":{"eventTitle":"פגישה עם אשתי","text":"תזכורת לפני פגישה","reminderOffset":-60}} (CRITICAL: -60 = 60 minutes BEFORE event)
 15. ADD COMMENT WITH 2 HOUR OFFSET: "תזכיר לי שעתיים לפני" → {"intent":"add_comment","confidence":0.85,"comment":{"text":"תזכורת","reminderOffset":-120}} (CRITICAL: -120 = 120 minutes BEFORE)
+15b. ADD COMMENT WITH DAY OFFSET (BUG FIX #4): "תזכיר לי יום לפני ההובלה" → {"intent":"add_comment","confidence":0.9,"comment":{"eventTitle":"הובלה","text":"תזכורת יום לפני","reminderOffset":-1440}} (CRITICAL: -1440 = 1440 minutes = 24 hours BEFORE event)
 16. UPDATE COMMENT: "עדכן הערה 1 להביא פספורט" → {"intent":"update_comment","confidence":0.9,"comment":{"commentIndex":1,"text":"להביא פספורט"}} (CRITICAL: update_comment, NOT update_event!)
 
 CONVERSATION CONTEXT:
