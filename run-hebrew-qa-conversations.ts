@@ -356,6 +356,25 @@ const reminderCreation7: TestConversation = {
   ],
 };
 
+const reminderCreation8: TestConversation = {
+  id: 'RC-8',
+  category: 'Reminder Creation',
+  name: 'Bug #19: Weekly Recurrence with Hebrew Day Abbreviation',
+  description: 'Test that "כל יום ד" (every Wednesday) is detected as WEEKLY, not DAILY (Bug #19 fix verification)',
+  phone: '+972502222008',
+  priority: 'high',
+  messages: [
+    {
+      from: '+972502222008',
+      text: 'כל יום ד בשעה 18:00 ללכת לאימון',
+      expectedIntent: 'create_reminder',
+      shouldContain: ['18:00', 'ללכת לאימון'],
+      shouldNotContain: ['יומי', 'daily', 'כל יום', 'מדי יום'],
+      delay: 500,
+    },
+  ],
+};
+
 // ============================================================================
 // 3️⃣ EVENT QUERY CONVERSATIONS (8 conversations)
 // ============================================================================
@@ -1115,8 +1134,8 @@ const ALL_CONVERSATIONS: TestConversation[] = [
   // Event Creation (6)
   eventCreation1, eventCreation2, eventCreation3, eventCreation4, eventCreation5, eventCreation6,
 
-  // Reminder Creation (7)
-  reminderCreation1, reminderCreation2, reminderCreation3, reminderCreation4, reminderCreation5, reminderCreation6, reminderCreation7,
+  // Reminder Creation (8)
+  reminderCreation1, reminderCreation2, reminderCreation3, reminderCreation4, reminderCreation5, reminderCreation6, reminderCreation7, reminderCreation8,
 
   // Event Queries (8)
   eventQuery1, eventQuery2, eventQuery3, eventQuery4, eventQuery5, eventQuery6, eventQuery7, eventQuery8,

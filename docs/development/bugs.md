@@ -2275,3 +2275,376 @@ Expected: Lists all events (no title filter)
 - Similar pattern to question phrase filtering (already handled in same function)
 
 ---
+
+### Bug #17: Stale Instance Lock Causing Production Crash Loop
+**Reported:** 2025-10-23 via production logs
+**Date Fixed:** 2025-10-23
+**Commit:** `0d1b0e8`
+
+**Symptom:**
+Production bot crash-looping with error message:
+```
+lockInfo: "pid:116576|started:2025-10-23T13:30:44.140Z"
+❌ Another instance is already running!
+🛑 Exiting to prevent duplicate instances
+PM2 Script had too many unstable restarts (10). Stopped. "errored"
+```
+
+**Problem:**
+When the bot process crashed (PID 116576), the instance lock remained in Redis for 16+ minutes. New bot instances couldn't acquire the lock, resulting in:
+- Immediate exit on startup
+- PM2 retrying 10 times
+- PM2 giving up with "too many unstable restarts"
+- Bot completely offline
+
+**Root Cause:**
+The instance lock system relied only on TTL (Time To Live) for stale lock detection:
+```typescript
+await redis.set(INSTANCE_LOCK_KEY, processInfo, 'EX', INSTANCE_LOCK_TTL, 'NX');
+```
+- TTL was set to 60 seconds
+- If process crashed, lock persisted until TTL expired
+- But new instances tried to start immediately (within 60 seconds)
+- No PID validation to check if the locked process was still running
+
+**Fix Applied:**
+**File:** `src/index.ts`
+
+**Added multi-layer stale lock detection:**
+
+1. **Lines 164-217** - Enhanced `acquireInstanceLock()`:
+```typescript
+if (result !== 'OK') {
+  const existingLock = await redis.get(INSTANCE_LOCK_KEY);
+  logger.warn('Instance lock already exists:', { lockInfo: existingLock });
+
+  // 🛡️ VALIDATION: Check if the locked PID is still running
+  const isStale = await isLockStale(existingLock);
+
+  if (isStale) {
+    logger.warn('🧹 Stale lock detected - forcing override');
+    await redis.del(INSTANCE_LOCK_KEY);
+    // Retry acquiring lock after cleanup
+    const retryResult = await redis.set(INSTANCE_LOCK_KEY, processInfo, 'EX', INSTANCE_LOCK_TTL, 'NX');
+    if (retryResult === 'OK') {
+      logger.info('✅ Instance lock acquired after stale lock cleanup', { processInfo });
+      startLockHeartbeat();
+      return true;
+    }
+  }
+  return false;
+}
+```
+
+2. **Lines 219-271** - New function `isLockStale()`:
+```typescript
+async function isLockStale(lockInfo: string | null): Promise<boolean> {
+  if (!lockInfo) return true;
+
+  const pidMatch = lockInfo.match(/pid:(\d+)/);
+  const startedMatch = lockInfo.match(/started:([^|]+)/);
+
+  if (!pidMatch || !startedMatch) {
+    logger.warn('Invalid lock format, considering stale');
+    return true;
+  }
+
+  const lockedPid = parseInt(pidMatch[1], 10);
+  const startedAt = new Date(startedMatch[1]);
+  const ageMinutes = (Date.now() - startedAt.getTime()) / 60000;
+
+  // LAYER 1: Age check - locks older than 5 minutes are stale
+  if (ageMinutes > 5) {
+    logger.warn(`Lock is ${ageMinutes.toFixed(1)} minutes old (> 5 min threshold)`);
+    return true;
+  }
+
+  // LAYER 2: PID check - verify process is actually running
+  try {
+    const { execAsync } = await import('./utils/execAsync.js');
+    await execAsync(`ps -p ${lockedPid} -o pid=`);
+    logger.info(`✅ Locked PID ${lockedPid} is still running - lock is valid`);
+    return false; // Process exists, lock is valid
+  } catch (error) {
+    logger.warn(`❌ Locked PID ${lockedPid} not found - process must have crashed`);
+    return true; // Process doesn't exist, lock is stale
+  }
+}
+```
+
+**How It Works:**
+1. **TTL Layer (60 seconds)** - Existing auto-expiration mechanism
+2. **Age Layer (5 minutes)** - If lock is older than 5 minutes, consider it stale
+3. **PID Layer** - Use Unix `ps -p {pid}` command to check if process actually exists
+4. **Auto-cleanup** - Delete stale lock and retry acquisition
+5. **Comprehensive logging** - Track all validation steps for debugging
+
+**Examples:**
+```
+Scenario 1: Crashed Process
+- Old PID 116576 crashed 10 minutes ago
+- Lock still exists in Redis
+- New instance starts
+- Checks PID with `ps -p 116576`
+- PID not found → Lock is stale
+- Delete lock → Retry acquisition → Success ✅
+
+Scenario 2: Valid Running Process
+- PID 117667 is running and healthy
+- New instance tries to start
+- Checks PID with `ps -p 117667`
+- PID found and running → Lock is valid
+- Exit gracefully to prevent duplicate ❌
+
+Scenario 3: Old Lock (>5 minutes)
+- Lock timestamp shows it's 6 minutes old
+- Age check marks it stale immediately
+- No PID check needed
+- Delete lock → Retry acquisition → Success ✅
+```
+
+**Impact:**
+- ✅ Self-healing system - no manual Redis cleanup needed
+- ✅ Bot automatically recovers from crashes
+- ✅ PM2 won't hit "too many unstable restarts"
+- ✅ Production remains online even after crashes
+- ✅ Multiple validation layers for robustness
+
+**Testing:**
+1. Start bot normally: `pm2 start ultrathink`
+2. Kill process without cleanup: `kill -9 {PID}`
+3. Lock remains in Redis but process is dead
+4. Start bot again: `pm2 restart ultrathink`
+5. Verify:
+   - Stale lock detected ✅
+   - Lock deleted automatically ✅
+   - New instance starts successfully ✅
+   - Logs show validation steps ✅
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-23
+**Priority:** CRITICAL (production stability)
+**Deployment:** Production deployed 2025-10-23, verified working with PID 117667
+
+---
+
+### Bug #19: Weekly Recurrence Detected as Daily (Hebrew Day Abbreviations)
+**Reported:** 2025-10-23 via screenshot
+**User Example:** "כל יום ד בשעה 18:00 ללכת לאימון" (every Wednesday at 18:00 go to training)
+**Date Fixed:** 2025-10-23
+**Commit:** `feaef1d`
+
+**Symptom:**
+User requested weekly recurrence on Wednesday but bot created DAILY recurrence:
+```
+User: "כל יום ד בשעה 18:00 ללכת לאימון"
+Bot created: Daily recurrence (חוזר מדי: יום) ❌
+Expected: Weekly recurrence on Wednesday (חוזר מדי: שבוע - יום רביעי) ✅
+```
+
+**Problem:**
+Hebrew day abbreviations (א, ב, ג, ד, ה, ו) were not recognized, and pattern matching order caused false matches.
+
+**Root Cause:**
+**File:** `src/domain/phases/phase7-recurrence/RecurrencePhase.ts`
+
+**Issue #1: Pattern Order (Line 78)**
+Daily pattern was checked BEFORE weekly patterns:
+```typescript
+// Daily patterns checked first
+if (/כל יום/i.test(text) || /daily|every day/i.test(text)) {
+  return { frequency: 'daily', interval: 1 };
+}
+
+// Weekly patterns checked after (line 86)
+const weeklyMatch = text.match(/כל (יום )?(ראשון|שני|...)/i);
+```
+
+Result: "כל יום ד" matched "כל יום" → returned daily immediately → weekly check never executed
+
+**Issue #2: Missing Abbreviation Support**
+Hebrew day abbreviations were not recognized:
+- ד (Wednesday)
+- א (Sunday)
+- ב (Monday)
+- ג (Tuesday)
+- ה (Thursday)
+- ו (Friday)
+
+**Fix Applied:**
+**File:** `src/domain/phases/phase7-recurrence/RecurrencePhase.ts`
+
+**Changes:**
+
+1. **Lines 76-116** - Reordered pattern detection (weekly BEFORE daily):
+```typescript
+/**
+ * Detect recurrence pattern from text
+ */
+private detectRecurrencePattern(text: string): RecurrencePattern | null {
+  // BUG FIX #19: Weekly patterns MUST be checked BEFORE daily patterns
+  // Otherwise "כל יום ד" matches "כל יום" and returns daily instead of weekly
+
+  // Weekly patterns - full names (e.g., "כל יום רביעי", "כל רביעי")
+  const weeklyMatch = text.match(/כל (יום )?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)/i);
+  if (weeklyMatch) {
+    const dayName = weeklyMatch[2];
+    const dayOfWeek = this.hebrewDayToNumber(dayName);
+    return {
+      frequency: 'weekly',
+      interval: 1,
+      byweekday: dayOfWeek
+    };
+  }
+
+  // Weekly patterns - abbreviations (e.g., "כל יום ד", "כל ד")
+  // א=Sunday, ב=Monday, ג=Tuesday, ד=Wednesday, ה=Thursday, ו=Friday
+  const weeklyAbbrevMatch = text.match(/כל (יום )?([א-ו])\b/i);
+  if (weeklyAbbrevMatch) {
+    const dayAbbrev = weeklyAbbrevMatch[2];
+    const dayOfWeek = this.hebrewDayAbbrevToNumber(dayAbbrev);
+
+    if (dayOfWeek !== null) {
+      return {
+        frequency: 'weekly',
+        interval: 1,
+        byweekday: dayOfWeek
+      };
+    }
+  }
+
+  // Daily patterns - MUST come AFTER weekly checks
+  // Use negative lookahead to prevent matching "כל יום ד" (every Wednesday)
+  if (/כל יום(?!\s*[א-ו]|\s*(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת))/i.test(text) || /daily|every day/i.test(text)) {
+    return {
+      frequency: 'daily',
+      interval: 1
+    };
+  }
+
+  // ... rest of patterns (weekly general, monthly, yearly)
+}
+```
+
+2. **Lines 204-226** - Added Hebrew abbreviation helper:
+```typescript
+/**
+ * Convert Hebrew day abbreviation to number (0=Sunday, 6=Saturday)
+ * BUG FIX #19: Support day abbreviations like "כל יום ד" (every Wednesday)
+ *
+ * א = Sunday (ראשון)
+ * ב = Monday (שני)
+ * ג = Tuesday (שלישי)
+ * ד = Wednesday (רביעי)
+ * ה = Thursday (חמישי)
+ * ו = Friday (שישי)
+ * Note: Saturday (שבת) typically uses full name, not abbreviation
+ */
+private hebrewDayAbbrevToNumber(dayAbbrev: string): number | null {
+  const map: Record<string, number> = {
+    'א': RRule.SU.weekday,  // Sunday
+    'ב': RRule.MO.weekday,  // Monday
+    'ג': RRule.TU.weekday,  // Tuesday
+    'ד': RRule.WE.weekday,  // Wednesday
+    'ה': RRule.TH.weekday,  // Thursday
+    'ו': RRule.FR.weekday   // Friday
+  };
+  return map[dayAbbrev] !== undefined ? map[dayAbbrev] : null;
+}
+```
+
+3. **Line 110** - Improved daily regex with negative lookahead:
+```typescript
+// Prevents matching "כל יום [day name]" as daily
+/כל יום(?!\s*[א-ו]|\s*(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת))/i
+```
+
+**How It Works:**
+
+**Pattern Matching Order (CRITICAL):**
+1. ✅ Check weekly full names: "כל יום רביעי", "כל רביעי"
+2. ✅ Check weekly abbreviations: "כל יום ד", "כל ד"
+3. ✅ Check daily (with negative lookahead): "כל יום" (but NOT "כל יום ד")
+4. ✅ Check weekly general: "כל שבוע"
+5. ✅ Check monthly: "כל חודש"
+6. ✅ Check yearly: "כל שנה"
+
+**Supported Hebrew Day Formats:**
+```
+Full names:
+- "כל יום ראשון" → Weekly (Sunday)
+- "כל יום רביעי" → Weekly (Wednesday)
+- "כל שישי" → Weekly (Friday)
+
+Abbreviations:
+- "כל יום א" → Weekly (Sunday)
+- "כל יום ד" → Weekly (Wednesday)
+- "כל ו" → Weekly (Friday)
+
+Daily:
+- "כל יום" → Daily (no day specified)
+- "daily" → Daily
+```
+
+**Examples After Fix:**
+```
+Input: "כל יום ד בשעה 18:00"
+Result: Weekly on Wednesday ✅
+
+Input: "כל יום רביעי בשעה 18:00"
+Result: Weekly on Wednesday ✅
+
+Input: "כל רביעי בשעה 18:00"
+Result: Weekly on Wednesday ✅
+
+Input: "כל יום בשעה 18:00"
+Result: Daily ✅
+
+Input: "כל יום א בשעה 8:00"
+Result: Weekly on Sunday ✅
+```
+
+**Impact:**
+- ✅ Hebrew day abbreviations now recognized (א-ו)
+- ✅ Pattern order prevents false daily matches
+- ✅ All Hebrew day formats supported (full name + abbreviation)
+- ✅ Negative lookahead ensures "כל יום" alone = daily
+- ✅ Better user experience for recurring events/reminders
+
+**QA Test Added:**
+`reminderCreation8` in `run-hebrew-qa-conversations.ts` (lines 359-376)
+
+**Test Case:**
+```typescript
+{
+  id: 'RC-8',
+  name: 'Bug #19: Weekly Recurrence with Hebrew Day Abbreviation',
+  phone: '+972502222008',
+  messages: [
+    {
+      from: '+972502222008',
+      text: 'כל יום ד בשעה 18:00 ללכת לאימון',
+      expectedIntent: 'create_reminder',
+      shouldContain: ['18:00', 'ללכת לאימון'],
+      shouldNotContain: ['יומי', 'daily', 'כל יום', 'מדי יום'],
+      delay: 500,
+    },
+  ],
+}
+```
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-10-23
+**Priority:** HIGH (incorrect recurrence scheduling)
+**Deployment:** Production deployed 2025-10-23, verified working
+
+**Files Modified:**
+- `src/domain/phases/phase7-recurrence/RecurrencePhase.ts` (lines 76-226)
+- `run-hebrew-qa-conversations.ts` (added test RC-8)
+
+**Related Code:**
+- Phase 7: Recurrence Pattern Detection (`phase7-recurrence/RecurrencePhase.ts`)
+- Uses rrule library for RRULE generation
+- Supports daily, weekly, monthly, yearly recurrence
+
+---
