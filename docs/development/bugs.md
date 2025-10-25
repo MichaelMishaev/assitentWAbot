@@ -2648,3 +2648,249 @@ Result: Weekly on Sunday ✅
 - Supports daily, weekly, monthly, yearly recurrence
 
 ---
+
+---
+
+## 🆕 FEATURE IMPLEMENTATION - Morning Summary Notifications
+
+### Feature: Daily Morning Summary Messages
+**Status:** ✅ IMPLEMENTED
+**Date:** 2025-10-24
+**Type:** New Feature
+
+**Description:**
+Automated morning summary notifications that send users a daily digest of their events and reminders.
+
+**What Was Built:**
+
+1. **New Services Created:**
+   - `UserService.ts` - User management and querying
+   - `MorningSummaryService.ts` - Summary generation and formatting
+   - `DailySchedulerService.ts` - Daily job orchestration
+   
+2. **New Queue Infrastructure:**
+   - `MorningSummaryQueue.ts` - BullMQ queue for summary jobs
+   - `MorningSummaryWorker.ts` - Worker to process and send summaries
+   
+3. **Extended Services:**
+   - `SettingsService.ts` - Added morning notification preference methods
+   - `types/index.ts` - Added `MorningNotificationPreferences` interface
+   
+4. **Integration:**
+   - `index.ts` - Wired up new services with graceful startup/shutdown
+
+**Architecture:**
+```
+Daily Repeatable Job (1 AM UTC)
+    ↓
+DailySchedulerService.processDailySchedule()
+    ↓
+For each user with notifications enabled:
+    ↓
+Schedule MorningSummaryJob at user's preferred time
+    ↓
+MorningSummaryWorker processes job
+    ↓
+Generate summary with events + reminders
+    ↓
+Send via WhatsApp
+```
+
+**User Preferences:**
+- `enabled`: boolean - Enable/disable notifications
+- `time`: string - Preferred time (HH:mm format, e.g., "08:00")
+- `days`: number[] - Days of week (0=Sunday, 6=Saturday)
+- `includeMemos`: boolean - Include reminders in summary
+
+**Database Storage:**
+All preferences stored in `users.prefs_jsonb.morningNotification`
+
+**New Files:**
+- `/src/services/UserService.ts`
+- `/src/services/MorningSummaryService.ts`
+- `/src/services/DailySchedulerService.ts`
+- `/src/queues/MorningSummaryQueue.ts`
+- `/src/queues/MorningSummaryWorker.ts`
+- `/src/testing/test-morning-summary.ts` (QA test suite)
+
+**API Methods Added to SettingsService:**
+- `getMorningNotificationPrefs(userId)` - Get current preferences
+- `updateMorningNotificationEnabled(userId, enabled)` - Enable/disable
+- `updateMorningNotificationTime(userId, time)` - Set preferred time
+- `updateMorningNotificationDays(userId, days)` - Set allowed days
+- `updateMorningNotificationIncludeMemos(userId, includeMemos)` - Toggle memos
+
+**Testing:**
+- QA Test Suite: `npm run test:morning-summary`
+- Tests all services, validation, and message generation
+- 10 comprehensive test cases
+
+**Example Message Format:**
+```
+🌅 *בוקר טוב!*
+
+📅 *יום חמישי, 24 באוקטובר*
+
+*אירועים להיום:*
+• 09:00 - פגישה עם לקוח 📍 משרד
+• 14:30 - ישיבת צוות
+
+📝 *תזכורות להיום:*
+• 10:00 - התקשר לרופא
+
+---
+💡 *טיפ:* שלח "הגדרות בוקר" לשינוי העדפות התזכורת
+💤 שלח "כבה תזכורת בוקר" להפסקת ההתראות
+```
+
+**How to Enable (Programmatically):**
+```typescript
+import { settingsService } from './services/SettingsService.js';
+
+// Enable morning notifications
+await settingsService.updateMorningNotificationEnabled(userId, true);
+
+// Set time to 7:30 AM
+await settingsService.updateMorningNotificationTime(userId, '07:30');
+
+// Set to weekdays only
+await settingsService.updateMorningNotificationDays(userId, [1, 2, 3, 4, 5]);
+```
+
+**Scheduled Execution:**
+- Master job runs daily at **1:00 AM UTC**
+- Individual user summaries scheduled based on their timezone
+- Respects user's day preferences (e.g., skip weekends if configured)
+
+**Production Considerations:**
+- Rate limiting: 10 messages/second to avoid WhatsApp blocks
+- Retry logic: 3 attempts with exponential backoff
+- Timezone-aware scheduling
+- Graceful shutdown handling
+- Job persistence (survives restarts)
+
+**Future Enhancements (Not Yet Implemented):**
+- User chat commands for controlling preferences
+- RRule expansion for recurring events
+- Voice message summaries
+- Weekly summary option
+- Custom message templates
+
+**Status:** ✅ Core functionality implemented and tested
+**Next Steps:** Add user-facing chat commands for preference management
+
+
+
+---
+
+## Bug #20: Recurring Events Not Supported in StateRouter (Conversation Flow)
+
+**Severity:** HIGH  
+**Status:** ✅ FIXED  
+**Reported:** 2025-10-24  
+**Fixed:** 2025-10-25  
+
+**Problem:**
+User tried to create a recurring event (like "חוג" - class) using the conversation flow, but StateRouter didn't support recurrence patterns. When user answered "כל יום שני" (every Monday) to the date question, it failed with parseHebrewDate error.
+
+**Root Cause:**
+Recurring events were only partially implemented:
+- ✅ NLPRouter (one-shot messages) supported recurrence via RecurrencePhase
+- ❌ StateRouter (conversation flow) did NOT detect recurrence patterns
+- `handleEventDate()` only called `parseHebrewDate()`, which doesn't handle patterns like "כל יום שני"
+
+**Architecture Gap:**
+```
+NLPRouter Path (WORKED):
+User: "חוג כל יום שני בשעה 15:00"
+    ↓
+RecurrencePhase detects pattern
+    ↓
+Generates RRULE
+    ↓
+Event created with rrule ✅
+
+StateRouter Path (BROKEN):
+Bot: "מתי האירוע?"
+User: "כל יום שני"
+    ↓
+parseHebrewDate() fails ❌
+(No recurrence detection)
+```
+
+**Solution Implemented:**
+
+1. **Added recurrence detection to StateRouter:**
+   - `detectRecurrencePattern(text)` - Mirrors RecurrencePhase logic
+   - `hebrewDayToNumber(dayName)` - Convert Hebrew days to RRule weekday
+   - `hebrewDayAbbrevToNumber(dayAbbrev)` - Support abbreviations (א-ו)
+   - `calculateNextOccurrence(weekday)` - Calculate next occurrence date
+
+2. **Modified `handleEventDate()` to check for recurrence BEFORE parseHebrewDate:**
+   ```typescript
+   const recurrencePattern = this.detectRecurrencePattern(text);
+   if (recurrencePattern) {
+     // Save RRULE and next occurrence
+     await this.stateManager.setState(userId, ADDING_EVENT_TIME, {
+       title,
+       date: recurrencePattern.nextOccurrence.toISOString(),
+       rrule: recurrencePattern.rruleString
+     });
+   }
+   ```
+
+3. **Updated `handleEventTime()` to pass rrule to EventService:**
+   ```typescript
+   await this.eventService.createEvent({
+     userId,
+     title,
+     startTsUtc: finalDate,
+     rrule: rrule || undefined // Pass RRULE for recurring events
+   });
+   ```
+
+**Supported Patterns:**
+- Weekly full names: "כל יום רביעי", "כל רביעי"
+- Weekly abbreviations: "כל יום ד", "כל ד"
+- Daily: "כל יום"
+- Weekly general: "כל שבוע"
+- Monthly: "כל חודש"
+
+**Files Modified:**
+- `src/routing/StateRouter.ts`:
+  - Added RRule import
+  - Added 4 helper methods for recurrence detection
+  - Modified `handleEventDate()` to detect patterns
+  - Modified `handleEventTime()` to extract and pass rrule
+  - Modified `handleEventConflictConfirm()` to pass rrule
+
+**User Experience:**
+```
+Before Fix:
+Bot: "מתי האירוע?"
+User: "כל יום שני"
+Bot: "❌ Error parsing date"
+
+After Fix:
+Bot: "מתי האירוע?"
+User: "כל יום שני"
+Bot: "נהדר! אירוע שבועי 🔄
+      התחלה: 28/10/2025
+      
+      באיזו שעה?"
+```
+
+**Testing:**
+- ✅ Local build successful (no TypeScript errors)
+- ✅ Recurrence detection methods added
+- ✅ RRULE passed to EventService
+
+**Impact:**
+- Users can now create recurring events via conversation flow
+- Consistent behavior between NLPRouter and StateRouter
+- Full RRULE support for events (already existed in database)
+
+**Related:**
+- Bug #19: Weekly recurrence pattern detection (also fixed)
+- RecurrencePhase: Already working for NLPRouter
+- EventService: Already supports rrule field

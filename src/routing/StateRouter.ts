@@ -26,6 +26,11 @@ import {
   formatEventWithComments,
   formatEventInList
 } from '../utils/commentFormatter.js';
+// BUG FIX #20: Import RRule for recurring event support
+import rruleModule from 'rrule';
+
+// Extract RRule from the default export (same as RecurrencePhase.ts)
+const { RRule } = rruleModule as any;
 
 /**
  * Fuzzy match for yes/no confirmations with typo tolerance
@@ -396,7 +401,37 @@ export class StateRouter {
       return;
     }
 
-    // Parse Hebrew date
+    // BUG FIX #20: Check for recurrence pattern BEFORE parsing regular date
+    const recurrencePattern = this.detectRecurrencePattern(text.trim());
+
+    if (recurrencePattern) {
+      // Recurring event detected
+      logger.info('[Bug #20] Recurring event detected in StateRouter', {
+        text,
+        frequency: recurrencePattern.frequency,
+        rrule: recurrencePattern.rruleString
+      });
+
+      // Save date and rrule, move to time
+      await this.stateManager.setState(userId, ConversationState.ADDING_EVENT_TIME, {
+        title,
+        date: recurrencePattern.nextOccurrence.toISOString(),
+        rrule: recurrencePattern.rruleString
+      });
+
+      const formattedDate = DateTime.fromJSDate(recurrencePattern.nextOccurrence).setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy');
+      const frequencyText = recurrencePattern.frequency === 'daily' ? 'יומי' :
+                           recurrencePattern.frequency === 'weekly' ? 'שבועי' :
+                           recurrencePattern.frequency === 'monthly' ? 'חודשי' : 'אירוע חוזר';
+
+      await this.sendMessage(
+        phone,
+        `נהדר! אירוע ${frequencyText} 🔄\nהתחלה: ${formattedDate}\n\nבאיזו שעה?\n\nדוגמאות:\n• 14:30\n• 9:00\n• 15:45\n\nאו שלח "דלג" אם אין שעה מדויקת`
+      );
+      return;
+    }
+
+    // No recurrence - parse as regular date
     const result = parseHebrewDate(text.trim());
 
     if (!result.success) {
@@ -431,7 +466,7 @@ export class StateRouter {
 
   private async handleEventTime(phone: string, userId: string, text: string): Promise<void> {
     const session = await this.stateManager.getState(userId);
-    const { title, date } = session?.context || {};
+    const { title, date, rrule } = session?.context || {};
 
     if (!title || !date) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
@@ -536,7 +571,8 @@ export class StateRouter {
         title,
         startTsUtc: finalDate,
         location: undefined, // Optional - can be added via edit
-        notes: undefined
+        notes: undefined,
+        rrule: rrule || undefined // BUG FIX #20: Pass RRULE for recurring events
       });
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
@@ -557,6 +593,168 @@ export class StateRouter {
     }
   }
 
+  /**
+   * BUG FIX #20: Detect recurrence pattern from text
+   * Mirrors logic from RecurrencePhase.ts
+   */
+  private detectRecurrencePattern(text: string): { frequency: string; interval: number; byweekday?: number; rruleString: string; nextOccurrence: Date } | null {
+    // Weekly patterns - full names (e.g., "כל יום רביעי", "כל רביעי")
+    const weeklyMatch = text.match(/כל (יום )?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)/i);
+    if (weeklyMatch) {
+      const dayName = weeklyMatch[2];
+      const dayOfWeek = this.hebrewDayToNumber(dayName);
+      const nextOccurrence = this.calculateNextOccurrence(dayOfWeek);
+
+      const rrule = new RRule({
+        freq: RRule.WEEKLY,
+        interval: 1,
+        byweekday: [dayOfWeek],
+        dtstart: nextOccurrence
+      });
+
+      return {
+        frequency: 'weekly',
+        interval: 1,
+        byweekday: dayOfWeek,
+        rruleString: rrule.toString(),
+        nextOccurrence
+      };
+    }
+
+    // Weekly patterns - abbreviations (e.g., "כל יום ד", "כל ד")
+    const weeklyAbbrevMatch = text.match(/כל (יום )?([א-ו])\b/i);
+    if (weeklyAbbrevMatch) {
+      const dayAbbrev = weeklyAbbrevMatch[2];
+      const dayOfWeek = this.hebrewDayAbbrevToNumber(dayAbbrev);
+
+      if (dayOfWeek !== null) {
+        const nextOccurrence = this.calculateNextOccurrence(dayOfWeek);
+
+        const rrule = new RRule({
+          freq: RRule.WEEKLY,
+          interval: 1,
+          byweekday: [dayOfWeek],
+          dtstart: nextOccurrence
+        });
+
+        return {
+          frequency: 'weekly',
+          interval: 1,
+          byweekday: dayOfWeek,
+          rruleString: rrule.toString(),
+          nextOccurrence
+        };
+      }
+    }
+
+    // Daily patterns
+    if (/כל יום(?!\s*[א-ו]|\s*(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת))/i.test(text) || /daily|every day/i.test(text)) {
+      const nextOccurrence = DateTime.now().setZone('Asia/Jerusalem').plus({ days: 1 }).set({ hour: 9, minute: 0, second: 0, millisecond: 0 }).toJSDate();
+
+      const rrule = new RRule({
+        freq: RRule.DAILY,
+        interval: 1,
+        dtstart: nextOccurrence
+      });
+
+      return {
+        frequency: 'daily',
+        interval: 1,
+        rruleString: rrule.toString(),
+        nextOccurrence
+      };
+    }
+
+    // Weekly (general)
+    if (/כל שבוע|weekly|every week/i.test(text)) {
+      const nextOccurrence = DateTime.now().setZone('Asia/Jerusalem').plus({ weeks: 1 }).set({ hour: 9, minute: 0, second: 0, millisecond: 0 }).toJSDate();
+
+      const rrule = new RRule({
+        freq: RRule.WEEKLY,
+        interval: 1,
+        dtstart: nextOccurrence
+      });
+
+      return {
+        frequency: 'weekly',
+        interval: 1,
+        rruleString: rrule.toString(),
+        nextOccurrence
+      };
+    }
+
+    // Monthly patterns
+    if (/כל חודש|חודשי|monthly|every month/i.test(text)) {
+      const nextOccurrence = DateTime.now().setZone('Asia/Jerusalem').plus({ months: 1 }).set({ hour: 9, minute: 0, second: 0, millisecond: 0 }).toJSDate();
+
+      const rrule = new RRule({
+        freq: RRule.MONTHLY,
+        interval: 1,
+        dtstart: nextOccurrence
+      });
+
+      return {
+        frequency: 'monthly',
+        interval: 1,
+        rruleString: rrule.toString(),
+        nextOccurrence
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * BUG FIX #20: Convert Hebrew day name to RRule weekday number
+   */
+  private hebrewDayToNumber(dayName: string): number {
+    const map: Record<string, number> = {
+      'ראשון': RRule.SU.weekday,
+      'שני': RRule.MO.weekday,
+      'שלישי': RRule.TU.weekday,
+      'רביעי': RRule.WE.weekday,
+      'חמישי': RRule.TH.weekday,
+      'שישי': RRule.FR.weekday,
+      'שבת': RRule.SA.weekday
+    };
+    return map[dayName] || RRule.MO.weekday;
+  }
+
+  /**
+   * BUG FIX #20: Convert Hebrew day abbreviation to RRule weekday number
+   */
+  private hebrewDayAbbrevToNumber(dayAbbrev: string): number | null {
+    const map: Record<string, number> = {
+      'א': RRule.SU.weekday,  // Sunday
+      'ב': RRule.MO.weekday,  // Monday
+      'ג': RRule.TU.weekday,  // Tuesday
+      'ד': RRule.WE.weekday,  // Wednesday
+      'ה': RRule.TH.weekday,  // Thursday
+      'ו': RRule.FR.weekday   // Friday
+    };
+    return map[dayAbbrev] !== undefined ? map[dayAbbrev] : null;
+  }
+
+  /**
+   * BUG FIX #20: Calculate next occurrence of a specific weekday
+   * @param weekday - RRule weekday number (0=Monday, 6=Sunday)
+   * @returns Next occurrence date at 9:00 AM
+   */
+  private calculateNextOccurrence(weekday: number): Date {
+    const now = DateTime.now().setZone('Asia/Jerusalem');
+    const currentWeekday = now.weekday % 7; // Convert luxon weekday (1=Monday) to 0-based (0=Sunday)
+
+    // Convert RRule weekday (0=Monday, 6=Sunday) to luxon weekday (1=Monday, 7=Sunday)
+    const targetLuxonWeekday = weekday === 6 ? 7 : weekday + 1;
+
+    let daysToAdd = targetLuxonWeekday - now.weekday;
+    if (daysToAdd <= 0) {
+      daysToAdd += 7; // Move to next week if day has passed
+    }
+
+    return now.plus({ days: daysToAdd }).set({ hour: 9, minute: 0, second: 0, millisecond: 0 }).toJSDate();
+  }
+
   private async handleEventConflictConfirm(phone: string, userId: string, text: string): Promise<void> {
     const choice = fuzzyMatchYesNo(text);
 
@@ -573,7 +771,7 @@ export class StateRouter {
     }
 
     const session = await this.stateManager.getState(userId);
-    const { title, startTsUtc } = session?.context || {};
+    const { title, startTsUtc, rrule } = session?.context || {};
 
     if (!title || !startTsUtc) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
@@ -588,7 +786,8 @@ export class StateRouter {
         title,
         startTsUtc: new Date(startTsUtc),
         location: undefined,
-        notes: undefined
+        notes: undefined,
+        rrule: rrule || undefined // BUG FIX #20: Pass RRULE for recurring events
       });
 
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
