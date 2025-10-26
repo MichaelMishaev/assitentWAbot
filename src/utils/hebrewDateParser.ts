@@ -156,6 +156,36 @@ export function parseHebrewDate(
     }
   }
 
+  // BUG FIX #21: Support "עוד X דקות/דקה" (in X minutes) pattern - both singular and plural
+  const relativeMinutesMatch = dateInput.match(/^עוד\s+(\d+)?\s*(דקות?|דקה)$/);
+  if (relativeMinutesMatch) {
+    const minutesToAdd = relativeMinutesMatch[1] ? parseInt(relativeMinutesMatch[1], 10) : 1; // Default to 1 if no number
+    if (minutesToAdd >= 0 && minutesToAdd <= 1440) { // Max 24 hours in minutes
+      // Use current time (not start of day) for relative minutes
+      const nowWithTime = DateTime.now().setZone(timezone);
+      let date = nowWithTime.plus({ minutes: minutesToAdd });
+      return {
+        success: true,
+        date: date.toJSDate(),
+      };
+    }
+  }
+
+  // BUG FIX #21: Support "עוד X שעות/שעה" (in X hours) pattern - both singular and plural
+  const relativeHoursMatch = dateInput.match(/^עוד\s+(\d+)?\s*(שעות?|שעה)$/);
+  if (relativeHoursMatch) {
+    const hoursToAdd = relativeHoursMatch[1] ? parseInt(relativeHoursMatch[1], 10) : 1; // Default to 1 if no number
+    if (hoursToAdd >= 0 && hoursToAdd <= 72) { // Max 3 days
+      // Use current time (not start of day) for relative hours
+      const nowWithTime = DateTime.now().setZone(timezone);
+      let date = nowWithTime.plus({ hours: hoursToAdd });
+      return {
+        success: true,
+        date: date.toJSDate(),
+      };
+    }
+  }
+
   // FIX #2: Support "יום X הקרוב/הבא" patterns (next Saturday, next Sunday, etc.)
   // Match: "שבת הקרוב", "יום ראשון הבא", "רביעי הקרוב", etc.
   const nextDayMatch = dateInput.match(/^(?:יום\s+)?([א-ת]+)\s+(הקרוב|הבא)$/);
@@ -350,7 +380,7 @@ export function parseHebrewDate(
   return {
     success: false,
     date: null,
-    error: 'קלט לא מזוהה. נסה: היום, מחר 14:00, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00',
+    error: 'קלט לא מזוהה. נסה: היום, מחר 14:00, עוד 2 דקות, עוד שעה, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00',
   };
 }
 

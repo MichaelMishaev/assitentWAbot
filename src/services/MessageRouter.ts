@@ -436,6 +436,24 @@ export class MessageRouter {
         // If not handled, continue with normal flow below
       }
 
+      // BUG FIX #22: Handle pending bulk delete confirmation (before single delete)
+      if (user) {
+        const bulkDeleteConfirmRaw = await redis.get(`temp:bulk_delete_confirm:${user.id}`);
+        if (bulkDeleteConfirmRaw) {
+          const handled = await this.handleBulkDeleteConfirmation(from, user.id, text, bulkDeleteConfirmRaw);
+          if (handled) {
+            // Mark as successfully processed
+            if (messageId) {
+              await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+              await redis.del(`msg:processing:${messageId}`);
+            }
+            return;
+          }
+          // If not handled (user said something else), clear confirmation and continue
+          await redis.del(`temp:bulk_delete_confirm:${user.id}`);
+        }
+      }
+
       // PHASE 2.3: Handle pending delete confirmation
       if (user) {
         const deleteConfirmRaw = await redis.get(`temp:delete_confirm:${user.id}`);
@@ -1117,6 +1135,44 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       // Phase 2.1: Multiple events - need number selection
       logger.info('Multiple events in reply', { eventCount: eventData.length });
 
+      // BUG FIX #22: Support "מחק הכל" (delete all) pattern when replying to event list
+      const deleteAllPattern = /מחק\s*(הכל|את\s*כל|כולם)/i;
+      if (isDelete && deleteAllPattern.test(text)) {
+        logger.info('[BUG_FIX_22] Delete all events from reply', {
+          userId,
+          eventCount: eventData.length,
+          text
+        });
+
+        // Delete all events with confirmation
+        return await this.handleQuickBulkDelete(phone, userId, eventData);
+      }
+
+      // BUG FIX #22: Support comma-separated numbers (e.g., "מחק 1,2,3")
+      const commaSeparatedMatch = text.match(/\b(\d+(?:\s*,\s*\d+)+)\b/);
+      if (commaSeparatedMatch) {
+        const eventNumbers = commaSeparatedMatch[1]
+          .split(',')
+          .map(n => parseInt(n.trim(), 10))
+          .filter(n => n >= 1 && n <= eventData.length); // Only valid numbers
+
+        if (eventNumbers.length > 0) {
+          logger.info('[BUG_FIX_22] Multiple events selected via comma-separated numbers', {
+            userId,
+            eventNumbers,
+            text
+          });
+
+          // Get event IDs for selected numbers (convert from 1-indexed to 0-indexed)
+          const selectedEventIds = eventNumbers.map(n => eventData[n - 1]);
+
+          if (isDelete) {
+            // Delete multiple specific events
+            return await this.handleQuickBulkDelete(phone, userId, selectedEventIds);
+          }
+        }
+      }
+
       // Extract event number from text (e.g., "מחק 1", "עדכן 2 ל20:00")
       const numberMatch = text.match(/\b(\d+)\b/);
 
@@ -1225,6 +1281,61 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       logger.error('Quick delete confirmation failed', { userId, eventId, error });
       // Phase 3.2: Improved error message with action hint
       await this.sendMessage(phone, '❌ שגיאה במחיקת האירוע.\n\nנסה שוב או שלח /תפריט');
+      return true; // Handled (even if failed)
+    }
+  }
+
+  /**
+   * BUG FIX #22: Handle bulk delete of multiple events (from reply-to-message)
+   */
+  private async handleQuickBulkDelete(phone: string, userId: string, eventIds: string[]): Promise<boolean> {
+    try {
+      // Fetch all events to show user what will be deleted
+      const events = await Promise.all(
+        eventIds.map(id => this.eventService.getEventById(id, userId))
+      );
+
+      // Filter out null events (already deleted or not found)
+      const validEvents = events.filter(e => e !== null);
+
+      if (validEvents.length === 0) {
+        await this.sendMessage(phone, '❌ לא נמצאו אירועים למחיקה.\n\nשלח /תפריט לתפריט ראשי');
+        return true;
+      }
+
+      // Store pending bulk delete confirmation
+      const confirmData = JSON.stringify({
+        eventIds: validEvents.map(e => e!.id),
+        count: validEvents.length,
+        phone
+      });
+      await redis.setex(`temp:bulk_delete_confirm:${userId}`, 60, confirmData); // 60s TTL
+
+      // Show first 5 events as preview
+      const preview = validEvents.slice(0, 5).map((e, idx) => {
+        const dt = DateTime.fromJSDate(e!.startTsUtc).setZone('Asia/Jerusalem');
+        return `${idx + 1}. ${e!.title} (${dt.toFormat('dd/MM HH:mm')})`;
+      }).join('\n');
+
+      const moreText = validEvents.length > 5 ? `\n...ועוד ${validEvents.length - 5} אירועים` : '';
+
+      await this.sendMessage(phone, `🗑️ למחוק ${validEvents.length} אירועים?
+
+${preview}${moreText}
+
+אישור: כן/yes
+ביטול: לא/cancel`);
+
+      logger.info('[BUG_FIX_22] Bulk delete confirmation requested', {
+        userId,
+        eventCount: validEvents.length,
+        eventIds: validEvents.map(e => e!.id)
+      });
+
+      return true; // Successfully handled (awaiting confirmation)
+    } catch (error) {
+      logger.error('[BUG_FIX_22] Bulk delete confirmation failed', { userId, eventIds, error });
+      await this.sendMessage(phone, '❌ שגיאה במחיקת האירועים.\n\nנסה שוב או שלח /תפריט');
       return true; // Handled (even if failed)
     }
   }
@@ -1360,6 +1471,77 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       logger.error('Failed to handle delete confirmation', { userId, error });
       // Clear confirmation on error
       await redis.del(`temp:delete_confirm:${userId}`);
+      await this.sendMessage(phone, '❌ שגיאה. נסה שוב.');
+      return true; // Handled (even if failed)
+    }
+  }
+
+  /**
+   * BUG FIX #22: Handle bulk delete confirmation (from reply-to-message)
+   */
+  private async handleBulkDeleteConfirmation(phone: string, userId: string, text: string, bulkDeleteConfirmRaw: string): Promise<boolean> {
+    try {
+      const confirmData = JSON.parse(bulkDeleteConfirmRaw);
+      const { eventIds, count } = confirmData;
+
+      const normalized = text.trim().toLowerCase();
+
+      // Check for confirmation
+      if (normalized === 'כן' || normalized === 'yes' || normalized === 'אישור') {
+        // Clear confirmation flag
+        await redis.del(`temp:bulk_delete_confirm:${userId}`);
+
+        // Delete all events
+        let deletedCount = 0;
+        for (const eventId of eventIds) {
+          try {
+            await this.eventService.deleteEvent(eventId, userId);
+            deletedCount++;
+          } catch (error) {
+            logger.error('[BUG_FIX_22] Failed to delete event in bulk', { eventId, error });
+          }
+        }
+
+        // Send success message
+        await this.sendMessage(phone, `✅ ${deletedCount} אירועים נמחקו בהצלחה`);
+
+        // React with ✅
+        await this.reactToLastMessage(userId, '✅');
+
+        logger.info('[BUG_FIX_22] Bulk delete confirmed', {
+          analytics: 'bulk_delete_confirmed',
+          userId,
+          requestedCount: count,
+          deletedCount
+        });
+
+        return true; // Successfully handled
+      }
+
+      // Check for cancellation
+      if (normalized === 'לא' || normalized === 'no' || normalized === 'cancel' || normalized === 'ביטול') {
+        // Clear confirmation flag
+        await redis.del(`temp:bulk_delete_confirm:${userId}`);
+
+        await this.sendMessage(phone, 'ℹ️ מחיקת האירועים בוטלה.');
+
+        logger.info('[BUG_FIX_22] Bulk delete cancelled', {
+          analytics: 'bulk_delete_cancelled',
+          userId,
+          count
+        });
+
+        return true; // Successfully handled
+      }
+
+      // If user said something else, prompt again
+      await this.sendMessage(phone, 'אנא שלח "כן" לאישור מחיקה או "לא" לביטול');
+      return true; // Handled (waiting for proper response)
+
+    } catch (error) {
+      logger.error('[BUG_FIX_22] Failed to handle bulk delete confirmation', { userId, error });
+      // Clear confirmation on error
+      await redis.del(`temp:bulk_delete_confirm:${userId}`);
       await this.sendMessage(phone, '❌ שגיאה. נסה שוב.');
       return true; // Handled (even if failed)
     }

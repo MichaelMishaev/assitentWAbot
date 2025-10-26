@@ -2894,3 +2894,206 @@ Bot: "נהדר! אירוע שבועי 🔄
 - Bug #19: Weekly recurrence pattern detection (also fixed)
 - RecurrencePhase: Already working for NLPRouter
 - EventService: Already supports rrule field
+
+---
+
+## Bug #21: Relative time parsing error ("עוד דקה", "עוד 2 דקות") marked as past
+
+**Date:** 2025-10-26  
+**Status:** ✅ FIXED  
+**Severity:** High  
+**Source:** Production Redis user messages
+
+**Issue:**
+User requests for relative time reminders like "תזכיר לי עוד דקה" (remind me in 1 minute) or "עוד 2 דקות" (in 2 minutes) were incorrectly rejected with "⚠️ התאריך שזיהיתי הוא בעבר" (the date I identified is in the past).
+
+**User Reports:**
+```
+User: "תזכיר לי עוד דקה לשתות מים"
+Bot: "⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה."
+
+User: "תזכיר לי עוד 2 דקות לשתות מים"  
+Bot: "⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה."
+```
+
+**Root Cause:**
+The `parseHebrewDate()` function in `src/utils/hebrewDateParser.ts` only supported "עוד X ימים" (in X days) but did NOT support minutes or hours patterns.
+
+**Fix Applied:**
+
+**File:** `src/utils/hebrewDateParser.ts` (lines 159-187)
+
+Added two new patterns:
+1. **Minutes pattern:** `^עוד\s+(\d+)?\s*(דקות?|דקה)$`
+   - Matches: "עוד דקה", "עוד 2 דקות", "עוד 30 דקות"
+   - Uses current time (not start of day) + minutes
+   - Max: 1440 minutes (24 hours)
+
+2. **Hours pattern:** `^עוד\s+(\d+)?\s*(שעות?|שעה)$`
+   - Matches: "עוד שעה", "עוד 3 שעות"
+   - Uses current time (not start of day) + hours
+   - Max: 72 hours (3 days)
+
+**Code Changes:**
+```typescript
+// BUG FIX #21: Support "עוד X דקות/דקה" (in X minutes) pattern - both singular and plural
+const relativeMinutesMatch = dateInput.match(/^עוד\s+(\d+)?\s*(דקות?|דקה)$/);
+if (relativeMinutesMatch) {
+  const minutesToAdd = relativeMinutesMatch[1] ? parseInt(relativeMinutesMatch[1], 10) : 1;
+  if (minutesToAdd >= 0 && minutesToAdd <= 1440) {
+    const nowWithTime = DateTime.now().setZone(timezone);
+    let date = nowWithTime.plus({ minutes: minutesToAdd });
+    return {
+      success: true,
+      date: date.toJSDate(),
+    };
+  }
+}
+
+// Similar code for hours...
+```
+
+**Testing:**
+Created automated QA tests in `src/testing/test-bugs-21-22.ts`:
+- ✅ Test 1: "עוד דקה" (in 1 minute) - PASS
+- ✅ Test 2: "עוד 2 דקות" (in 2 minutes) - PASS  
+- ✅ Test 3: "עוד 30 דקות" (in 30 minutes) - PASS
+- ✅ Test 4: "עוד שעה" (in 1 hour) - PASS
+- ✅ Test 5: "עוד 3 שעות" (in 3 hours) - PASS
+
+**Expected Behavior (After Fix):**
+```
+User: "תזכיר לי עוד 2 דקות לשתות מים"
+Bot: "✅ תזכורת נקבעה:
+
+📌 לשתות מים
+📅 26/10/2025 17:40
+```
+
+**Impact:**
+- Users can now create short-term reminders with relative time (minutes/hours)
+- Improved UX for quick reminders
+- No more false "date is in the past" errors for future relative times
+
+---
+
+## Bug #22: Bulk delete commands not recognized ("מחק הכל", "מחק 1,2,3")
+
+**Date:** 2025-10-26  
+**Status:** ✅ FIXED  
+**Severity:** Medium  
+**Source:** Production Redis user messages  
+
+**Issue:**
+When users replied to event list messages with bulk delete commands, the bot failed to recognize them:
+- "מחק הכל" (delete all) → Not recognized
+- "מחק 1,2,3" (delete events 1, 2, 3) → Only deleted event #1
+
+**User Reports:**
+```
+Bot: [Shows list of 7 events]
+
+User: "מחק הכל" (reply to message)
+Bot: "⚠️ יש 7 אירועים. אנא ציין מספר (למשל: \"מחק 1\" או \"עדכן 2 ל20:00\")"
+
+User: "מחק את 1,2,3"
+Bot: [Only deleted event #1, ignored 2 and 3]
+```
+
+**Root Cause:**
+The `handleQuickAction()` function in `src/services/MessageRouter.ts` (lines 1116-1176) only extracted single numbers using `text.match(/\b(\d+)\b/)` which:
+1. Did NOT detect "delete all" patterns
+2. Only captured the FIRST number in comma-separated lists
+
+**Fix Applied:**
+
+**File:** `src/services/MessageRouter.ts`
+
+**Changes:**
+1. **Added "delete all" pattern detection** (lines 1120-1131)
+   ```typescript
+   const deleteAllPattern = /מחק\s*(הכל|את\s*כל|כולם)/i;
+   if (isDelete && deleteAllPattern.test(text)) {
+     return await this.handleQuickBulkDelete(phone, userId, eventData);
+   }
+   ```
+
+2. **Added comma-separated numbers support** (lines 1133-1156)
+   ```typescript
+   const commaSeparatedMatch = text.match(/\b(\d+(?:\s*,\s*\d+)+)\b/);
+   if (commaSeparatedMatch) {
+     const eventNumbers = commaSeparatedMatch[1]
+       .split(',')
+       .map(n => parseInt(n.trim(), 10))
+       .filter(n => n >= 1 && n <= eventData.length);
+     
+     const selectedEventIds = eventNumbers.map(n => eventData[n - 1]);
+     if (isDelete) {
+       return await this.handleQuickBulkDelete(phone, userId, selectedEventIds);
+     }
+   }
+   ```
+
+3. **Created bulk delete handler** (lines 1273-1323)
+   - `handleQuickBulkDelete()`: Shows confirmation with event preview
+   - Stores pending delete in Redis: `temp:bulk_delete_confirm:{userId}` (60s TTL)
+   - Shows first 5 events with "...ועוד X אירועים" if more
+
+4. **Created bulk delete confirmation handler** (lines 1482-1548)
+   - `handleBulkDeleteConfirmation()`: Processes confirmation
+   - Deletes all events in list
+   - Handles errors gracefully (skips failed deletes, counts successes)
+
+**Redis Keys:**
+- `temp:bulk_delete_confirm:{userId}` (60s TTL)
+  ```json
+  {
+    "eventIds": ["event-uuid-1", "event-uuid-2", ...],
+    "count": 5,
+    "phone": "972..."
+  }
+  ```
+
+**Testing:**
+Manual QA test plan documented in `src/testing/test-bugs-21-22.ts`:
+- Test Case 1: "מחק הכל" → Shows all events, asks confirmation
+- Test Case 2: "מחק 1,3,5" → Deletes only selected events
+- Test Case 3: "מחק את כל" → Alternative phrasing works
+- Test Case 4: "מחק 1,2,5" (event #5 doesn't exist) → Deletes 1 & 2 only
+- Test Case 5: "מחק 1" → Single delete still works (existing behavior)
+
+**Expected Behavior (After Fix):**
+```
+Bot: [Shows list of 5 events]
+
+User: "מחק הכל" (reply)
+Bot: "🗑️ למחוק 5 אירועים?
+
+1. פגישה עם מיכאל (07/10 19:00)
+2. משלוח של המקפיא (13/10 08:00)
+3. פגישה עם עמליה (13/10 14:30)
+4. בדיקת דם (14/10 08:30)
+5. פגישת גישור (15/10 00:00)
+
+אישור: כן/yes
+ביטול: לא/cancel"
+
+User: "כן"
+Bot: "✅ 5 אירועים נמחקו בהצלחה"
+```
+
+**Analytics Logging:**
+- `[BUG_FIX_22] Delete all events from reply`
+- `[BUG_FIX_22] Multiple events selected via comma-separated numbers`
+- `[BUG_FIX_22] Bulk delete confirmation requested`
+- `[BUG_FIX_22] Bulk delete confirmed` (analytics: 'bulk_delete_confirmed')
+- `[BUG_FIX_22] Bulk delete cancelled` (analytics: 'bulk_delete_cancelled')
+
+**Impact:**
+- Users can now delete multiple events at once
+- Supports "delete all" for quick cleanup
+- Supports comma-separated numbers for selective bulk delete
+- Maintains existing single-delete behavior
+- Confirmation flow prevents accidental deletions
+
+---
