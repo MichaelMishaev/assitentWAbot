@@ -616,13 +616,32 @@ export class NLPRouter {
     if (eventDate.getTime() < (now.getTime() - bufferMs)) {
       // BUG FIX #21: Hybrid LLM + Rule-Based Approach
       // GPT-4 returned a past date - try parseHebrewDate() as fallback before rejecting
+      // Extract date pattern from message (e.g., "עוד 2 דקות" from "תזכיר לי עוד 2 דקות לשתות מים")
+      const datePatterns = [
+        /עוד\s+\d+\s+דקות?/,   // עוד 2 דקות, עוד דקה
+        /עוד\s+דקה/,            // עוד דקה
+        /עוד\s+\d+\s+שעות?/,   // עוד 3 שעות, עוד שעה
+        /עוד\s+שעה/,            // עוד שעה
+        /עוד\s+\d+\s+ימים?/,   // עוד 5 ימים, עוד יום
+      ];
+
+      let extractedDate = originalText;
+      for (const pattern of datePatterns) {
+        const match = originalText.match(pattern);
+        if (match) {
+          extractedDate = match[0];
+          break;
+        }
+      }
+
       logger.info('[BUG_FIX_21_HYBRID] GPT-4 returned past date, trying parseHebrewDate() fallback', {
         gptDate: eventDate.toISOString(),
         now: now.toISOString(),
-        originalText: originalText
+        originalText: originalText,
+        extractedDate: extractedDate
       });
 
-      const fallbackResult = parseHebrewDate(originalText);
+      const fallbackResult = parseHebrewDate(extractedDate);
 
       if (fallbackResult.success && fallbackResult.date) {
         const fallbackDate = fallbackResult.date;
@@ -784,13 +803,32 @@ export class NLPRouter {
     if (dueDate.getTime() < (now.getTime() - bufferMs)) {
       // BUG FIX #21: Hybrid LLM + Rule-Based Approach
       // GPT-4 returned a past date - try parseHebrewDate() as fallback before rejecting
+      // Extract date pattern from message (e.g., "עוד 2 דקות" from "תזכיר לי עוד 2 דקות לשתות מים")
+      const datePatterns = [
+        /עוד\s+\d+\s+דקות?/,   // עוד 2 דקות, עוד דקה
+        /עוד\s+דקה/,            // עוד דקה
+        /עוד\s+\d+\s+שעות?/,   // עוד 3 שעות, עוד שעה
+        /עוד\s+שעה/,            // עוד שעה
+        /עוד\s+\d+\s+ימים?/,   // עוד 5 ימים, עוד יום
+      ];
+
+      let extractedDate = originalText;
+      for (const pattern of datePatterns) {
+        const match = originalText.match(pattern);
+        if (match) {
+          extractedDate = match[0];
+          break;
+        }
+      }
+
       logger.info('[BUG_FIX_21_HYBRID] GPT-4 returned past date, trying parseHebrewDate() fallback', {
         gptDate: dueDate.toISOString(),
         now: now.toISOString(),
-        originalText: originalText
+        originalText: originalText,
+        extractedDate: extractedDate
       });
 
-      const fallbackResult = parseHebrewDate(originalText);
+      const fallbackResult = parseHebrewDate(extractedDate);
 
       if (fallbackResult.success && fallbackResult.date) {
         const fallbackDate = fallbackResult.date;
