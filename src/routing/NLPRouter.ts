@@ -614,7 +614,7 @@ export class NLPRouter {
     const bufferMs = 30 * 1000; // 30 seconds buffer
 
     if (eventDate.getTime() < (now.getTime() - bufferMs)) {
-      // BUG FIX #21: Hybrid LLM + Rule-Based Approach
+      // BUG FIX #21: Hybrid LLM + Rule-Based Approach (COMPLETED)
       // GPT-4 returned a past date - try parseHebrewDate() as fallback before rejecting
       // Extract date pattern from message (e.g., "עוד 2 דקות" from "תזכיר לי עוד 2 דקות לשתות מים")
       const datePatterns = [
