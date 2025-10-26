@@ -2917,11 +2917,21 @@ Bot: "⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש
 ```
 
 **Root Cause:**
-The `parseHebrewDate()` function in `src/utils/hebrewDateParser.ts` only supported "עוד X ימים" (in X days) but did NOT support minutes or hours patterns.
+Initial investigation showed the `parseHebrewDate()` function in `src/utils/hebrewDateParser.ts` only supported "עוד X ימים" (in X days) but did NOT support minutes or hours patterns.
+
+However, after deploying that fix, the problem persisted in production. Further investigation revealed the ACTUAL root cause:
+- The NLP pipeline uses GPT-4 Mini for entity extraction
+- GPT-4 incorrectly parsed "עוד 2 דקות" as yesterday's date instead of future time
+- Example: User sent message at 19:26 on 2025-10-26, but GPT-4 extracted "2025-10-25T21:02:00.000Z" (yesterday at 21:02)
+- The fixed `parseHebrewDate()` function was never being called because GPT-4 handled date extraction first
+
+**Research Finding:**
+Industry research (2024-2025) confirmed that LLMs are notoriously unreliable with date/time parsing, especially relative times. The recommended solution is a **Hybrid LLM + Rule-Based Approach** with validation and fallback.
 
 **Fix Applied:**
 
-**File:** `src/utils/hebrewDateParser.ts` (lines 159-187)
+**Phase 1 - Rule-Based Parser Fix:**
+**File:** `src/utils/hebrewDateParser.ts` (lines 140-187)
 
 Added two new patterns:
 1. **Minutes pattern:** `^עוד\s+(\d+)?\s*(דקות?|דקה)$`
@@ -2952,6 +2962,26 @@ if (relativeMinutesMatch) {
 
 // Similar code for hours...
 ```
+
+**Phase 2 - Hybrid LLM + Rule-Based Fallback:**
+**Files:** `src/routing/NLPRouter.ts` (lines 616-663 for events, lines 784-831 for reminders)
+
+Implemented validation + fallback pattern at past date rejection points:
+1. GPT-4 extracts date from user message
+2. Validate if date is in the past
+3. If past → Try `parseHebrewDate()` on original message text
+4. If `parseHebrewDate()` returns future date → Use it and continue
+5. If `parseHebrewDate()` also returns past → Reject with error
+
+**Benefits of Hybrid Approach:**
+- Maintains GPT-4's flexibility for complex date expressions
+- Adds reliability through rule-based validation
+- Zero breaking changes (pure enhancement)
+- Reduces LLM hallucination errors for relative time
+- Follows industry best practice (2024-2025 research)
+
+**Log Markers:**
+- `[BUG_FIX_21_HYBRID]` - Logs all fallback attempts and results
 
 **Testing:**
 Created automated QA tests in `src/testing/test-bugs-21-22.ts`:

@@ -431,11 +431,11 @@ export class NLPRouter {
       // Handle different intents
       switch (adaptedResult.intent) {
         case 'create_event':
-          await this.handleNLPCreateEvent(phone, userId, adaptedResult);
+          await this.handleNLPCreateEvent(phone, userId, adaptedResult, text);
           break;
 
         case 'create_reminder':
-          await this.handleNLPCreateReminder(phone, userId, adaptedResult);
+          await this.handleNLPCreateReminder(phone, userId, adaptedResult, text);
           break;
 
         case 'search_event':
@@ -505,7 +505,7 @@ export class NLPRouter {
     }
   }
 
-  private async handleNLPCreateEvent(phone: string, userId: string, intent: any): Promise<void> {
+  private async handleNLPCreateEvent(phone: string, userId: string, intent: any, originalText: string): Promise<void> {
     const { event } = intent;
 
     if (!event?.title || !event?.date) {
@@ -614,14 +614,52 @@ export class NLPRouter {
     const bufferMs = 30 * 1000; // 30 seconds buffer
 
     if (eventDate.getTime() < (now.getTime() - bufferMs)) {
-      await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
-      logger.warn('NLP created event in the past', {
-        eventDate: eventDate.toISOString(),
+      // BUG FIX #21: Hybrid LLM + Rule-Based Approach
+      // GPT-4 returned a past date - try parseHebrewDate() as fallback before rejecting
+      logger.info('[BUG_FIX_21_HYBRID] GPT-4 returned past date, trying parseHebrewDate() fallback', {
+        gptDate: eventDate.toISOString(),
         now: now.toISOString(),
-        difference: eventDate.getTime() - now.getTime(),
-        userMessage: event.title
+        originalText: originalText
       });
-      return;
+
+      const fallbackResult = parseHebrewDate(originalText);
+
+      if (fallbackResult.success && fallbackResult.date) {
+        const fallbackDate = fallbackResult.date;
+
+        // Check if fallback date is in the future
+        if (fallbackDate.getTime() >= (now.getTime() - bufferMs)) {
+          logger.info('[BUG_FIX_21_HYBRID] Fallback successful! Using parseHebrewDate() result', {
+            gptDate: eventDate.toISOString(),
+            fallbackDate: fallbackDate.toISOString(),
+            originalText: originalText,
+            difference: fallbackDate.getTime() - now.getTime()
+          });
+
+          // Use fallback date and continue processing
+          eventDate = fallbackDate;
+        } else {
+          // Fallback also returned past date - reject
+          logger.warn('[BUG_FIX_21_HYBRID] Fallback also returned past date', {
+            gptDate: eventDate.toISOString(),
+            fallbackDate: fallbackDate.toISOString(),
+            originalText: originalText
+          });
+
+          await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+          return;
+        }
+      } else {
+        // Fallback failed - reject with original error
+        logger.warn('[BUG_FIX_21_HYBRID] Fallback failed to parse date', {
+          gptDate: eventDate.toISOString(),
+          fallbackError: fallbackResult.error,
+          originalText: originalText
+        });
+
+        await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+        return;
+      }
     }
 
     // Create event immediately (no confirmation needed)
@@ -700,7 +738,7 @@ export class NLPRouter {
     }
   }
 
-  private async handleNLPCreateReminder(phone: string, userId: string, intent: any): Promise<void> {
+  private async handleNLPCreateReminder(phone: string, userId: string, intent: any, originalText: string): Promise<void> {
     const { reminder } = intent;
 
     if (!reminder?.title || !reminder?.dueDate) {
@@ -744,14 +782,52 @@ export class NLPRouter {
     const bufferMs = 30 * 1000; // 30 seconds buffer
 
     if (dueDate.getTime() < (now.getTime() - bufferMs)) {
-      await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
-      logger.warn('NLP created reminder in the past', {
-        dueDate: dueDate.toISOString(),
+      // BUG FIX #21: Hybrid LLM + Rule-Based Approach
+      // GPT-4 returned a past date - try parseHebrewDate() as fallback before rejecting
+      logger.info('[BUG_FIX_21_HYBRID] GPT-4 returned past date, trying parseHebrewDate() fallback', {
+        gptDate: dueDate.toISOString(),
         now: now.toISOString(),
-        difference: dueDate.getTime() - now.getTime(),
-        userMessage: reminder.title
+        originalText: originalText
       });
-      return;
+
+      const fallbackResult = parseHebrewDate(originalText);
+
+      if (fallbackResult.success && fallbackResult.date) {
+        const fallbackDate = fallbackResult.date;
+
+        // Check if fallback date is in the future
+        if (fallbackDate.getTime() >= (now.getTime() - bufferMs)) {
+          logger.info('[BUG_FIX_21_HYBRID] Fallback successful! Using parseHebrewDate() result', {
+            gptDate: dueDate.toISOString(),
+            fallbackDate: fallbackDate.toISOString(),
+            originalText: originalText,
+            difference: fallbackDate.getTime() - now.getTime()
+          });
+
+          // Use fallback date and continue processing
+          dueDate = fallbackDate;
+        } else {
+          // Fallback also returned past date - reject
+          logger.warn('[BUG_FIX_21_HYBRID] Fallback also returned past date', {
+            gptDate: dueDate.toISOString(),
+            fallbackDate: fallbackDate.toISOString(),
+            originalText: originalText
+          });
+
+          await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+          return;
+        }
+      } else {
+        // Fallback failed - reject with original error
+        logger.warn('[BUG_FIX_21_HYBRID] Fallback failed to parse date', {
+          gptDate: dueDate.toISOString(),
+          fallbackError: fallbackResult.error,
+          originalText: originalText
+        });
+
+        await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+        return;
+      }
     }
 
     // Format date for display - use DateTime to ensure correct timezone display
