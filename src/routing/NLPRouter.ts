@@ -844,6 +844,8 @@ export class NLPRouter {
 
           // Use fallback date and continue processing
           dueDate = fallbackDate;
+          // BUG FIX #23: Update dt to reflect the new fallback date for correct display formatting
+          dt = DateTime.fromJSDate(fallbackDate).setZone('Asia/Jerusalem');
         } else {
           // Fallback also returned past date - reject
           logger.warn('[BUG_FIX_21_HYBRID] Fallback also returned past date', {
