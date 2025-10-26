@@ -2964,14 +2964,50 @@ if (relativeMinutesMatch) {
 ```
 
 **Phase 2 - Hybrid LLM + Rule-Based Fallback:**
-**Files:** `src/routing/NLPRouter.ts` (lines 616-663 for events, lines 784-831 for reminders)
+**Files:** `src/routing/NLPRouter.ts` (commit b85ee48)
 
-Implemented validation + fallback pattern at past date rejection points:
+Initial implementation with validation + fallback:
 1. GPT-4 extracts date from user message
 2. Validate if date is in the past
 3. If past → Try `parseHebrewDate()` on original message text
 4. If `parseHebrewDate()` returns future date → Use it and continue
 5. If `parseHebrewDate()` also returns past → Reject with error
+
+**Issue with Phase 2:**
+The hybrid fallback was triggered correctly, but parseHebrewDate() received the entire user sentence ("תזכיר לי עוד 2 דקות לשתות מים") instead of just the date portion ("עוד 2 דקות"). The rule-based parser failed with "קלט לא מזוהה".
+
+**Phase 3 - Pattern Extraction Before Fallback:**
+**Files:** `src/routing/NLPRouter.ts` (lines 616-663 for events, lines 784-831 for reminders) (commit f5d110f)
+
+Added regex pattern extraction before calling parseHebrewDate():
+```typescript
+const datePatterns = [
+  /עוד\s+\d+\s+דקות?/,   // עוד 2 דקות, עוד דקה
+  /עוד\s+דקה/,            // עוד דקה
+  /עוד\s+\d+\s+שעות?/,   // עוד 3 שעות, עוד שעה
+  /עוד\s+שעה/,            // עוד שעה
+  /עוד\s+\d+\s+ימים?/,   // עוד 5 ימים, עוד יום
+];
+
+let extractedDate = originalText;
+for (const pattern of datePatterns) {
+  const match = originalText.match(pattern);
+  if (match) {
+    extractedDate = match[0];
+    break;
+  }
+}
+
+const fallbackResult = parseHebrewDate(extractedDate);
+```
+
+**Final Flow:**
+1. GPT-4 extracts date from user message
+2. Validate if date is in the past
+3. If past → Extract date pattern from original message using regex
+4. Pass extracted pattern to `parseHebrewDate()`
+5. If `parseHebrewDate()` returns future date → Use it and continue
+6. If `parseHebrewDate()` also returns past → Reject with error
 
 **Benefits of Hybrid Approach:**
 - Maintains GPT-4's flexibility for complex date expressions
@@ -2979,9 +3015,11 @@ Implemented validation + fallback pattern at past date rejection points:
 - Zero breaking changes (pure enhancement)
 - Reduces LLM hallucination errors for relative time
 - Follows industry best practice (2024-2025 research)
+- Pattern extraction ensures parseHebrewDate() gets clean input
 
 **Log Markers:**
 - `[BUG_FIX_21_HYBRID]` - Logs all fallback attempts and results
+- Logs include: `gptDate`, `originalText`, `extractedDate`, `fallbackDate`
 
 **Testing:**
 Created automated QA tests in `src/testing/test-bugs-21-22.ts`:
