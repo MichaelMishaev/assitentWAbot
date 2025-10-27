@@ -353,6 +353,7 @@ KEY EXAMPLES (cover all intents):
 9b. UPDATE REMINDER WITH TIME: "תזכורת של ימי ראשון, תעדכן שעה ל 19:00" → {"intent":"update_reminder","confidence":0.9,"reminder":{"title":"ימי ראשון","dueDate":"<next_sunday 19:00 ISO>"}} (CRITICAL: "תזכורת" = update_reminder, "ל 19:00" = time 19:00)
 9c. UPDATE REMINDER BY EXACT TITLE: "עדכן ללכת לאימון לשעה 19:30" → {"intent":"update_reminder","confidence":0.9,"reminder":{"title":"ללכת לאימון","dueDate":"<date_with_19:30 ISO>"}} (CRITICAL: "ללכת לאימון" is reminder title, extract time 19:30)
 9d. UPDATE REMINDER BY PARTIAL TITLE: "עדכן אימון לשעה 19:30" → {"intent":"update_reminder","confidence":0.9,"reminder":{"title":"אימון","dueDate":"<date_with_19:30 ISO>"}} (CRITICAL: partial match "אימון", extract time)
+9e. UPDATE REMINDER WITHOUT TITLE (BUG FIX #7): "תשנה ל 17:30" → {"intent":"update_reminder","confidence":0.85,"reminder":{"title":"","dueDate":"<date_with_17:30 ISO>"}} (CRITICAL: "תשנה ל" = change to, no title specified = empty title, router will find last created reminder, extract time 17:30)
 10. URGENCY: "דחוף! פגישה עם הבוס מחר ב-9" → {"intent":"create_event","confidence":0.95,"urgency":"urgent","event":{"title":"פגישה עם הבוס","date":"2025-11-12T09:00:00+02:00","dateText":"מחר ב-9"}}
 11. UNKNOWN/CLARIFY: "קבע משהו" → {"intent":"unknown","confidence":0.3,"clarificationNeeded":"מה תרצה לקבוע? אירוע או תזכורת?"}
 12. ADD CONTACT: "הוסף קשר דני 052-1234567 חבר שלי" → {"intent":"add_contact","confidence":0.95,"contact":{"name":"דני","phone":"0521234567","relation":"חבר"}}

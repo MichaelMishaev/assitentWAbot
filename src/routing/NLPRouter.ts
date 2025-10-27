@@ -1520,20 +1520,15 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
   private async handleNLPUpdateReminder(phone: string, userId: string, intent: any): Promise<void> {
     const { reminder } = intent;
 
-    if (!reminder?.title) {
-      await this.sendMessage(phone, '❌ לא זיהיתי איזו תזכורת לעדכן.\n\nאנא נסה שוב או שלח /תפריט');
-      return;
-    }
-
     // Extract new time/date if provided
-    const hasNewTime = reminder.time || reminder.date || reminder.dateText;
+    const hasNewTime = reminder?.time || reminder?.date || reminder?.dateText || reminder?.dueDate;
 
     if (!hasNewTime) {
       await this.sendMessage(phone, '❌ לא זיהיתי מה לעדכן (זמן/תאריך).\n\nדוגמה: "עדכן אימון לשעה 9"\n\nשלח /תפריט לחזרה');
       return;
     }
 
-    // Search for reminders by title (fuzzy match)
+    // Get all reminders
     const allReminders = await this.reminderService.getActiveReminders(userId, 100);
 
     if (allReminders.length === 0) {
@@ -1541,13 +1536,28 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       return;
     }
 
-    // Use fuzzy match (0.3 threshold for Hebrew flexibility - more lenient)
-    const titleFilter = sanitizeTitleFilter(reminder.title);
-    if (!titleFilter) {
-      await this.sendMessage(phone, '❌ לא זיהיתי איזו תזכורת לעדכן.\n\nשלח /תפריט לחזרה לתפריט');
-      return;
+    // BUG FIX #7: Handle context-aware updates without title (e.g., "תשנה ל 17:30")
+    let matchedReminders: any[];
+    if (!reminder?.title || reminder.title.trim() === '') {
+      // No title specified - use the next upcoming reminder (most likely just created)
+      const sortedByTime = allReminders.sort((a: any, b: any) =>
+        new Date(a.dueTsUtc).getTime() - new Date(b.dueTsUtc).getTime()
+      );
+      matchedReminders = [sortedByTime[0]]; // Take the soonest reminder
+
+      // Inform user which reminder is being updated
+      const dt = DateTime.fromJSDate(sortedByTime[0].dueTsUtc).setZone('Asia/Jerusalem');
+      const dateStr = dt.toFormat('dd/MM/yyyy HH:mm');
+      console.log(`[Bug #7] Context-aware update: Using next reminder "${sortedByTime[0].title}" (${dateStr})`);
+    } else {
+      // Title provided - use fuzzy match (0.3 threshold for Hebrew flexibility - more lenient)
+      const titleFilter = sanitizeTitleFilter(reminder.title);
+      if (!titleFilter) {
+        await this.sendMessage(phone, '❌ לא זיהיתי איזו תזכורת לעדכן.\n\nשלח /תפריט לחזרה לתפריט');
+        return;
+      }
+      matchedReminders = filterByFuzzyMatch(allReminders, titleFilter, (r: any) => r.title, 0.3);
     }
-    let matchedReminders = filterByFuzzyMatch(allReminders, titleFilter, (r: any) => r.title, 0.3);
 
     if (matchedReminders.length === 0) {
       // No matches - show available reminders to help user
