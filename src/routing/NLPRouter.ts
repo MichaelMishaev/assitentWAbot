@@ -1240,7 +1240,7 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       // Single match - ask for confirmation
       const reminderToDelete = matchedReminders[0];
       const dt = DateTime.fromJSDate(reminderToDelete.dueTsUtc).setZone('Asia/Jerusalem');
-      const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+      const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
 
       // Check if recurring
       const isRecurring = reminderToDelete.rrule && reminderToDelete.rrule.trim().length > 0;
@@ -1269,7 +1269,7 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
     let message = `🔍 מצאתי ${matchedReminders.length} תזכורות:\n\n`;
     matchedReminders.slice(0, 5).forEach((r: any, index: number) => {
       const dt = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
-      const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+      const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
       const recurringIcon = (r.rrule && r.rrule.trim().length > 0) ? '🔄 ' : '';
       message += `${index + 1}. ${recurringIcon}${r.title} - ${displayDate}\n`;
     });
@@ -1612,7 +1612,7 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
     let message = `🔍 מצאתי ${matchedReminders.length} תזכורות:\n\n`;
     matchedReminders.slice(0, 5).forEach((r: any, index: number) => {
       const dt = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
-      const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+      const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
       const recurringIcon = (r.rrule && r.rrule.trim().length > 0) ? '🔄 ' : '';
       message += `${index + 1}. ${recurringIcon}${r.title} - ${displayDate}\n`;
     });

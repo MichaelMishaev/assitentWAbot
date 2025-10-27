@@ -2501,7 +2501,7 @@ export class StateRouter {
     const isRecurring = reminderToDelete.rrule && reminderToDelete.rrule.trim().length > 0;
 
     const dt = DateTime.fromJSDate(reminderToDelete.dueTsUtc).setZone('Asia/Jerusalem');
-    const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+    const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
 
     let confirmMessage = `🗑️ תזכורת:
 
