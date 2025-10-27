@@ -16,6 +16,7 @@
     "test:e2e": "jest tests/e2e",
     "test:bugs": "ts-node --esm src/testing/test-bug-fixes.ts",
     "test:simulator": "ts-node --esm src/testing/MessageSimulator.ts",
+    "test:morning-summary": "node dist/testing/test-morning-summary.js",
     "test:playwright": "playwright test",
     "test:playwright:ui": "playwright test --ui",
     "test:playwright:headed": "playwright test --headed",

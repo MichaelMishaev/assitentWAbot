@@ -16,9 +16,17 @@ export interface User {
 
 export type MenuDisplayMode = 'always' | 'adaptive' | 'errors_only' | 'never';
 
+export interface MorningNotificationPreferences {
+  enabled: boolean; // Enable/disable morning notifications
+  time: string; // HH:mm format (e.g., "08:00")
+  days: number[]; // Days of week: 0=Sunday, 1=Monday, etc.
+  includeMemos: boolean; // Include reminders/memos in summary
+}
+
 export interface UserPreferences {
   menuDisplayMode?: MenuDisplayMode;
   reminderLeadTimeMinutes?: number; // Minutes before event to send reminder (0-120)
+  morningNotification?: MorningNotificationPreferences;
   [key: string]: any;
 }
 

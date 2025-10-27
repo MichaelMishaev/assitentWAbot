@@ -1,3 +1,6 @@
 - each bug check first  in '/Users/michaelmishayev/Desktop/Projects/wAssitenceBot/docs/development/bugs.md' ,and if its new so log  the problem and solution for the problem
 - do not push to git without my permission
 - never deploy to directly to prod without git hub, only if i ask to
+- each fix make qa test, update the qa tool
+- always push to prod via git hub, never directly to ssh prod
+- always mark fixed bugs

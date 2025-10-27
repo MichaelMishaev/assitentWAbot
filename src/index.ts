@@ -7,8 +7,11 @@ import { WhatsAppWebJSProvider } from './providers/WhatsAppWebJSProvider.js';
 import { IncomingMessage, ConnectionState } from './providers/IMessageProvider.js';
 import { createMessageRouter } from './services/MessageRouter.js';
 import { ReminderWorker } from './queues/ReminderWorker.js';
+import { MorningSummaryWorker } from './queues/MorningSummaryWorker.js';
+import { initializeDailyScheduler } from './services/DailySchedulerService.js';
 import { initializePipeline, shutdownPipeline } from './domain/orchestrator/PhaseInitializer.js';
 import type { MessageRouter } from './services/MessageRouter.js';
+import type { DailySchedulerService } from './services/DailySchedulerService.js';
 
 // Load environment variables
 dotenv.config();
@@ -50,6 +53,8 @@ validateEnvironment();
 let whatsappProvider: WhatsAppWebJSProvider | null = null;
 let messageRouter: MessageRouter | null = null;
 let reminderWorker: ReminderWorker | null = null;
+let morningSummaryWorker: MorningSummaryWorker | null = null;
+let dailyScheduler: DailySchedulerService | null = null;
 
 // 🛡️ LAYER 1: Message Deduplication (Prevents duplicate processing)
 // Optimized: 12h TTL (down from 48h) - 75% memory savings
@@ -125,6 +130,15 @@ async function main() {
     logger.info('Starting ReminderWorker...');
     reminderWorker = new ReminderWorker(whatsappProvider);
 
+    // Initialize MorningSummaryWorker
+    logger.info('Starting MorningSummaryWorker...');
+    morningSummaryWorker = new MorningSummaryWorker(whatsappProvider);
+
+    // Initialize DailyScheduler
+    logger.info('Initializing DailyScheduler...');
+    dailyScheduler = initializeDailyScheduler();
+    await dailyScheduler.setupRepeatingJob();
+
     // Register message handler
     whatsappProvider.onMessage(handleIncomingMessage);
 
@@ -150,6 +164,8 @@ async function main() {
     logger.info('  ✅ V2 Pipeline initialized (10 phases)');
     logger.info('  ✅ MessageRouter initialized');
     logger.info('  ✅ ReminderWorker started');
+    logger.info('  ✅ MorningSummaryWorker started');
+    logger.info('  ✅ DailyScheduler initialized (runs daily at 9 AM UTC)');
     logger.info('  ⏳ WhatsApp initializing (scan QR code if needed)');
     logger.info('  ✅ Health check API running on port', process.env.PORT || 3000);
 
@@ -596,6 +612,12 @@ async function shutdown() {
   await releaseInstanceLock(); // Release instance lock
   await stopHealthCheck();
   await shutdownPipeline();
+  if (dailyScheduler) {
+    await dailyScheduler.close();
+  }
+  if (morningSummaryWorker) {
+    await morningSummaryWorker.close();
+  }
   if (reminderWorker) {
     await reminderWorker.close();
   }

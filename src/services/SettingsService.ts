@@ -180,6 +180,168 @@ export class SettingsService {
       throw error;
     }
   }
+
+  // ============================================================================
+  // MORNING NOTIFICATION METHODS
+  // ============================================================================
+
+  /**
+   * Get morning notification preferences
+   * @param userId User ID
+   * @returns Morning notification preferences with defaults
+   */
+  async getMorningNotificationPrefs(userId: string): Promise<{
+    enabled: boolean;
+    time: string;
+    days: number[];
+    includeMemos: boolean;
+  }> {
+    try {
+      const settings = await this.getUserSettings(userId);
+      const morningNotif = settings.prefsJsonb?.morningNotification;
+
+      // Return with defaults if not set
+      return {
+        enabled: morningNotif?.enabled ?? false,
+        time: morningNotif?.time ?? '08:00',
+        days: morningNotif?.days ?? [1, 2, 3, 4, 5], // Weekdays by default
+        includeMemos: morningNotif?.includeMemos ?? true,
+      };
+    } catch (error) {
+      logger.error('Failed to get morning notification preferences', { userId, error });
+      // Return defaults on error
+      return {
+        enabled: false,
+        time: '08:00',
+        days: [1, 2, 3, 4, 5],
+        includeMemos: true,
+      };
+    }
+  }
+
+  /**
+   * Update morning notification enabled status
+   * @param userId User ID
+   * @param enabled Enable/disable morning notifications
+   */
+  async updateMorningNotificationEnabled(userId: string, enabled: boolean): Promise<void> {
+    try {
+      const query = `
+        UPDATE users
+        SET prefs_jsonb = jsonb_set(
+          COALESCE(prefs_jsonb, '{}'::jsonb),
+          '{morningNotification, enabled}',
+          to_jsonb($1::boolean),
+          true
+        ),
+        updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `;
+
+      await this.dbPool.query(query, [enabled, userId]);
+      logger.info('Morning notification enabled status updated', { userId, enabled });
+    } catch (error) {
+      logger.error('Failed to update morning notification enabled status', { userId, enabled, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Update morning notification time
+   * @param userId User ID
+   * @param time Time in HH:mm format (e.g., "08:00")
+   * @throws Error if invalid format
+   */
+  async updateMorningNotificationTime(userId: string, time: string): Promise<void> {
+    // Validate time format (HH:mm)
+    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(time)) {
+      throw new Error('Invalid time format. Use HH:mm (e.g., 08:00)');
+    }
+
+    try {
+      const query = `
+        UPDATE users
+        SET prefs_jsonb = jsonb_set(
+          COALESCE(prefs_jsonb, '{}'::jsonb),
+          '{morningNotification, time}',
+          to_jsonb($1::text),
+          true
+        ),
+        updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `;
+
+      await this.dbPool.query(query, [time, userId]);
+      logger.info('Morning notification time updated', { userId, time });
+    } catch (error) {
+      logger.error('Failed to update morning notification time', { userId, time, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Update morning notification days
+   * @param userId User ID
+   * @param days Array of day numbers (0=Sunday, 1=Monday, etc.)
+   * @throws Error if invalid days
+   */
+  async updateMorningNotificationDays(userId: string, days: number[]): Promise<void> {
+    // Validate days
+    if (!Array.isArray(days) || days.length === 0) {
+      throw new Error('Days must be a non-empty array');
+    }
+
+    if (days.some(day => day < 0 || day > 6 || !Number.isInteger(day))) {
+      throw new Error('Days must be integers between 0 (Sunday) and 6 (Saturday)');
+    }
+
+    try {
+      const query = `
+        UPDATE users
+        SET prefs_jsonb = jsonb_set(
+          COALESCE(prefs_jsonb, '{}'::jsonb),
+          '{morningNotification, days}',
+          to_jsonb($1::int[]),
+          true
+        ),
+        updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `;
+
+      await this.dbPool.query(query, [days, userId]);
+      logger.info('Morning notification days updated', { userId, days });
+    } catch (error) {
+      logger.error('Failed to update morning notification days', { userId, days, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Update whether to include memos in morning notification
+   * @param userId User ID
+   * @param includeMemos Include memos/reminders in summary
+   */
+  async updateMorningNotificationIncludeMemos(userId: string, includeMemos: boolean): Promise<void> {
+    try {
+      const query = `
+        UPDATE users
+        SET prefs_jsonb = jsonb_set(
+          COALESCE(prefs_jsonb, '{}'::jsonb),
+          '{morningNotification, includeMemos}',
+          to_jsonb($1::boolean),
+          true
+        ),
+        updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `;
+
+      await this.dbPool.query(query, [includeMemos, userId]);
+      logger.info('Morning notification includeMemos updated', { userId, includeMemos });
+    } catch (error) {
+      logger.error('Failed to update morning notification includeMemos', { userId, includeMemos, error });
+      throw error;
+    }
+  }
 }
 
 // Export singleton instance
