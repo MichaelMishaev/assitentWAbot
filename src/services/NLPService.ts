@@ -348,6 +348,7 @@ KEY EXAMPLES (cover all intents):
 7d. LIST EVERYTHING (CRITICAL): "הכל" → {"intent":"list_events","confidence":0.95,"event":{}} (CRITICAL: "הכל" alone means show everything, NO title!)
 7. DELETE WITH TITLE: "תבטל בדיקת דם" → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}} (CRITICAL: partial title, fuzzy match)
 8. DELETE ALL: "מחק את כל הפגישות" → {"intent":"delete_event","confidence":0.95,"event":{"deleteAll":true}} (CRITICAL: set deleteAll flag for bulk operations!)
+8b. DELETE ALL EVENTS (BUG FIX #6): "מחק את כל האירועים" → {"intent":"delete_event","confidence":0.95,"event":{"deleteAll":true}} (CRITICAL: "מחק את כל האירועים" = delete ALL events, NOT a title! Set deleteAll flag!)
 9. UPDATE EVENT: "עדכן פגישה עם דני ל-5 אחרי הצהריים" → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today 17:00 ISO>","dateText":"5 אחרי הצהריים"}}
 9b. UPDATE REMINDER WITH TIME: "תזכורת של ימי ראשון, תעדכן שעה ל 19:00" → {"intent":"update_reminder","confidence":0.9,"reminder":{"title":"ימי ראשון","dueDate":"<next_sunday 19:00 ISO>"}} (CRITICAL: "תזכורת" = update_reminder, "ל 19:00" = time 19:00)
 9c. UPDATE REMINDER BY EXACT TITLE: "עדכן ללכת לאימון לשעה 19:30" → {"intent":"update_reminder","confidence":0.9,"reminder":{"title":"ללכת לאימון","dueDate":"<date_with_19:30 ISO>"}} (CRITICAL: "ללכת לאימון" is reminder title, extract time 19:30)

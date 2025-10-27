@@ -156,8 +156,9 @@ export function parseHebrewDate(
     }
   }
 
-  // BUG FIX #21: Support "עוד X דקות/דקה" (in X minutes) pattern - both singular and plural
-  const relativeMinutesMatch = dateInput.match(/^עוד\s+(\d+)?\s*(דקות?|דקה)$/);
+  // BUG FIX #21 & #5: Support "עוד X דקות/דקה" (in X minutes) pattern - both singular and plural
+  // Removed $ anchor to allow text after the time expression (e.g., "עוד 2 דקות לשתות מים")
+  const relativeMinutesMatch = dateInput.match(/^עוד\s+(\d+)?\s*(דקות?|דקה)/);
   if (relativeMinutesMatch) {
     const minutesToAdd = relativeMinutesMatch[1] ? parseInt(relativeMinutesMatch[1], 10) : 1; // Default to 1 if no number
     if (minutesToAdd >= 0 && minutesToAdd <= 1440) { // Max 24 hours in minutes
@@ -171,8 +172,9 @@ export function parseHebrewDate(
     }
   }
 
-  // BUG FIX #21: Support "עוד X שעות/שעה" (in X hours) pattern - both singular and plural
-  const relativeHoursMatch = dateInput.match(/^עוד\s+(\d+)?\s*(שעות?|שעה)$/);
+  // BUG FIX #21 & #5: Support "עוד X שעות/שעה" (in X hours) pattern - both singular and plural
+  // Removed $ anchor to allow text after the time expression (e.g., "עוד 3 שעות להתקשר")
+  const relativeHoursMatch = dateInput.match(/^עוד\s+(\d+)?\s*(שעות?|שעה)/);
   if (relativeHoursMatch) {
     const hoursToAdd = relativeHoursMatch[1] ? parseInt(relativeHoursMatch[1], 10) : 1; // Default to 1 if no number
     if (hoursToAdd >= 0 && hoursToAdd <= 72) { // Max 3 days

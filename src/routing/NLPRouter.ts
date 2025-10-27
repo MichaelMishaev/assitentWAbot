@@ -1100,6 +1100,12 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
         message += formatEventInList(event, index + 1, 'Asia/Jerusalem', false, events) + `\n\n`;
       });
 
+      // Bug #2 Fix: Add Hebrew tips for user guidance
+      message += '💡 טיפים שימושיים:\n';
+      message += '• לעדכון: "עדכן אירוע [שם]"\n';
+      message += '• למחיקה: "מחק אירוע [שם]"\n';
+      message += '• להוספת הערה: "הוסף הערה ל[שם]"\n';
+
       const sentMessageId = await this.sendMessage(phone, message);
 
       // Phase 1: Store event mapping for reply-to actions
