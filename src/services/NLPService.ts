@@ -205,7 +205,7 @@ EVENT Updates (use update_event):
 
 DELETE (ALL CONJUGATIONS & SLANG):
 - CANCEL: "תבטל", "בטל", "לבטל", "ביטול", "מבטל", "ביטלתי", "ביטלת", "אבטל"
-- DELETE: "תמחוק", "מחק", "למחוק", "מחיקה", "מוחק", "מחקתי", "מחקת", "אמחק"
+- DELETE: "תמחוק", "תמחק", "מחק", "למחוק", "מחיקה", "מוחק", "מחקתי", "מחקת", "אמחק"
 - REMOVE: "תסיר", "הסר", "להסיר", "הסרה", "מסיר"
 - THROW OUT: "תזרוק", "זרוק", "לזרוק" (slang: throw it away)
 - FORGET: "תשכח", "שכח", "לשכוח", "forget it", "never mind"
@@ -347,6 +347,7 @@ KEY EXAMPLES (cover all intents):
 7c. LIST ALL EVENTS WITH POSSESSIVE (CRITICAL): "כל הפגישות שלי" → {"intent":"list_events","confidence":0.95,"event":{}} (CRITICAL: "כל ה..." + "שלי" = list all, NO title!)
 7d. LIST EVERYTHING (CRITICAL): "הכל" → {"intent":"list_events","confidence":0.95,"event":{}} (CRITICAL: "הכל" alone means show everything, NO title!)
 7. DELETE WITH TITLE: "תבטל בדיקת דם" → {"intent":"delete_event","confidence":0.9,"event":{"title":"בדיקת דם"}} (CRITICAL: partial title, fuzzy match)
+7f. DELETE WITHOUT TITLE (BUG FIX #8): "תמחק" → {"intent":"delete_reminder","confidence":0.85,"reminder":{"title":""}} (CRITICAL: "תמחק" alone = delete quoted/last reminder, empty title, router will find context)
 8. DELETE ALL: "מחק את כל הפגישות" → {"intent":"delete_event","confidence":0.95,"event":{"deleteAll":true}} (CRITICAL: set deleteAll flag for bulk operations!)
 8b. DELETE ALL EVENTS (BUG FIX #6): "מחק את כל האירועים" → {"intent":"delete_event","confidence":0.95,"event":{"deleteAll":true}} (CRITICAL: "מחק את כל האירועים" = delete ALL events, NOT a title! Set deleteAll flag!)
 9. UPDATE EVENT: "עדכן פגישה עם דני ל-5 אחרי הצהריים" → {"intent":"update_event","confidence":0.9,"event":{"title":"פגישה עם דני","date":"<today 17:00 ISO>","dateText":"5 אחרי הצהריים"}}
