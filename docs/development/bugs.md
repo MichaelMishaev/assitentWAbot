@@ -45,6 +45,48 @@
 
 ## ✅ FIXED - Commit [hash]
 
+### Bug #10: NLP fails to extract complete reminder titles with "אצל" (at) patterns
+**Issue:**
+```
+User (972542191057) sent: "תזכיר לי פגישה אצל אלבז ב14:45"
+Bot extracted: title="פגישה", time="14:45"
+Bot MISSED: "אצל אלבז" (at Albaz) - critical location/person context
+Result: Created reminder with incomplete title "פגישה" instead of "פגישה אצל אלבז"
+
+User feedback (# bug reports from Redis):
+- "# הוא לא מבין אותי" (He doesn't understand me)
+- "# הוא לא נותן פירוט נכון לתזכורות" (He doesn't give correct details for reminders)
+```
+
+**Root Cause:**
+- NLP system prompt lacked examples showing "אצל" (at/with) patterns in reminders
+- Common phrases: "אצל רופא" (at doctor), "אצל דני" (at Dani), "אצל הבנק" (at the bank)
+- NLP was stopping title extraction at "אצל", losing critical context
+
+**Fix Applied:**
+**File:** `src/services/NLPService.ts` (lines 341-342)
+
+Added two critical examples to teach NLP to handle "אצל" patterns:
+
+```typescript
+4d. REMINDER WITH LOCATION/PERSON (CRITICAL - BUG FIX): "תזכיר לי פגישה אצל אלבז ב14:45" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"פגישה אצל אלבז","dueDate":"<today 14:45 ISO>"}} (CRITICAL: "אצל" = at/with location/person - MUST include full context "אצל [name/place]" in title! Common patterns: "אצל רופא", "אצל דני", "אצל הבנק")
+
+4e. REMINDER WITH "ETZEL" VARIATIONS (CRITICAL): "תזכיר לי ללכת אצל הרופא מחר" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"ללכת אצל הרופא","dueDate":"<tomorrow 12:00 ISO>"}} (CRITICAL: Always include "אצל" and what follows it in the title!)
+```
+
+**Impact:**
+- Now extracts full context: "פגישה אצל אלבז" ✅
+- Handles patterns: "אצל [person]", "אצל [place]", "ל[action] אצל [person]"
+- Fixes user complaints about bot not understanding/giving correct details
+
+**Status:** ✅ FIXED
+**Test:** Send "תזכיר לי פגישה אצל אלבז ב14:45"
+**Expected:** Reminder title should be "פגישה אצל אלבז" (including the "אצל אלבז" part)
+
+**Severity:** CRITICAL - User reported as "serious bug" affecting reminder accuracy
+
+---
+
 ### 1. Search for nearest event not understanding Hebrew
 **Issue:** When searching for nearest/closest event, bot didn't understand Hebrew keywords like "הקרוב", "הכי קרוב"
 **Status:** ✅ ALREADY FIXED
