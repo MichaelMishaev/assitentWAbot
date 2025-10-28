@@ -47,9 +47,9 @@ export class MorningSummaryService {
    * Generate morning summary message for a user
    * @param userId User ID
    * @param date Date to generate summary for (defaults to today in user's timezone)
-   * @returns Formatted message string
+   * @returns Formatted message string, or null if no events/reminders
    */
-  async generateSummaryForUser(userId: string, date?: Date): Promise<string> {
+  async generateSummaryForUser(userId: string, date?: Date): Promise<string | null> {
     try {
       // Get user settings
       const settings = await this.settingsService.getUserSettings(userId);
@@ -68,6 +68,15 @@ export class MorningSummaryService {
       let reminders: any[] = [];
       if (prefs?.includeMemos !== false) {
         reminders = await this.getActiveRemindersForToday(userId, targetDate.toJSDate());
+      }
+
+      // SKIP if user has no events and no reminders
+      if (events.length === 0 && reminders.length === 0) {
+        logger.info('Skipping morning summary - no events or reminders for today', {
+          userId,
+          date: targetDate.toISODate(),
+        });
+        return null;
       }
 
       // Format the message
@@ -187,14 +196,11 @@ export class MorningSummaryService {
       message += `\n`;
     }
 
-    // Add footer with configuration instructions
+    // Add footer with toggle info and stop instructions
     message += `---\n`;
-    message += `⚙️ *להגדרת התזכורת הבוקר:*\n`;
-    message += `• הפעל/כבה: שלח "הפעל תזכורת בוקר" או "כבה תזכורת בוקר"\n`;
-    message += `• שינוי שעה: שלח "תזכורת בוקר ב-7:30"\n`;
-    message += `• ימי שבוע בלבד: שלח "תזכורת רק בימי חול"\n`;
-    message += `• כל יום: שלח "תזכורת בכל יום"\n\n`;
-    message += `💬 או פנה למנהל המערכת לשינוי ההגדרות`;
+    message += `⚙️ *להפסקת תזכורת הבוקר:*\n`;
+    message += `שלח "/תפריט" ➜ בחר "הגדרות" ➜ בחר "תזכורת בוקר" ➜ כבה\n\n`;
+    message += `או פנה למנהל המערכת`;
 
     return message;
   }

@@ -1,5 +1,48 @@
 # Bugs Tracker
 
+## 📋 NEW FEATURES
+
+### Feature: Morning Reminder with /test Command
+**Description:** Users receive a morning summary each day showing today's events and reminders. The feature can be toggled on/off in settings.
+**Status:** ✅ IMPLEMENTED
+**Components Modified:**
+1. `src/services/MorningSummaryService.ts` (line 190-192) - Updated footer message
+   - Changed from complex instructions to simple toggle info
+   - New message: "⚙️ ניתן לכבות/להפעיל תזכורת זו בתפריט ההגדרות (שלח /תפריט ואז בחר "הגדרות")"
+
+2. `src/routing/CommandRouter.ts` (lines 80-87, 99, 146-164)
+   - Added `/test` and `/בדיקה` commands for QA testing
+   - Implemented `handleTestCommand()` method
+   - Sends morning summary on demand for testing purposes
+
+**How It Works:**
+- Morning summaries are scheduled daily via `DailySchedulerService`
+- Users can control via settings: enable/disable, set time, choose days
+- QA can test by sending `/test` command to receive immediate morning summary
+
+**Test:**
+1. Send `/test` to bot
+2. Should receive morning summary with today's events and reminders
+3. Footer should show how to toggle the feature in settings
+
+**Expected Output:**
+```
+🌅 בוקר טוב!
+
+📅 יום [day], [date]
+
+*אירועים להיום:*
+• [time] - [event title] 📍 [location]
+
+📝 *תזכורות להיום:*
+• [time] - [reminder title]
+
+---
+⚙️ ניתן לכבות/להפעיל תזכורת זו בתפריט ההגדרות (שלח /תפריט ואז בחר "הגדרות")
+```
+
+---
+
 ## ✅ FIXED - Commit [hash]
 
 ### 1. Search for nearest event not understanding Hebrew

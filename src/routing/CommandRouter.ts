@@ -3,6 +3,7 @@ import { EventService } from '../services/EventService.js';
 import { ReminderService } from '../services/ReminderService.js';
 import { TaskService } from '../services/TaskService.js';
 import { SettingsService } from '../services/SettingsService.js';
+import { MorningSummaryService } from '../services/MorningSummaryService.js';
 import { IMessageProvider } from '../providers/IMessageProvider.js';
 import { ConversationState, MenuDisplayMode } from '../types/index.js';
 import { proficiencyTracker } from '../services/ProficiencyTracker.js';
@@ -76,6 +77,15 @@ export class CommandRouter {
         await this.handleLogout(from, userId);
         break;
 
+      case '/test':
+      case '/בדיקה':
+        if (!userId) {
+          await this.sendMessage(from, 'אנא התחבר תחילה.');
+          return;
+        }
+        await this.handleTestCommand(from, userId);
+        break;
+
       default:
         await this.sendMessage(from, 'פקודה לא מוכרת. שלח /עזרה לרשימת פקודות.');
     }
@@ -86,7 +96,7 @@ export class CommandRouter {
    */
   private isCommand(text: string): boolean {
     const trimmed = text.trim();
-    const commandsWithoutSlash = ['תפריט', 'menu', 'ביטול', 'cancel', 'עזרה', 'help', 'התנתק', 'logout'];
+    const commandsWithoutSlash = ['תפריט', 'menu', 'ביטול', 'cancel', 'עזרה', 'help', 'התנתק', 'logout', 'test', 'בדיקה'];
     return commandsWithoutSlash.some(cmd => trimmed === cmd || trimmed.toLowerCase() === cmd);
   }
 
@@ -128,6 +138,36 @@ export class CommandRouter {
     await this.authRouter.clearAuthState(phone);
     await this.stateManager.clearState(userId);
     await this.sendMessage(phone, 'התנתקת בהצלחה. להתראות! 👋');
+  }
+
+  /**
+   * Handle test command - Sends morning reminder for QA testing
+   */
+  private async handleTestCommand(phone: string, userId: string): Promise<void> {
+    try {
+      logger.info('Test command received', { userId, phone });
+
+      // Create MorningSummaryService instance
+      const morningSummaryService = new MorningSummaryService();
+
+      // Generate the morning summary
+      const summaryMessage = await morningSummaryService.generateSummaryForUser(userId);
+
+      // Check if user has any events/reminders
+      if (summaryMessage === null) {
+        await this.sendMessage(phone, '📌 אין לך אירועים או תזכורות להיום.\n\n✨ נהנה מיום פנוי!');
+        logger.info('Test morning summary - no events or reminders', { userId, phone });
+        return;
+      }
+
+      // Send the summary
+      await this.sendMessage(phone, summaryMessage);
+
+      logger.info('Test morning summary sent successfully', { userId, phone });
+    } catch (error) {
+      logger.error('Failed to send test morning summary', { userId, phone, error });
+      await this.sendMessage(phone, '❌ שגיאה בשליחת תזכורת הבוקר לבדיקה. אנא נסה שוב מאוחר יותר.');
+    }
   }
 
   /**

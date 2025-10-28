@@ -81,6 +81,16 @@ export class MorningSummaryWorker {
         new Date(date)
       );
 
+      // Skip if no events/reminders (null returned)
+      if (summaryMessage === null) {
+        logger.info('Skipping morning summary - user has no events or reminders', {
+          jobId: job.id,
+          userId,
+          phone,
+        });
+        return; // Successfully complete the job without sending
+      }
+
       // Send the message via WhatsApp
       await this.messageProvider.sendMessage(phone, summaryMessage);
 
