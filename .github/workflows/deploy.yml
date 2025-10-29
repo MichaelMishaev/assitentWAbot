@@ -53,9 +53,9 @@ jobs:
           --exclude='*.log' \
           dist/ root@167.71.145.9:~/wAssitenceBot/dist/
 
-    - name: Update git repository and rebuild on production
+    - name: Update git repository on production
       run: |
-        ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 root@167.71.145.9 'cd ~/wAssitenceBot && git fetch origin && git reset --hard origin/main && npm run build'
+        ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 root@167.71.145.9 'cd ~/wAssitenceBot && git fetch origin && git reset --hard origin/main'
 
     - name: Restart PM2
       run: |
