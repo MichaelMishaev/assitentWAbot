@@ -134,26 +134,66 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
 
     const hebrewResult = parseHebrewDate(event.dateText);
     if (hebrewResult.success && hebrewResult.date) {
+      // BUG FIX #15: Preserve time from ISO date field if dateText has no time
+      // Example: dateText="13.11" (no time) + date="2025-11-13T18:45:00.000Z" (with time)
+      // Before: parseHebrewDate("13.11") → midnight, overwrites ISO time
+      // After: Merge date from dateText with time from ISO field
+      let finalDate = hebrewResult.date;
+
+      // Check if dateText contains time info (presence of colon suggests time like "20:45")
+      const dateTextHasTime = event.dateText.includes(':');
+
+      // Check if ISO date field has non-midnight time
+      if (!dateTextHasTime && event?.date && typeof event.date === 'string') {
+        const timeMatch = event.date.match(/T(\d{2}):(\d{2})/);
+        if (timeMatch) {
+          const hours = parseInt(timeMatch[1]);
+          const minutes = parseInt(timeMatch[2]);
+          const hasNonMidnightTime = hours !== 0 || minutes !== 0;
+
+          if (hasNonMidnightTime) {
+            // Merge: Use date from dateText but time from ISO date
+            const hebrewDt = DateTime.fromJSDate(hebrewResult.date).setZone('Asia/Jerusalem');
+            const isoDt = DateTime.fromISO(event.date);
+
+            finalDate = hebrewDt.set({
+              hour: isoDt.hour,
+              minute: isoDt.minute,
+              second: isoDt.second,
+              millisecond: isoDt.millisecond
+            }).toJSDate();
+
+            logger.info('🔧 BUG FIX #15: Merged time from ISO date into Hebrew parsed date', {
+              dateText: event.dateText,
+              originalHebrewDate: hebrewResult.date.toISOString(),
+              isoDate: event.date,
+              mergedDate: finalDate.toISOString(),
+              context
+            });
+          }
+        }
+      }
+
       logger.info('Parsed Hebrew date from NLP', {
         dateText: event.dateText,
-        parsedDate: hebrewResult.date.toISOString(),
+        parsedDate: finalDate.toISOString(),
         isWeekQuery,
         isMonthQuery,
         context
       });
 
-      result.date = hebrewResult.date;
+      result.date = finalDate;
 
       if (isWeekQuery) {
         result.isWeekRange = true;
         // Get week range
-        const dt = DateTime.fromJSDate(hebrewResult.date).setZone('Asia/Jerusalem');
+        const dt = DateTime.fromJSDate(finalDate).setZone('Asia/Jerusalem');
         result.rangeStart = dt.startOf('week').toJSDate();
         result.rangeEnd = dt.endOf('week').toJSDate();
       } else if (isMonthQuery) {
         result.isMonthRange = true;
         // Get month range
-        const dt = DateTime.fromJSDate(hebrewResult.date).setZone('Asia/Jerusalem');
+        const dt = DateTime.fromJSDate(finalDate).setZone('Asia/Jerusalem');
         result.rangeStart = dt.startOf('month').toJSDate();
         result.rangeEnd = dt.endOf('month').toJSDate();
       }

@@ -209,7 +209,7 @@ Added explicit event examples with ב+time patterns:
 
 ---
 
-### Bug #15: Time not extracted from "בשעה 20:45" pattern (variant of Bug #13)
+### Bug #15: Time lost when parseDateFromNLP prioritizes dateText over ISO date
 **Issue:**
 ```
 User sent: "יום חמישי, 13.11, מסיבת הפתעה לרחלי. אלבי תל אביב, בשעה 20:45"
@@ -217,38 +217,79 @@ Bot asked: "⏰ באיזו שעה?" (What time?)
 User # comment: "#why asking hors? I inserted place and time."
 ```
 
-**Screenshot Evidence (prod timestamp: 2025-10-29T15:01:04):**
-- User provided full details: date, title, location, AND time ("בשעה 20:45")
-- Bot extracted title and date correctly
-- BUT bot asked for time again even though user specified "בשעה 20:45"
+**Screenshot Evidence (prod timestamp: 2025-10-29T18:36:29):**
+- User provided: "יום חמישי, 13.11, מסיבת הפתעה לרחלי. אלבי תל אביב, בשעה 20:45"
+- NLP correctly extracted: `date: "2025-11-13T18:45:00.000Z"` (20:45 Israel time) ✅
+- NLP also returned: `dateText: "13.11"` (NO time info)
+- But `parseDateFromNLP()` used `dateText` first, calling `parseHebrewDate("13.11")` → **midnight (00:00)**
+- This **overwrote** the correct ISO date that had time!
 
 **Root Cause:**
-- Bug #13 fix covered "ב17:00", "ב-17:00", "ב 17:00" patterns
-- BUT missed "**בשעה** 20:45" pattern (with word "שעה" = hour/time between prefix and value)
-- This is a common Hebrew time expression: "at time 20:45"
+**File:** `src/routing/NLPRouter.ts` - `parseDateFromNLP()` function (line 123-203)
+
+**The Pipeline:**
+1. NLP Service correctly extracts time → returns ISO: `"2025-11-13T18:45:00.000Z"` ✅
+2. NLP also returns `dateText: "13.11"` (used for validation/Hebrew parsing)
+3. `parseDateFromNLP()` prioritizes `dateText` over `date` (lines 124-162 before 165-172)
+4. Calls `parseHebrewDate("13.11")` → creates date at **midnight** because no time in text
+5. Returns midnight date, **discarding** the ISO date with correct time ❌
+
+**Production Logs Showed:**
+```json
+{
+  "originalDate": "2025-11-13T18:45:00.000Z",  // ✅ HAS TIME (20:45 Israel)
+  "dateText": "13.11",                         // ❌ NO TIME INFO
+  "hour": 0,                                   // ❌ WRONG (should be 20)
+  "minute": 0                                  // ❌ WRONG (should be 45)
+}
+```
 
 **Fix Applied:**
-**File:** `src/services/NLPService.ts` (lines 338-339)
+**File:** `src/routing/NLPRouter.ts` (lines 137-175)
 
-Added explicit event examples with בשעה+time patterns:
+Added time preservation logic in `parseDateFromNLP()`:
 
 ```typescript
-1d. CREATE EVENT WITH בשעה+TIME (CRITICAL - BUG FIX #15): "מסיבת הפתעה לרחלי מחר בשעה 20:45" → {"intent":"create_event","confidence":0.95,"event":{"title":"מסיבת הפתעה לרחלי","date":"2025-11-13T20:45:00+02:00","dateText":"מחר בשעה 20:45"}} (CRITICAL: "בשעה 20:45" (with word "שעה") = at time 20:45. Extract time EXACTLY! Patterns: "בשעה 14:00", "בשעה 20:45", "בשעה: 18:30" all mean the specified time)
+// BUG FIX #15: Preserve time from ISO date field if dateText has no time
+let finalDate = hebrewResult.date;
 
-1e. CREATE EVENT בשעה VARIATIONS (CRITICAL): "אירוע בשעה 15:00", "פגישה בשעה: 16:30", "מפגש בשעה 9 בבוקר" → all extract time correctly (CRITICAL: "בשעה" = "at time" - MUST extract time value!)
+const dateTextHasTime = event.dateText.includes(':');
+
+if (!dateTextHasTime && event?.date && typeof event.date === 'string') {
+  const timeMatch = event.date.match(/T(\d{2}):(\d{2})/);
+  if (timeMatch) {
+    const hours = parseInt(timeMatch[1]);
+    const minutes = parseInt(timeMatch[2]);
+    const hasNonMidnightTime = hours !== 0 || minutes !== 0;
+
+    if (hasNonMidnightTime) {
+      // Merge: Use date from dateText but time from ISO date
+      const hebrewDt = DateTime.fromJSDate(hebrewResult.date).setZone('Asia/Jerusalem');
+      const isoDt = DateTime.fromISO(event.date);
+
+      finalDate = hebrewDt.set({
+        hour: isoDt.hour,
+        minute: isoDt.minute,
+        second: isoDt.second,
+        millisecond: isoDt.millisecond
+      }).toJSDate();
+    }
+  }
+}
 ```
 
 **Impact:**
-- "בשעה 20:45" pattern now recognized ✅
-- All variations (בשעה 14:00, בשעה: 16:30, בשעה 9 בבוקר) work
-- Completes Bug #13 fix by covering all Hebrew time prepositions
-- No more re-asking for time when "בשעה" phrase is used
+- When `dateText` has NO time but ISO `date` has time → merges both (date from `dateText`, time from ISO)
+- Preserves NLP's correct time extraction even when using Hebrew date parser
+- No more asking for time when user provides it in formats like "בשעה 20:45"
 
 **Status:** ✅ FIXED
-**Test:** Send "מסיבה מחר בשעה 20:45"
-**Expected:** Bot should extract time and create event with 20:45 directly, NOT ask "באיזו שעה?"
+**Test:** Send "יום חמישי, 13.11, מסיבה בשעה 20:45"
+**Expected:** Bot should create event at 20:45, NOT ask "באיזו שעה?"
 
 **Severity:** HIGH - User frustration from redundant questions despite providing complete information
+
+**Note:** Original investigation wrongly attributed this to NLPService.ts patterns. The NLP service WAS correctly extracting time - the bug was in how the router handled the NLP response.
 
 ---
 
