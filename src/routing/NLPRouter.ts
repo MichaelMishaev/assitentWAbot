@@ -143,6 +143,16 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
       // Check if dateText contains time info (presence of colon suggests time like "20:45")
       const dateTextHasTime = event.dateText.includes(':');
 
+      // DEBUG: Log event object structure
+      logger.info('[DEBUG BUG #15] Event object before merge check', {
+        dateText: event.dateText,
+        hasDateField: !!event.date,
+        dateFieldType: typeof event.date,
+        dateFieldValue: event.date,
+        dateTextHasTime,
+        context
+      });
+
       // Check if ISO date field has non-midnight time
       if (!dateTextHasTime && event?.date && typeof event.date === 'string') {
         const timeMatch = event.date.match(/T(\d{2}):(\d{2})/);
