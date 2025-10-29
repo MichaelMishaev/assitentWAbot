@@ -209,6 +209,100 @@ Added explicit event examples with ב+time patterns:
 
 ---
 
+### Bug #20: No context awareness - "תזכיר לי" after event creation doesn't link to event
+**Issue:**
+```
+User creates event: "פגישה אצל אלבז מחר ב-15:00"
+Bot confirms: "✅ אירוע נוסף בהצלחה!"
+User immediately says: "תזכיר לי"
+Bot response: Asks "על מה להזכיר?" (What should I remind you about?)
+Expected: Bot should understand "תזכיר לי" refers to the just-created event
+```
+
+**User Feedback:**
+Screenshots from user 0542191957 showed:
+1. Event created successfully: "פגישה אצל אלבז"
+2. User says "תזכיר לי" in next message
+3. Bot fails to connect the reminder to the recently created event
+
+**Root Cause:**
+**File:** `src/routing/NLPRouter.ts`
+
+1. **Event creation tracking (line ~764):**
+   - After creating event, bot stored message-event mapping for reply-to quick actions
+   - BUT did NOT track event in session context for conversational awareness
+   - Result: No memory of what was just created
+
+2. **Context retrieval (lines 218-256):**
+   - Existing code only checked for `temp:event_context:${userId}` from reply-to-message handler
+   - Did NOT check for recently created events when user says "תזכיר לי"
+   - Result: Bot treats "תזכיר לי" as standalone reminder with no context
+
+**Fix Applied - Phase 2 Context Awareness:**
+
+**1. Added Helper Methods (lines 2292-2359):**
+```typescript
+private async trackRecentEvent(userId: string, eventId: string, eventTitle: string): Promise<void>
+  - Stores last 3 events in Redis key: temp:recent_events:${userId}
+  - TTL: 30 minutes (matches conversation timeout)
+  - Supports multiple recent events (array structure)
+
+private async getRecentEvents(userId: string): Promise<Array<{id, title, createdAt}>>
+  - Retrieves recently created events for context injection
+```
+
+**2. Track Events After Creation (line 767):**
+```typescript
+// BUG FIX #20: Track recent event for context awareness
+await this.trackRecentEvent(userId, newEvent.id, eventTitle);
+```
+
+**3. Enhanced Context Retrieval (lines 275-303):**
+```typescript
+// BUG FIX #20: PHASE 2 CONTEXT AWARENESS
+// If user says "תזכיר לי" and NO reply-to context exists, check for recently created events
+if (hasExplicitReminderKeyword && !eventContextRaw) {
+  const recentEvents = await this.getRecentEvents(userId);
+
+  if (recentEvents.length > 0) {
+    const mostRecent = recentEvents[0];
+    contextEnhancedText = `${text} (בהקשר לאירוע האחרון שנוצר: ${mostRecent.title})`;
+    // Injected context is passed to NLP for intent extraction
+  }
+}
+```
+
+**Flow After Fix:**
+1. User creates event "פגישה אצל אלבז" → Bot stores in `temp:recent_events:${userId}` with 30min TTL
+2. User says "תזכיר לי" → Bot detects reminder keyword
+3. Bot checks recent events, finds "פגישה אצל אלבז"
+4. Bot injects context: "תזכיר לי (בהקשר לאירוע האחרון שנוצר: פגישה אצל אלבז)"
+5. NLP processes enhanced text → Creates reminder linked to event
+
+**Implementation Details:**
+- **Redis Structure:** JSON array of `{id, title, createdAt}` objects
+- **Max Recent Items:** 3 events (prevents memory bloat)
+- **TTL:** 30 minutes (matches session timeout)
+- **Priority:** Reply-to context > Recent events context
+- **Scope:** Only triggers when explicit reminder keywords detected ("תזכיר", "הזכר", etc.)
+
+**Edge Cases Handled:**
+- Multiple events created quickly → Uses most recent (first in array)
+- Context expired (>30 min) → Falls back to asking user for details
+- Reply-to-message context exists → Prioritizes reply-to over recent events
+- No recent events found → Bot asks "על מה להזכיר?" as before
+
+**Status:** ✅ FIXED
+**Test Cases:**
+1. Basic: Create event → Say "תזכיר לי" → Should create reminder linked to event
+2. Reply-to: Create event → Reply to bot's message → Should use reply-to context (existing behavior preserved)
+3. Expiry: Create event → Wait 35 minutes → Say "תזכיר לי" → Should ask for details (context expired)
+4. Multiple: Create Event A → Create Event B → Say "תזכיר לי" → Should link to Event B (most recent)
+
+**Severity:** HIGH - Core conversational UX issue affecting natural bot interaction
+
+---
+
 ### 1. Search for nearest event not understanding Hebrew
 **Issue:** When searching for nearest/closest event, bot didn't understand Hebrew keywords like "הקרוב", "הכי קרוב"
 **Status:** ✅ ALREADY FIXED

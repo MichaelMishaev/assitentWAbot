@@ -272,6 +272,36 @@ export class NLPRouter {
         // Continue to AI but boost reminder confidence in Layer 2
       }
 
+      // ===== BUG FIX #14: PHASE 2 CONTEXT AWARENESS =====
+      // If user says "תזכיר לי" and NO reply-to context exists, check for recently created events
+      // This solves: User creates event "פגישה עם דני" → says "תזכיר לי" → bot knows context
+      if (hasExplicitReminderKeyword && !eventContextRaw) {
+        const recentEvents = await this.getRecentEvents(userId);
+
+        if (recentEvents.length > 0) {
+          // Use most recent event (first in array)
+          const mostRecent = recentEvents[0];
+
+          // Inject recent event context into user text for NLP
+          contextEnhancedText = `${text} (בהקשר לאירוע האחרון שנוצר: ${mostRecent.title})`;
+
+          logger.info('[BUG_FIX_#14] Injected recent event context for reminder intent', {
+            userId,
+            originalText: text,
+            enhancedText: contextEnhancedText,
+            recentEventTitle: mostRecent.title,
+            recentEventId: mostRecent.id,
+            createdAt: mostRecent.createdAt,
+            totalRecentEvents: recentEvents.length
+          });
+        } else {
+          logger.info('[BUG_FIX_#14] Reminder keyword detected but no recent events found', {
+            userId,
+            text: text.substring(0, 50)
+          });
+        }
+      }
+
       // ===== V2 PIPELINE: Use PipelineOrchestrator (10 phases + Ensemble AI) =====
       logger.info('🚀 Using V2 Pipeline for NLP processing', { userId, text: contextEnhancedText.substring(0, 100) });
 
@@ -762,6 +792,9 @@ export class NLPRouter {
 
       // Store message-event mapping for reply-to quick actions
       await this.storeMessageEventMapping(sentMessageId, newEvent.id);
+
+      // BUG FIX #14: Track recent event for context awareness ("תזכיר לי" after event creation)
+      await this.trackRecentEvent(userId, newEvent.id, eventTitle);
 
     } catch (error) {
       logger.error('Failed to create NLP event', { userId, error });
@@ -2279,6 +2312,82 @@ ${dashboardUrl}
     } catch (error) {
       logger.error('Failed to generate dashboard', { userId, error });
       await this.sendMessage(phone, '❌ שגיאה ביצירת הלוח. אנא נסה שוב מאוחר יותר.');
+    }
+  }
+
+  /**
+   * BUG FIX #14: Track recently created events for context awareness
+   * Stores last 3 events in Redis with 30-minute TTL for "תזכיר לי" context
+   *
+   * Example: User creates event "פגישה עם דני", then says "תזכיר לי"
+   * → Bot knows to create reminder linked to "פגישה עם דני"
+   */
+  private async trackRecentEvent(userId: string, eventId: string, eventTitle: string): Promise<void> {
+    try {
+      const key = `temp:recent_events:${userId}`;
+      const TTL = 30 * 60; // 30 minutes
+
+      // Retrieve existing recent events
+      const existingRaw = await redis.get(key);
+      let recentEvents: Array<{id: string, title: string, createdAt: string}> = [];
+
+      if (existingRaw) {
+        try {
+          recentEvents = JSON.parse(existingRaw);
+        } catch {
+          // Invalid JSON, start fresh
+          recentEvents = [];
+        }
+      }
+
+      // Add new event to the beginning
+      recentEvents.unshift({
+        id: eventId,
+        title: eventTitle,
+        createdAt: new Date().toISOString()
+      });
+
+      // Keep only last 3 events
+      recentEvents = recentEvents.slice(0, 3);
+
+      // Store back to Redis with TTL
+      await redis.setex(key, TTL, JSON.stringify(recentEvents));
+
+      logger.info('[BUG_FIX_#14] Tracked recent event for context awareness', {
+        userId,
+        eventId,
+        eventTitle,
+        totalRecent: recentEvents.length,
+        ttl: `${TTL/60} minutes`
+      });
+    } catch (error) {
+      logger.error('[BUG_FIX_#14] Failed to track recent event', { userId, eventId, error });
+      // Non-critical error, don't throw
+    }
+  }
+
+  /**
+   * BUG FIX #14: Retrieve recently created events for context injection
+   * Returns up to 3 most recent events created by user
+   */
+  private async getRecentEvents(userId: string): Promise<Array<{id: string, title: string, createdAt: string}>> {
+    try {
+      const key = `temp:recent_events:${userId}`;
+      const existingRaw = await redis.get(key);
+
+      if (!existingRaw) {
+        return [];
+      }
+
+      try {
+        const recentEvents = JSON.parse(existingRaw);
+        return Array.isArray(recentEvents) ? recentEvents : [];
+      } catch {
+        return [];
+      }
+    } catch (error) {
+      logger.error('[BUG_FIX_#14] Failed to get recent events', { userId, error });
+      return [];
     }
   }
 }
