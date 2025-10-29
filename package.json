@@ -25,6 +25,8 @@
     "test:hebrew-qa": "tsx run-hebrew-qa-conversations.ts",
     "test:hebrew-qa:high": "tsx run-hebrew-qa-conversations.ts --priority high",
     "test:hebrew-qa:category": "tsx run-hebrew-qa-conversations.ts --category",
+    "qa": "npm run build && node dist/testing/qa-runner.js",
+    "qa:dev": "tsx src/testing/qa-runner.ts",
     "migrate:up": "node-pg-migrate up",
     "migrate:down": "node-pg-migrate down",
     "migrate:create": "node-pg-migrate create",
