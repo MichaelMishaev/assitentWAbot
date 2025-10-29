@@ -106,14 +106,24 @@ export class AuthService {
       // Hash the PIN
       const passwordHash = await bcrypt.hash(pin, SALT_ROUNDS);
 
-      // Insert new user with default values
+      // Default preferences with morning notifications ENABLED
+      const defaultPrefs = {
+        morningNotification: {
+          enabled: true,
+          time: '08:00', // 8:00 AM Israel time
+          days: [0, 1, 2, 3, 4, 5, 6], // All days (Sunday-Saturday)
+          includeMemos: true
+        }
+      };
+
+      // Insert new user with default values including morning notifications
       const result = await pool.query(
-        `INSERT INTO users (phone, name, password_hash, locale, timezone, calendar_provider)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO users (phone, name, password_hash, locale, timezone, calendar_provider, prefs_jsonb)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id, phone, username, password_hash as "passwordHash", name, locale, timezone,
                    prefs_jsonb as "prefsJsonb", calendar_provider as "calendarProvider",
                    created_at as "createdAt", updated_at as "updatedAt"`,
-        [phone, name, passwordHash, 'he', 'Asia/Jerusalem', 'LOCAL']
+        [phone, name, passwordHash, 'he', 'Asia/Jerusalem', 'LOCAL', JSON.stringify(defaultPrefs)]
       );
 
       const user = result.rows[0] as User;
