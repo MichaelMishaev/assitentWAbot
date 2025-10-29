@@ -3489,3 +3489,132 @@ The fix also enables these natural time patterns that weren't working before:
 - Reduces "unrecognized input" errors
 
 ---
+
+## Bug #[TBD] - AI Not Recognizing "אני רוצה תזכורת" Reminder Request
+
+**Date Reported:** October 28, 2025
+**Reported By:** User 0542101057 via # comment
+**Status:** ✅ Fixed
+**Priority:** High
+**Category:** NLP / Intent Classification
+
+**Bug Description:**
+User tried to create a reminder with the phrase "אני רוצה תזכורת לפגישה" (I want a reminder for a meeting) but the bot didn't understand and responded with "לא הבנתי" (I didn't understand).
+
+**User Message:**
+```
+# אני רוצה תזכורת לפגישה
+```
+
+**Related Messages:**
+```
+User: "תזכיר לי" (remind me)
+Bot: "🤔 זיהיתי שאתה מזכיר 'תזכורת'. האם רצית ליצור תזכורת חדשה? (כן/לא)"
+User: "לא"
+Bot: "לא הבנתי..."
+User: "# אני רוצה תזכורת לפגישה" (bug report)
+```
+
+**Expected Behavior:**
+User expects phrases containing explicit reminder keywords like "תזכורת" or "תזכיר לי" to be recognized as reminder creation requests WITHOUT needing confirmation.
+
+**Actual Behavior:**
+1. AI classified "תזכיר לי" as `unknown` intent with 0.55 confidence (too low)
+2. System detected the keyword "תזכיר" and asked for confirmation (fallback)
+3. User said "לא" (rejecting confirmation)
+4. User sent full sentence "אני רוצה תזכורת לפגישה" but AI still didn't recognize it
+
+**Root Cause:**
+The confidence threshold logic in `src/routing/NLPRouter.ts` had a logic error:
+
+1. **Layer 1** correctly detected explicit reminder keyword: `hasExplicitReminderKeyword = true`
+2. **AI** misclassified the message as `unknown` with 0.55 confidence
+3. **Layer 2** confidence threshold check at line 357:
+   ```typescript
+   else if (isReminderIntent && hasExplicitReminderKeyword) {
+     requiredConfidence = 0.5;
+   }
+   ```
+   - This condition checked `isReminderIntent` FIRST
+   - But `isReminderIntent = false` because AI said "unknown"
+   - So it fell through to `isCreateIntent` which requires 0.7 confidence
+   - 0.55 < 0.7 → failed threshold → asked for confirmation
+
+**The Problem:** Checking AI intent before checking user's explicit keyword defeats the purpose of keyword detection.
+
+**Fix Applied:**
+
+**File:** `src/routing/NLPRouter.ts`
+
+**Changes:**
+
+1. **Added intent forcing logic BEFORE threshold checks** (lines 355-365)
+   ```typescript
+   // BUG FIX: Check for explicit reminder keyword FIRST, before checking AI intent
+   // If user says "תזכורת" or "תזכיר לי", force create_reminder intent with low threshold
+   // This fixes cases like "אני רוצה תזכורת לפגישה" where AI misclassifies as "unknown"
+   if (hasExplicitReminderKeyword && (adaptedResult.intent === 'unknown' || adaptedResult.intent === 'create_reminder')) {
+     adaptedResult.intent = 'create_reminder'; // Force the intent
+     logger.info('🎯 Layer 2: Forced create_reminder intent due to explicit keyword', {
+       originalIntent: result.intent,
+       confidence: adaptedResult.confidence,
+       keyword: text.match(/תזכיר|תזכורת/)?.[0]
+     });
+   }
+   ```
+
+2. **Reordered threshold condition** (line 370)
+   ```typescript
+   // Before:
+   else if (isReminderIntent && hasExplicitReminderKeyword) {
+     requiredConfidence = 0.5;
+   }
+   
+   // After:
+   else if (hasExplicitReminderKeyword && adaptedResult.intent === 'create_reminder') {
+     requiredConfidence = 0.4; // Lowered from 0.5 to 0.4 for even more tolerance
+   }
+   ```
+
+**Logic Flow After Fix:**
+1. User says "אני רוצה תזכורת לפגישה"
+2. Layer 1 detects keyword: `hasExplicitReminderKeyword = true`
+3. AI misclassifies: `intent = "unknown"`, `confidence = 0.55`
+4. **NEW:** Layer 2 forces intent: `intent = "create_reminder"` (overriding AI)
+5. **NEW:** Layer 2 lowers threshold: `requiredConfidence = 0.4`
+6. Check: `0.55 >= 0.4` → **PASS!**
+7. Bot proceeds to create reminder without asking for confirmation
+
+**Expected Behavior (After Fix):**
+```
+User: "אני רוצה תזכורת לפגישה"
+Bot: "✅ מה התזכורת שברצונך ליצור?"
+```
+
+OR
+
+```
+User: "תזכיר לי לפגישה מחר בשעה 14:00"
+Bot: "✅ תזכורת נוספה: לפגישה
+📅 30/10/2025 בשעה 14:00"
+```
+
+**Analytics Logging:**
+- `[Layer 2: Forced create_reminder intent due to explicit keyword]` - logged when AI is overridden
+- `[Layer 2: Lowered confidence threshold for reminder (explicit keyword)]` - logged when threshold is reduced
+
+**Impact:**
+- Users can now create reminders naturally without confirmation dialogs
+- Explicit reminder keywords ("תזכורת", "תזכיר", "remind") now override AI classification
+- Confidence threshold lowered from 0.5 to 0.4 when keyword is present
+- Reduces AI-MISS false negatives for reminder requests
+- Better user experience - less friction
+
+**Testing:**
+Test phrases that should now work:
+- "אני רוצה תזכורת לפגישה" → create_reminder
+- "תזכיר לי לקנות חלב" → create_reminder  
+- "צריך תזכורת למחר" → create_reminder
+- "remind me to call mom" → create_reminder
+
+---

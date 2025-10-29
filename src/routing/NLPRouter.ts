@@ -351,11 +351,24 @@ export class NLPRouter {
       // ===== LAYER 2: ADAPTIVE CONFIDENCE THRESHOLDS (Option 5 - Hybrid Approach) =====
       // Lower threshold for reminders when user used explicit reminder keywords
       // This helps AI catch reminders even when it's not 100% confident
+
+      // BUG FIX: Check for explicit reminder keyword FIRST, before checking AI intent
+      // If user says "תזכורת" or "תזכיר לי", force create_reminder intent with low threshold
+      // This fixes cases like "אני רוצה תזכורת לפגישה" where AI misclassifies as "unknown"
+      if (hasExplicitReminderKeyword && (adaptedResult.intent === 'unknown' || adaptedResult.intent === 'create_reminder')) {
+        adaptedResult.intent = 'create_reminder'; // Force the intent
+        logger.info('🎯 Layer 2: Forced create_reminder intent due to explicit keyword', {
+          originalIntent: result.intent,
+          confidence: adaptedResult.confidence,
+          keyword: text.match(/תזכיר|תזכורת/)?.[0]
+        });
+      }
+
       let requiredConfidence: number;
       if (isSearchIntent) {
         requiredConfidence = 0.5; // Non-destructive - low threshold
-      } else if (isReminderIntent && hasExplicitReminderKeyword) {
-        requiredConfidence = 0.5; // User said "תזכורת" - trust it even if AI is uncertain
+      } else if (hasExplicitReminderKeyword && adaptedResult.intent === 'create_reminder') {
+        requiredConfidence = 0.4; // User said "תזכורת" - trust it even with low AI confidence
         logger.info('🎯 Layer 2: Lowered confidence threshold for reminder (explicit keyword)', {
           intent: adaptedResult.intent,
           confidence: adaptedResult.confidence,
