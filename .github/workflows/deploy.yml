@@ -43,6 +43,14 @@ jobs:
           --exclude='*.log' \
           dist/ root@167.71.145.9:~/wAssitenceBot/dist/
 
+    - name: Update git repository on production
+      run: |
+        ssh root@167.71.145.9 "cd ~/wAssitenceBot && git fetch origin && git reset --hard origin/main"
+
+    - name: Rebuild TypeScript on production
+      run: |
+        ssh root@167.71.145.9 "cd ~/wAssitenceBot && npm run build"
+
     - name: Restart PM2
       run: |
         ssh root@167.71.145.9 "cd ~/wAssitenceBot && pm2 restart ultrathink"
