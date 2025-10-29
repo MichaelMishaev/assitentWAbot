@@ -46,7 +46,7 @@ module.exports = {
     // Environment - CRITICAL: Forces production mode
     env: {
       NODE_ENV: 'production',
-      TZ: 'Asia/Jerusalem'
+      TZ: 'UTC' // UTC timezone for cron jobs - users get messages at their own timezone preferences
     },
 
     // Performance

@@ -67,7 +67,7 @@ export class DailySchedulerService {
 
   /**
    * Setup the repeatable daily job
-   * Runs every day at 1:00 AM UTC
+   * Runs every day at 9:00 AM UTC (11:00 AM Israel time)
    */
   async setupRepeatingJob(): Promise<void> {
     try {

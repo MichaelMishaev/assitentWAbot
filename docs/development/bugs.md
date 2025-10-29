@@ -87,6 +87,128 @@ Added two critical examples to teach NLP to handle "אצל" patterns:
 
 ---
 
+### Bug #11: NLP strips ל prefix from Hebrew infinitive verbs in reminders
+**Issue:**
+```
+User (972544345287) sent: "קבע תזכורת ל 16:00 לנסוע הביתה"
+Bot extracted: title="נסוע הביתה" (WRONG!)
+Bot should extract: title="לנסוע הביתה" (CORRECT)
+Result: Changed verb meaning - לנסוע (to travel) → נסוע (travel/imperative)
+
+User feedback (# bug report from Redis):
+- "#creared reminder נסוע הביתה, where is the letter: ל ?? I asked remind me לנסוע הביתה"
+```
+
+**Root Cause:**
+- NLP was incorrectly stripping the ל prefix from Hebrew infinitive verbs
+- Hebrew infinitive verbs start with ל: לנסוע, לקנות, ללכת, לעשות
+- Stripping ל changes the verb form and meaning
+
+**Fix Applied:**
+**File:** `src/services/NLPService.ts` (lines 343-344)
+
+Added examples teaching NLP to preserve ל prefix:
+
+```typescript
+4f. REMINDER WITH ל PREFIX VERBS (CRITICAL - BUG FIX #11): "קבע תזכורת ל 16:00 לנסוע הביתה" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"לנסוע הביתה","dueDate":"<today 16:00 ISO>"}} (CRITICAL: NEVER strip the ל prefix from infinitive verbs! "לנסוע" is the correct form, NOT "נסוע". Hebrew infinitive verbs start with ל - keep it!)
+
+4g. REMINDER WITH OTHER ל VERBS (CRITICAL): "תזכיר לי לקנות חלב" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"לקנות חלב","dueDate":"<today 12:00 ISO>"}} (CRITICAL: Keep ל prefix: "לקנות", "לנסוע", "ללכת", "לעשות", etc.)
+```
+
+**Impact:**
+- Now preserves infinitive verb form: "לנסוע הביתה" ✅
+- Handles all ל-prefixed infinitives correctly
+- Maintains proper Hebrew grammar and verb meaning
+
+**Status:** ✅ FIXED
+**Test:** Send "קבע תזכורת ל 16:00 לנסוע הביתה"
+**Expected:** Reminder title should be "לנסוע הביתה" (WITH the ל prefix)
+
+**Severity:** HIGH - Grammar error affects user experience
+
+---
+
+### Bug #12: "תזכיר לי" (remind me) has critically low NLP confidence
+**Issue:**
+```
+User (972542101057) sent: "תזכיר לי"
+NLP confidence: 0.55 (BELOW 0.7 threshold!)
+Bot response: Fallback to keyword detection asking "האם רצית ליצור תזכורת חדשה?"
+User response: "לא" (frustration)
+User # comment: "# אני רוצה תזכורת לפגישה"
+
+#AI-MISS logged: [unknown@0.55] User said: "תזכיר לי" | Expected: create_reminder
+```
+
+**Root Cause:**
+- "תזכיר לי" is the MOST BASIC Hebrew reminder phrase
+- NLP lacked explicit examples for standalone "תזכיר לי" (without title)
+- Confidence dropped to 0.55 instead of required 0.95+
+
+**Fix Applied:**
+**File:** `src/services/NLPService.ts` (lines 345-346)
+
+Added explicit examples for standalone reminder phrases:
+
+```typescript
+4h. REMINDER MINIMAL FORM (CRITICAL - BUG FIX #12): "תזכיר לי" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"","dueDate":"<today 12:00 ISO>"}} (CRITICAL: "תזכיר לי" alone IS valid! User will provide details when prompted. This is the MOST BASIC Hebrew reminder phrase - MUST be 0.95+ confidence!)
+
+4i. REMINDER STANDALONE VARIATIONS (CRITICAL): "הזכר לי", "תזכיר", "תזכירי לי" → all create_reminder with 0.95 confidence (CRITICAL: All variations of "remind me" must have HIGH confidence!)
+```
+
+**Impact:**
+- "תזכיר לי" now gets 0.95 confidence ✅
+- Bot directly creates reminder and prompts for details
+- No more frustrating fallback confirmation
+- All reminder variations handled correctly
+
+**Status:** ✅ FIXED
+**Test:** Send "תזכיר לי"
+**Expected:** Bot should immediately recognize intent (0.95+ confidence) and prompt for reminder details
+
+**Severity:** CRITICAL - Most basic reminder command was failing
+
+---
+
+### Bug #13: Time not extracted from "ב17:00" pattern in event creation
+**Issue:**
+```
+User sent: "פגישה עם שימי מחר ב17:00"
+Bot asked: "⏰ באיזו שעה?" (What time?)
+User had to respond: "17:00"
+User # comment: "#לא זיהה את השעה" (didn't recognize the time)
+```
+
+**Root Cause:**
+- NLP lacked explicit examples showing "ב17:00" pattern in event creation
+- While "ב-15:00" was documented, "ב17:00" (no dash) wasn't clearly demonstrated
+- Event examples didn't emphasize the ב prefix time pattern
+
+**Fix Applied:**
+**File:** `src/services/NLPService.ts` (lines 336-337)
+
+Added explicit event examples with ב+time patterns:
+
+```typescript
+1b. CREATE EVENT WITH ב+TIME (CRITICAL - BUG FIX #13): "פגישה עם שימי מחר ב17:00" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם שימי","date":"2025-11-12T17:00:00+02:00","dateText":"מחר ב17:00","contactName":"שימי"}} (CRITICAL: "ב17:00" (with ב prefix) = at 17:00. Extract time EXACTLY as specified! Patterns: "ב14:00", "ב-14:00", "ב 14:00" all mean "at 14:00")
+
+1c. CREATE EVENT ב+TIME VARIATIONS (CRITICAL): "אירוע ב15:00", "פגישה ב-20:00", "מפגש ב 18:30" → all extract time correctly (CRITICAL: Space/dash after ב is optional!)
+```
+
+**Impact:**
+- "ב17:00" pattern now recognized ✅
+- All variations (ב17:00, ב-17:00, ב 17:00) work
+- No more re-asking for time when already provided
+- Better UX for natural Hebrew time expressions
+
+**Status:** ✅ FIXED
+**Test:** Send "פגישה עם שימי מחר ב17:00"
+**Expected:** Bot should extract time and NOT ask "באיזו שעה?" - event created with 17:00 directly
+
+**Severity:** HIGH - User frustration from redundant questions
+
+---
+
 ### 1. Search for nearest event not understanding Hebrew
 **Issue:** When searching for nearest/closest event, bot didn't understand Hebrew keywords like "הקרוב", "הכי קרוב"
 **Status:** ✅ ALREADY FIXED
