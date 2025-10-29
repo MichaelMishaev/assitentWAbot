@@ -209,6 +209,49 @@ Added explicit event examples with ב+time patterns:
 
 ---
 
+### Bug #15: Time not extracted from "בשעה 20:45" pattern (variant of Bug #13)
+**Issue:**
+```
+User sent: "יום חמישי, 13.11, מסיבת הפתעה לרחלי. אלבי תל אביב, בשעה 20:45"
+Bot asked: "⏰ באיזו שעה?" (What time?)
+User # comment: "#why asking hors? I inserted place and time."
+```
+
+**Screenshot Evidence (prod timestamp: 2025-10-29T15:01:04):**
+- User provided full details: date, title, location, AND time ("בשעה 20:45")
+- Bot extracted title and date correctly
+- BUT bot asked for time again even though user specified "בשעה 20:45"
+
+**Root Cause:**
+- Bug #13 fix covered "ב17:00", "ב-17:00", "ב 17:00" patterns
+- BUT missed "**בשעה** 20:45" pattern (with word "שעה" = hour/time between prefix and value)
+- This is a common Hebrew time expression: "at time 20:45"
+
+**Fix Applied:**
+**File:** `src/services/NLPService.ts` (lines 338-339)
+
+Added explicit event examples with בשעה+time patterns:
+
+```typescript
+1d. CREATE EVENT WITH בשעה+TIME (CRITICAL - BUG FIX #15): "מסיבת הפתעה לרחלי מחר בשעה 20:45" → {"intent":"create_event","confidence":0.95,"event":{"title":"מסיבת הפתעה לרחלי","date":"2025-11-13T20:45:00+02:00","dateText":"מחר בשעה 20:45"}} (CRITICAL: "בשעה 20:45" (with word "שעה") = at time 20:45. Extract time EXACTLY! Patterns: "בשעה 14:00", "בשעה 20:45", "בשעה: 18:30" all mean the specified time)
+
+1e. CREATE EVENT בשעה VARIATIONS (CRITICAL): "אירוע בשעה 15:00", "פגישה בשעה: 16:30", "מפגש בשעה 9 בבוקר" → all extract time correctly (CRITICAL: "בשעה" = "at time" - MUST extract time value!)
+```
+
+**Impact:**
+- "בשעה 20:45" pattern now recognized ✅
+- All variations (בשעה 14:00, בשעה: 16:30, בשעה 9 בבוקר) work
+- Completes Bug #13 fix by covering all Hebrew time prepositions
+- No more re-asking for time when "בשעה" phrase is used
+
+**Status:** ✅ FIXED
+**Test:** Send "מסיבה מחר בשעה 20:45"
+**Expected:** Bot should extract time and create event with 20:45 directly, NOT ask "באיזו שעה?"
+
+**Severity:** HIGH - User frustration from redundant questions despite providing complete information
+
+---
+
 ### Bug #20: No context awareness - "תזכיר לי" after event creation doesn't link to event
 **Issue:**
 ```
