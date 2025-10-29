@@ -31,6 +31,16 @@ jobs:
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H 167.71.145.9 >> ~/.ssh/known_hosts
+        # Add SSH config for keep-alive
+        cat >> ~/.ssh/config <<EOF
+        Host production
+          HostName 167.71.145.9
+          User root
+          IdentityFile ~/.ssh/id_rsa
+          ServerAliveInterval 30
+          ServerAliveCountMax 10
+          ConnectTimeout 30
+        EOF
 
     - name: Deploy to production
       run: |
@@ -43,13 +53,9 @@ jobs:
           --exclude='*.log' \
           dist/ root@167.71.145.9:~/wAssitenceBot/dist/
 
-    - name: Update git repository on production
+    - name: Update git repository and rebuild on production
       run: |
-        ssh root@167.71.145.9 "cd ~/wAssitenceBot && git fetch origin && git reset --hard origin/main"
-
-    - name: Rebuild TypeScript on production
-      run: |
-        ssh root@167.71.145.9 "cd ~/wAssitenceBot && npm run build"
+        ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 root@167.71.145.9 'cd ~/wAssitenceBot && git fetch origin && git reset --hard origin/main && npm run build'
 
     - name: Restart PM2
       run: |
