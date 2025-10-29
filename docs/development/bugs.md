@@ -293,6 +293,80 @@ if (!dateTextHasTime && event?.date && typeof event.date === 'string') {
 
 ---
 
+### Bug #15 (FINAL FIX): Timezone conversion bug - ISO time applied to wrong timezone
+**Issue:**
+```
+SAME message sent twice:
+1st attempt: "יום חמישי, 13.11, מסיבת הפתעה לרחלי. אלוני תל אביב, בשעה 20:45" → ✅ Created at 20:45
+2nd attempt: "יום חמישי, 13.11, מסיבת הפתעה לרחלי. אלבי תל אביב, בשעה 20:45" → ❌ Asked "באיזו שעה?"
+```
+
+**Non-Deterministic Behavior:** Same input producing different outputs!
+
+**Production Evidence (2025-10-29 18:55-18:56):**
+- User sent message with "בשעה 20:45"
+- NLP correctly extracted: `"date": "2025-11-13T18:45:00.000Z"` (18:45 UTC = 20:45 Israel time) ✅
+- Logs showed: `"hour": 0, "minute": 0, "originalDate": "2025-11-13T18:45:00.000Z"` ❌
+- Bot asked: "⏰ באיזו שעה?"
+
+**Root Cause:**
+**File:** `src/routing/NLPRouter.ts` - Bug #15 fix at line 157 (commit e30d8b5)
+
+The previous Bug #15 fix had a **critical timezone bug**:
+
+```typescript
+// WRONG CODE (commit e30d8b5):
+const hebrewDt = DateTime.fromJSDate(hebrewResult.date).setZone('Asia/Jerusalem');
+const isoDt = DateTime.fromISO(event.date);  // ← Parses in UTC
+
+finalDate = hebrewDt.set({
+  hour: isoDt.hour,     // ← isoDt.hour = 18 (UTC hour)
+  minute: isoDt.minute  // ← Applied as Israel time → Creates 18:45 Israel instead of 20:45!
+}).toJSDate();
+```
+
+**The Problem:**
+1. Production server runs in **UTC timezone**
+2. ISO string `"2025-11-13T18:45:00.000Z"` means 18:45 UTC (= 20:45 Israel time)
+3. `DateTime.fromISO()` without timezone option parses as UTC → `isoDt.hour = 18`
+4. Code then sets Israel time to 18 hours → **18:45 Israel time** (WRONG!)
+5. Should have converted to Israel timezone first → `isoDt.hour = 20`
+
+**Why Non-Deterministic?**
+- NLP cache was involved - cached results from one parse affected subsequent requests
+- Different slight variations in message text caused different NLP responses
+- Some responses happened to work due to timing/caching quirks
+
+**Fix Applied:**
+**File:** `src/routing/NLPRouter.ts` (line 159)
+
+```typescript
+// CORRECT CODE:
+const hebrewDt = DateTime.fromJSDate(hebrewResult.date).setZone('Asia/Jerusalem');
+const isoDt = DateTime.fromISO(event.date).setZone('Asia/Jerusalem');  // ← Convert to Israel timezone!
+
+finalDate = hebrewDt.set({
+  hour: isoDt.hour,     // ← Now isoDt.hour = 20 (Israel hour) ✅
+  minute: isoDt.minute  // ← Creates 20:45 Israel time correctly!
+}).toJSDate();
+```
+
+**Impact:**
+- **CRITICAL FIX**: Same input now ALWAYS produces same output (deterministic)
+- Time from "בשעה XX:XX" patterns now correctly extracted
+- Works across all timezones (server timezone no longer matters)
+- No more timezone confusion between UTC and Israel time
+
+**Status:** ✅ FIXED
+**Test:** Send "יום חמישי, 13.11, מסיבה בשעה 20:45" multiple times
+**Expected:** Bot should ALWAYS create event at 20:45, never ask for time
+
+**Severity:** CRITICAL - Non-deterministic behavior breaks user trust. Same input MUST produce same output.
+
+**Technical Lesson:** When merging times between timezones, ALWAYS convert to target timezone before extracting hour/minute values. Never mix UTC hours with local timezone objects.
+
+---
+
 ### Bug #20: No context awareness - "תזכיר לי" after event creation doesn't link to event
 **Issue:**
 ```

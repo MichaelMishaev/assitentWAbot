@@ -153,8 +153,10 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
 
           if (hasNonMidnightTime) {
             // Merge: Use date from dateText but time from ISO date
+            // CRITICAL: Convert ISO time to Israel timezone BEFORE extracting hour/minute
+            // Example: "2025-11-13T18:45:00.000Z" (UTC) → 20:45 Israel time
             const hebrewDt = DateTime.fromJSDate(hebrewResult.date).setZone('Asia/Jerusalem');
-            const isoDt = DateTime.fromISO(event.date);
+            const isoDt = DateTime.fromISO(event.date).setZone('Asia/Jerusalem');
 
             finalDate = hebrewDt.set({
               hour: isoDt.hour,
@@ -166,8 +168,11 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
             logger.info('🔧 BUG FIX #15: Merged time from ISO date into Hebrew parsed date', {
               dateText: event.dateText,
               originalHebrewDate: hebrewResult.date.toISOString(),
-              isoDate: event.date,
+              isoDateUTC: event.date,
+              isoDateIsrael: isoDt.toISO(),
               mergedDate: finalDate.toISOString(),
+              extractedHour: isoDt.hour,
+              extractedMinute: isoDt.minute,
               context
             });
           }
