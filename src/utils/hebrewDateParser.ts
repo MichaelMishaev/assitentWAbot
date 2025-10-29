@@ -27,6 +27,9 @@ export function parseHebrewDate(
     'היום': () => now,
     'מחר': () => now.plus({ days: 1 }),
     'מחרתיים': () => now.plus({ days: 2 }),
+    'אתמול': () => now.minus({ days: 1 }),
+    'יום לפני': () => now.minus({ days: 1 }), // Day before / yesterday
+    'לפני יום': () => now.minus({ days: 1 }),
     'סופש': () => getNextWeekday(now, 6), // Saturday
 
     // Week keywords - ALL VARIATIONS
@@ -54,16 +57,36 @@ export function parseHebrewDate(
   let extractedTime: { hour: number; minute: number } | null = null;
   let dateInput = trimmedInput;
 
-  // FIRST: Match natural language time patterns: "3 אחרי הצהריים", "8 בערב", "10 בבוקר", "12 בלילה"
-  const naturalTimeMatch = trimmedInput.match(/(?:,?\s*(?:בשעה|ב-?)?\s*)?(\d{1,2})\s*(אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר)/);
+  // FIRST: Match natural language time patterns: "3 אחרי הצהריים", "8 בערב", "10 בבוקר", "12 בלילה", or just "בערב" alone
+  // Also handles standalone time words without numbers
+  const naturalTimeMatch = trimmedInput.match(/(?:,?\s*(?:בשעה|ב-?)?\s*)?(\d{1,2})?\s*(אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר|בצהריים)/);
   if (naturalTimeMatch) {
-    const hour = parseInt(naturalTimeMatch[1], 10);
+    const hourStr = naturalTimeMatch[1];
     const period = naturalTimeMatch[2];
 
-    let adjustedHour = hour;
+    let adjustedHour: number;
 
-    // Convert to 24-hour format
-    if (period === 'אחרי הצהריים' || period === 'אחה"צ' || period === 'אחה״צ') {
+    // If no number provided, use default times for each period
+    if (!hourStr) {
+      if (period === 'בבוקר') {
+        adjustedHour = 8; // 8 AM default for morning
+      } else if (period === 'בצהריים') {
+        adjustedHour = 12; // Noon
+      } else if (period === 'אחרי הצהריים' || period === 'אחה"צ' || period === 'אחה״צ') {
+        adjustedHour = 15; // 3 PM default for afternoon
+      } else if (period === 'בערב') {
+        adjustedHour = 19; // 7 PM default for evening
+      } else if (period === 'בלילה') {
+        adjustedHour = 22; // 10 PM default for night
+      } else {
+        adjustedHour = 12; // Fallback to noon
+      }
+    } else {
+      const hour = parseInt(hourStr, 10);
+      adjustedHour = hour;
+
+      // Convert to 24-hour format only if number was provided
+      if (period === 'אחרי הצהריים' || period === 'אחה"צ' || period === 'אחה״צ') {
       // Afternoon: PM hours (12:00-18:00)
       if (hour >= 1 && hour <= 11) {
         adjustedHour = hour + 12; // 1-11 → 13-23
@@ -94,12 +117,13 @@ export function parseHebrewDate(
         adjustedHour = 12; // noon
       }
     }
+    } // Close the else block
 
     // Validate hour
     if (adjustedHour >= 0 && adjustedHour <= 23) {
       extractedTime = { hour: adjustedHour, minute: 0 };
       // Remove natural time from input for date parsing
-      dateInput = trimmedInput.replace(/(?:,?\s*(?:בשעה|ב-?)?\s*)?\d{1,2}\s*(?:אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר)/, '').trim();
+      dateInput = trimmedInput.replace(/(?:,?\s*(?:בשעה|ב-?)?\s*)?\d{0,2}\s*(?:אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר|בצהריים)/, '').trim();
     }
   }
 
@@ -382,7 +406,7 @@ export function parseHebrewDate(
   return {
     success: false,
     date: null,
-    error: 'קלט לא מזוהה. נסה: היום, מחר 14:00, עוד 2 דקות, עוד שעה, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00',
+    error: 'קלט לא מזוהה. נסה: היום, מחר 14:00, יום לפני בערב, עוד 2 דקות, עוד שעה, בערב, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00',
   };
 }
 

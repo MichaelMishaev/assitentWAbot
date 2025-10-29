@@ -3372,3 +3372,120 @@ Bot: "✅ 5 אירועים נמחקו בהצלחה"
 - Confirmation flow prevents accidental deletions
 
 ---
+
+## Bug #[TBD] - Date Parser: "יום לפני בערב" Not Recognized
+
+**Date Reported:** October 29, 2025
+**Reported By:** User 0542101057 via # comment
+**Status:** ✅ Fixed
+**Priority:** Medium
+**Category:** Date/Time Parsing
+
+**Bug Description:**
+User tried to create a reminder/event with Hebrew text "יום לפני בערב" (day before in the evening) but got "קלט לא מזוהה" (unrecognized input) error.
+
+**User Message:**
+```
+# תסתכל תבין חחחח
+[screenshot showing "יום לפני בערב" input resulted in error]
+```
+
+**Expected Behavior:**
+User expects "יום לפני בערב" to parse as:
+- **Date:** Yesterday (יום לפני / day before)
+- **Time:** Evening (בערב = 7 PM)
+- Result: Yesterday at 19:00
+
+**Actual Behavior:**
+```
+Bot: "קלט לא מזוהה. נסה: היום, מחר 14:00, עוד 2 דקות..."
+```
+
+**Root Cause:**
+The `parseHebrewDate()` function in `src/utils/hebrewDateParser.ts` had TWO issues:
+
+1. **Missing "יום לפני" keyword** - The keywords object only had "אתמול" but not "יום לפני" or "לפני יום"
+2. **Time words required numbers** - The natural time regex required `\d{1,2}` (1-2 digits) before time words like "בערב", so standalone "בערב" without a number didn't work when combined with relative dates
+
+**Fix Applied:**
+
+**File:** `src/utils/hebrewDateParser.ts`
+
+**Changes:**
+
+1. **Added "day before" keywords** (lines ~30-35)
+   ```typescript
+   'אתמול': () => now.minus({ days: 1 }),
+   'יום לפני': () => now.minus({ days: 1 }), // Day before / yesterday
+   'לפני יום': () => now.minus({ days: 1 }),
+   ```
+
+2. **Made hour digits optional in natural time regex** (line 62)
+   ```typescript
+   // Before: /(\d{1,2})\s*(אחרי הצהריים|...)/
+   // After:  /(\d{1,2})?\s*(אחרי הצהריים|...)/
+   const naturalTimeMatch = trimmedInput.match(/(?:,?\s*(?:בשעה|ב-?)?\s*)?(\d{1,2})?\s*(אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר|בצהריים)/);
+   ```
+
+3. **Added default times when no number provided** (lines 70-83)
+   ```typescript
+   if (!hourStr) {
+     if (period === 'בבוקר') adjustedHour = 8;       // 8 AM
+     else if (period === 'בצהריים') adjustedHour = 12; // Noon
+     else if (period === 'אחרי הצהריים' || period === 'אחה"צ' || period === 'אחה״צ') adjustedHour = 15; // 3 PM
+     else if (period === 'בערב') adjustedHour = 19;   // 7 PM
+     else if (period === 'בלילה') adjustedHour = 22;  // 10 PM
+     else adjustedHour = 12; // Fallback to noon
+   } else {
+     // Existing logic for when number IS provided...
+   }
+   ```
+
+4. **Updated regex replacement pattern** (line 125)
+   ```typescript
+   // Before: /\d{1,2}\s*(?:אחרי הצהריים|...)/
+   // After:  /\d{0,2}\s*(?:אחרי הצהריים|...)/
+   dateInput = trimmedInput.replace(/(?:,?\s*(?:בשעה|ב-?)?\s*)?\d{0,2}\s*(?:אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר|בצהריים)/, '').trim();
+   ```
+
+5. **Updated error message with new examples** (line ~428)
+   ```typescript
+   error: 'קלט לא מזוהה. נסה: היום, מחר 14:00, יום לפני בערב, עוד 2 דקות, עוד שעה, בערב, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00'
+   ```
+
+**Testing:**
+Created test script `test-date-parser.mjs` to verify:
+
+```bash
+$ node test-date-parser.mjs
+
+Testing: "יום לפני בערב"
+✅ Success: 28/10/2025 19:00 (15 hours ago)
+
+Testing: "אתמול בערב"
+✅ Success: 28/10/2025 19:00 (15 hours ago)
+
+Testing: "מחר בערב"
+✅ Success: 30/10/2025 19:00 (in 1 day)
+```
+
+**Expected Behavior (After Fix):**
+```
+User: "תזכיר לי יום לפני בערב לקנות חלב"
+Bot: "✅ תזכורת נוספה: לקנות חלב
+📅 28/10/2025 בשעה 19:00"
+```
+
+**Additional Improvements:**
+The fix also enables these natural time patterns that weren't working before:
+- "מחר בבוקר" → Tomorrow at 8 AM
+- "יום ראשון בצהריים" → Sunday at noon (12 PM)
+- "היום בלילה" → Today at 10 PM
+
+**Impact:**
+- Fixes Hebrew relative date + time combinations
+- Makes the parser more flexible and natural
+- Aligns with user expectations for conversational Hebrew input
+- Reduces "unrecognized input" errors
+
+---
