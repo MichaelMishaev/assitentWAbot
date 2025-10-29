@@ -154,8 +154,20 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
       });
 
       // Check if ISO date field has non-midnight time
-      if (!dateTextHasTime && event?.date && typeof event.date === 'string') {
-        const timeMatch = event.date.match(/T(\d{2}):(\d{2})/);
+      if (!dateTextHasTime && event?.date) {
+        // Convert date to string format for parsing (handle both string and Date object)
+        let dateString: string;
+        if (typeof event.date === 'string') {
+          dateString = event.date;
+        } else if (event.date instanceof Date) {
+          dateString = event.date.toISOString();
+        } else if (typeof event.date === 'object' && event.date.toISOString) {
+          dateString = event.date.toISOString();
+        } else {
+          dateString = String(event.date);
+        }
+
+        const timeMatch = dateString.match(/T(\d{2}):(\d{2})/);
         if (timeMatch) {
           const hours = parseInt(timeMatch[1]);
           const minutes = parseInt(timeMatch[2]);
@@ -166,7 +178,7 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
             // CRITICAL: Convert ISO time to Israel timezone BEFORE extracting hour/minute
             // Example: "2025-11-13T18:45:00.000Z" (UTC) → 20:45 Israel time
             const hebrewDt = DateTime.fromJSDate(hebrewResult.date).setZone('Asia/Jerusalem');
-            const isoDt = DateTime.fromISO(event.date).setZone('Asia/Jerusalem');
+            const isoDt = DateTime.fromISO(dateString).setZone('Asia/Jerusalem');
 
             finalDate = hebrewDt.set({
               hour: isoDt.hour,
@@ -178,7 +190,9 @@ function parseDateFromNLP(event: any, context: string): DateQuery {
             logger.info('🔧 BUG FIX #15: Merged time from ISO date into Hebrew parsed date', {
               dateText: event.dateText,
               originalHebrewDate: hebrewResult.date.toISOString(),
-              isoDateUTC: event.date,
+              eventDateRaw: event.date,
+              eventDateType: typeof event.date,
+              dateStringConverted: dateString,
               isoDateIsrael: isoDt.toISO(),
               mergedDate: finalDate.toISOString(),
               extractedHour: isoDt.hour,
