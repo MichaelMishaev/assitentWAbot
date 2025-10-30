@@ -168,9 +168,11 @@ export class TestRunner {
         from: 'test-user@test',
         messageId: `test-${Date.now()}`,
         timestamp: Date.now(),
-        content: { text: testCase.userMessage }
+        content: { text: testCase.userMessage },
+        isFromMe: false
       },
-      { userId: 'test-user', phone: 'test-phone' }
+      'test-user',
+      'Asia/Jerusalem'
     );
 
     // Check each assertion
