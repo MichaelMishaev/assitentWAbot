@@ -42,11 +42,13 @@ module.exports = {
     out_file: '/root/wAssitenceBot/logs/pm2-out.log',
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     merge_logs: true,
+    combine_logs: true,
 
     // Environment - CRITICAL: Forces production mode
     env: {
       NODE_ENV: 'production',
-      TZ: 'UTC' // UTC timezone for cron jobs - users get messages at their own timezone preferences
+      TZ: 'UTC', // UTC timezone for cron jobs - users get messages at their own timezone preferences
+      NODE_OPTIONS: '--max-old-space-size=2048' // Increase Node.js heap size to 2GB
     },
 
     // Performance

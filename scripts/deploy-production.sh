@@ -11,6 +11,26 @@ APP_DIR="/root/wAssitenceBot"
 PM2_APP_NAME="ultrathink"
 YOUR_PHONE="972555030746"  # Your phone number for notifications
 
+# Deployment locking
+LOCK_FILE="/tmp/wAssitenceBot.deploy.lock"
+
+# Check for existing deployment
+if [ -f "$LOCK_FILE" ]; then
+  LOCK_PID=$(cat "$LOCK_FILE")
+  if ps -p $LOCK_PID > /dev/null 2>&1; then
+    echo "❌ Deployment already running (PID: $LOCK_PID)"
+    echo "If you're sure no deployment is running, remove: $LOCK_FILE"
+    exit 1
+  else
+    echo "⚠️  Stale lock file found (PID $LOCK_PID not running), removing..."
+    rm -f "$LOCK_FILE"
+  fi
+fi
+
+# Create lock file
+echo $$ > "$LOCK_FILE"
+trap "rm -f $LOCK_FILE" EXIT
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
