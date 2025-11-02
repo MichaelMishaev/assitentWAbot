@@ -127,6 +127,7 @@ Parse the message and return JSON with this structure:
     "dateText": "Hebrew date text (optional, e.g., 'מחר', 'יום ראשון')",
     "time": "Time string HH:MM (optional, for update_reminder without full date)",
     "recurrence": "RRULE format (optional)",
+    "leadTimeMinutes": "number - minutes BEFORE dueDate to send reminder (optional, e.g., 1440 for 1 day before, 60 for 1 hour before)",
     "notes": "additional notes or comments (optional)"
   },
   "message": {
@@ -156,6 +157,22 @@ CREATE:
 - "קבע", "תקבע", "צור", "הוסף", "schedule", "create", "add", "new" → create_event/create_reminder
 - Event keywords: "פגישה", "אירוע", "meeting", "event", "appointment"
 - Reminder keywords: "תזכיר", "תזכורת", "remind", "reminder", "אל תשכח", "don't forget"
+
+LEAD TIME PARSING (CRITICAL - Extract from "תזכיר לי X לפני" phrases):
+When user says "תזכיר לי [TIME] לפני" in a reminder creation message, extract the lead time:
+- "תזכיר לי יום לפני" → leadTimeMinutes: 1440 (24 hours * 60 minutes)
+- "תזכיר לי יומיים לפני" → leadTimeMinutes: 2880 (48 hours)
+- "תזכיר לי שעה לפני" → leadTimeMinutes: 60
+- "תזכיר לי שעתיים לפני" → leadTimeMinutes: 120
+- "תזכיר לי 30 דקות לפני" → leadTimeMinutes: 30
+- "תזכיר לי חצי שעה לפני" → leadTimeMinutes: 30
+- "תזכיר לי שבוע לפני" → leadTimeMinutes: 10080 (7 days)
+- "תזכיר לי בבוקר" or "ביום לפני" → leadTimeMinutes: 1440 (1 day)
+
+IMPORTANT: DO NOT include "תזכיר לי X לפני" in the notes field. Extract it as leadTimeMinutes!
+Examples:
+- "יום שישי 09:30 טקס קבלת ספר תורה תזכיר לי יום לפני" → {title: "טקס קבלת ספר תורה", dueDate: "Friday 09:30", leadTimeMinutes: 1440, notes: null}
+- "פגישה מחר 14:00 תזכיר לי שעה לפני" → {title: "פגישה", dueDate: "tomorrow 14:00", leadTimeMinutes: 60, notes: null}
 
 SEARCH/LIST (ALL VARIATIONS):
 EVENTS:
