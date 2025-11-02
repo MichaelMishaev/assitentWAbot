@@ -146,6 +146,7 @@ export interface ExtractedEntities {
   location?: string;
   contactName?: string;
   notes?: string;
+  leadTimeMinutes?: number; // Minutes before event to send reminder (e.g., 1440 for 1 day before)
 
   // Hebrew calendar data
   hebrewDate?: {

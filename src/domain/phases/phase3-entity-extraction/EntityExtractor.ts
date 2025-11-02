@@ -34,6 +34,7 @@ export interface ExtractedEntities {
   duration?: number; // minutes
   startTime?: Date;
   endTime?: Date;
+  leadTimeMinutes?: number; // Minutes before event to send reminder (e.g., 1440 for 1 day before)
 
   // Priority/urgency
   priority?: 'low' | 'normal' | 'high' | 'urgent';

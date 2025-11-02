@@ -103,6 +103,10 @@ export class EntityExtractionPhase extends BasePhase {
       if (extracted.notes) {
         context.entities.notes = extracted.notes;
       }
+      // ✅ BUG FIX: Extract leadTimeMinutes from "תזכיר לי יום לפני" phrases
+      if (extracted.leadTimeMinutes) {
+        context.entities.leadTimeMinutes = extracted.leadTimeMinutes;
+      }
 
       // Calculate overall confidence
       const overallConfidence = this.regexExtractor.getOverallConfidence(extracted);
@@ -115,7 +119,8 @@ export class EntityExtractionPhase extends BasePhase {
         extracted.location,
         extracted.contactNames?.length,
         extracted.duration,
-        extracted.priority
+        extracted.priority,
+        extracted.leadTimeMinutes
       ].filter(Boolean).length;
 
       logger.info('Entity extraction complete', {
@@ -167,6 +172,7 @@ export class EntityExtractionPhase extends BasePhase {
       duration: regex.duration, // Regex is good at this
       priority: ai.priority || regex.priority,
       notes: ai.notes || regex.notes,
+      leadTimeMinutes: ai.leadTimeMinutes || regex.leadTimeMinutes, // AI extracts from "תזכיר לי X לפני"
 
       // Confidence: use AI confidence (it's more reliable)
       confidence: ai.confidence,
