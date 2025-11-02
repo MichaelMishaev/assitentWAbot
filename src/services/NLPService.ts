@@ -33,6 +33,8 @@ export interface NLPIntent {
     dateText?: string; // Hebrew date text for parsing
     time?: string; // Time string HH:MM for updates
     recurrence?: string; // RRULE format
+    leadTimeMinutes?: number; // Minutes BEFORE dueDate to send reminder (e.g., 1440 for 1 day before)
+    notes?: string; // Additional notes
   };
   message?: {
     recipient: string;

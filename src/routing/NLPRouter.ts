@@ -1024,8 +1024,17 @@ export class NLPRouter {
         notes: reminder.notes || undefined
       });
 
-      // Get user's reminder lead time preference (default: 15 minutes)
-      const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+      // CRITICAL FIX: Use extracted lead time from message, fallback to user preference
+      // If user said "תזכיר לי יום לפני", use that (1440 minutes), not default 15
+      let leadTimeMinutes: number;
+      if (reminder.leadTimeMinutes && typeof reminder.leadTimeMinutes === 'number' && reminder.leadTimeMinutes > 0) {
+        leadTimeMinutes = reminder.leadTimeMinutes;
+        logger.info('Using extracted lead time from NLP', { leadTimeMinutes, title: reminder.title });
+      } else {
+        // Fallback to user's reminder lead time preference (default: 15 minutes)
+        leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+        logger.info('Using user preference lead time', { leadTimeMinutes, title: reminder.title });
+      }
 
       // Schedule with BullMQ
       await scheduleReminder({

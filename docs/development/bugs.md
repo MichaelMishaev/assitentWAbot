@@ -45,6 +45,102 @@
 
 ## ✅ FIXED - Commit [hash]
 
+### Bug #[NEW]: "תזכיר לי יום לפני" stored as notes instead of lead time for create_reminder
+**Issue:**
+```
+User (972542101057) sent: "יום שישי , 09:30\nטקס קבלת ספר תורה לאמה \nתזכיר לי יום לפני"
+Bot created: reminder with notes="תזכיר לי יום לפני"
+Bot scheduled: reminder with DEFAULT lead time (15 minutes)
+Expected: reminder scheduled 1 day (1440 minutes) BEFORE the due date
+Result: User receives reminder only 15 minutes before, not 1 day before as requested
+```
+
+**Root Cause:**
+1. **NLP prompt missing `leadTimeMinutes` field** for `reminder` object (only had it for `comment`)
+2. **No extraction logic** for "תזכיר לי [TIME] לפני" patterns in reminder creation
+3. **Routing code used hardcoded user preference** (15 min) instead of parsing lead time from message
+4. Result: "תזכיר לי יום לפני" dumped into `notes` field as free text
+
+**Database Evidence:**
+```sql
+SELECT id, title, due_ts_utc, notes, status FROM reminders
+WHERE user_id = 'c0fff2e0-66df-4188-ad18-cfada565337f' AND title LIKE '%טקס%';
+
+Result:
+  id: 70e96ede-0590-45c3-bc12-2a0ee447927a
+  title: "טקס קבלת ספר תורה לאמה"
+  due_ts_utc: 2025-11-07 07:30:00 (Friday 09:30 Israel time)
+  notes: "תזכיר לי יום לפני"  ← STORED AS TEXT!
+  status: pending
+```
+
+**Fix Applied:**
+
+**1. Updated Gemini NLP Prompt** (`src/services/GeminiNLPService.ts`):
+
+**Lines 76-84** - Added `leadTimeMinutes` field to reminder schema:
+```typescript
+"reminder": {
+  "title": "string",
+  "dueDate": "ISO 8601 datetime in ${userTimezone} (for create/update)",
+  // ... other fields ...
+  "leadTimeMinutes": "number - minutes BEFORE dueDate to send reminder (optional, e.g., 1440 for 1 day before, 60 for 1 hour before)",
+  "notes": "additional notes (optional)"
+}
+```
+
+**Lines 114-128** - Added LEAD TIME PARSING section with examples:
+```
+LEAD TIME PARSING (CRITICAL - Extract from "תזכיר לי X לפני" phrases):
+- "תזכיר לי יום לפני" → leadTimeMinutes: 1440 (24 hours * 60 minutes)
+- "תזכיר לי שעה לפני" → leadTimeMinutes: 60
+- "תזכיר לי 30 דקות לפני" → leadTimeMinutes: 30
+
+IMPORTANT: DO NOT include "תזכיר לי X לפני" in the notes field. Extract it as leadTimeMinutes!
+Examples:
+- "יום שישי 09:30 טקס קבלת ספר תורה תזכיר לי יום לפני"
+  → {title: "טקס קבלת ספר תורה", dueDate: "Friday 09:30", leadTimeMinutes: 1440, notes: null}
+```
+
+**2. Updated Reminder Router** (`src/routing/NLPRouter.ts` lines 1027-1037):
+
+Changed from:
+```typescript
+const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+```
+
+To:
+```typescript
+// CRITICAL FIX: Use extracted lead time from message, fallback to user preference
+let leadTimeMinutes: number;
+if (reminder.leadTimeMinutes && typeof reminder.leadTimeMinutes === 'number' && reminder.leadTimeMinutes > 0) {
+  leadTimeMinutes = reminder.leadTimeMinutes; // Use NLP-extracted value
+  logger.info('Using extracted lead time from NLP', { leadTimeMinutes, title: reminder.title });
+} else {
+  leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId); // Fallback
+  logger.info('Using user preference lead time', { leadTimeMinutes, title: reminder.title });
+}
+```
+
+**Impact:**
+- ✅ "תזכיר לי יום לפני" now extracts as `leadTimeMinutes: 1440` (1 day)
+- ✅ Reminder scheduled 1 day BEFORE event, not 15 minutes
+- ✅ Notes field remains clean (no "תזכיר לי..." text)
+- ✅ User receives notification at the requested time
+
+**Status:** ✅ FIXED (needs testing on production)
+**Test:** Send "יום שישי 09:30 טקס קבלת ספר תורה תזכיר לי יום לפני"
+**Expected:**
+1. Reminder created for Friday 09:30
+2. BullMQ job scheduled for Thursday 09:30 (1 day before)
+3. Notes field should be empty/null
+
+**Severity:** HIGH - User explicitly requests notification timing, but gets incorrect timing
+
+**Related:** Bug #4 handled "יום לפני" for comments (`add_comment` intent), but this fixes it for reminders (`create_reminder` intent)
+
+---
+
 ### Bug #10: NLP fails to extract complete reminder titles with "אצל" (at) patterns
 **Issue:**
 ```
@@ -4058,3 +4154,107 @@ node test-user-bug.js
 
 ---
 
+## 🐛 RECENTLY FIXED (2025-11-02)
+
+### 14. Personal Report: Events Not Sorted by Date
+**Reported:** 2025-11-02 - User message: "on personal report, when click 'agenda' see all the events, show it by order by date desc"
+**Issue:** Events in personal report (past events view) were not displayed in date descending order when loaded from API
+
+**Problem:**
+- Mock data was correctly sorted by date descending (line 253)
+- But when loading from real API, events were not sorted (line 554)
+- Events appeared in random/database order instead of chronological order
+- Users expected to see newest events first
+
+**Fix Applied:**
+**File:** `src/templates/personal-report-test.html`
+
+**Changes Made:**
+
+1. **Added sorting after API load** (lines 554-555)
+   ```javascript
+   // Before:
+   allEvents = events;
+
+   // After:
+   // Sort events by date descending (newest first)
+   allEvents = events.sort((a, b) => new Date(b.startTsUtc) - new Date(a.startTsUtc));
+   ```
+
+2. **Fixed renderEvents to use sorted array** (line 560)
+   ```javascript
+   // Before:
+   renderEvents(events);
+
+   // After:
+   renderEvents(allEvents); // Use sorted events
+   ```
+
+**Testing:**
+1. Open personal report with real token: `/d/{TOKEN}`
+2. Click "אירועי העבר" to load past events
+3. Verify events are sorted newest first (date descending)
+4. Most recent event should appear at the top
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-11-02
+**Priority:** MEDIUM (UX improvement)
+
+---
+
+### 15. Personal Report: Modal X Button Not Closing
+**Reported:** 2025-11-02 - User message: "when press the X it does not closed - bug"
+**Issue:** Clicking the X button in event detail modal didn't close the modal popup
+
+**Problem:**
+- closeModal() function had incorrect logic (line 520)
+- Condition included `|| event.type === 'click'` which was too broad
+- X button calls closeModal() without passing event parameter
+- Logic was checking event.type when event was undefined
+- Modal would not close when clicking X button
+
+**Fix Applied:**
+**File:** `src/templates/personal-report-test.html`
+
+**Changes Made:**
+
+1. **Fixed closeModal logic** (lines 519-524)
+   ```javascript
+   // Before:
+   function closeModal(event) {
+     if (!event || event.target.id === 'detailModal' || event.type === 'click') {
+       document.getElementById('detailModal').classList.remove('active');
+     }
+   }
+
+   // After:
+   function closeModal(event) {
+     // Close modal when: clicking X button (no event) or clicking backdrop
+     if (!event || event.target.id === 'detailModal') {
+       document.getElementById('detailModal').classList.remove('active');
+     }
+   }
+   ```
+
+**Logic:**
+- Close when `!event` → X button clicked (no event passed)
+- Close when `event.target.id === 'detailModal'` → Backdrop clicked
+- Removed incorrect `|| event.type === 'click'` condition
+
+**Testing:**
+1. Open personal report: `/d/{TOKEN}`
+2. Click on any event to open detail modal
+3. Click the X button (top right corner)
+4. Verify modal closes ✅
+5. Open modal again
+6. Click on the "סגור" button at bottom
+7. Verify modal closes ✅
+8. Open modal again
+9. Click outside modal (on backdrop)
+10. Verify modal closes ✅
+
+**Status:** ✅ FIXED
+**Fixed Date:** 2025-11-02
+**Priority:** HIGH (broken functionality)
+
+---
