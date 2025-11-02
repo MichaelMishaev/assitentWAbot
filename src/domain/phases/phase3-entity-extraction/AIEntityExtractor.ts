@@ -17,6 +17,7 @@ export interface AIExtractedEntities {
   location?: string;
   participants?: string[];
   priority?: 'low' | 'normal' | 'high' | 'urgent';
+  leadTimeMinutes?: number; // Minutes before event to send reminder
   notes?: string;
   confidence: {
     title: number;
@@ -131,7 +132,8 @@ Extract and return JSON with these fields:
   "location": "location if mentioned",
   "participants": ["name1", "name2"] (extract from 'עם X', 'עם X ו-Y'),
   "priority": "low|normal|high|urgent",
-  "notes": "additional context",
+  "leadTimeMinutes": "number - minutes BEFORE event to send reminder (e.g., 1440 for 'יום לפני', 60 for 'שעה לפני')",
+  "notes": "additional context (DO NOT include 'תזכיר לי X לפני' - extract as leadTimeMinutes instead!)",
   "confidence": {
     "title": 0.0-1.0,
     "date": 0.0-1.0,
@@ -157,6 +159,15 @@ Rules:
    - Examples: "20.10 בשעה 15:00" → date: "2025-10-20", time: "15:00"
    - "פגישה 20.10 15:00" → date: "2025-10-20", time: "15:00"
    - "20.10 ב-15:00" → date: "2025-10-20", time: "15:00"
+9. **CRITICAL - Lead Time Extraction:** If text contains "תזכיר לי X לפני", extract as leadTimeMinutes:
+   - "תזכיר לי יום לפני" → leadTimeMinutes: 1440 (24 hours * 60 = 1440 minutes)
+   - "תזכיר לי יומיים לפני" → leadTimeMinutes: 2880 (48 hours)
+   - "תזכיר לי שעה לפני" → leadTimeMinutes: 60
+   - "תזכיר לי שעתיים לפני" → leadTimeMinutes: 120
+   - "תזכיר לי 30 דקות לפני" → leadTimeMinutes: 30
+   - "תזכיר לי חצי שעה לפני" → leadTimeMinutes: 30
+   - "תזכיר לי שבוע לפני" → leadTimeMinutes: 10080 (7 days * 24 * 60)
+   - DO NOT put "תזכיר לי X לפני" in notes - extract it as leadTimeMinutes!
 
 Return ONLY valid JSON, no explanation.`;
   }
@@ -240,6 +251,12 @@ Return ONLY valid JSON, no explanation.`;
     // Priority
     if (parsed.priority && ['low', 'normal', 'high', 'urgent'].includes(parsed.priority)) {
       result.priority = parsed.priority;
+    }
+
+    // Lead Time (BUG FIX: Extract from "תזכיר לי יום לפני")
+    if (parsed.leadTimeMinutes && typeof parsed.leadTimeMinutes === 'number' && parsed.leadTimeMinutes > 0) {
+      result.leadTimeMinutes = Math.floor(parsed.leadTimeMinutes);
+      logger.info('Extracted leadTimeMinutes from AI', { leadTimeMinutes: result.leadTimeMinutes });
     }
 
     // Notes
