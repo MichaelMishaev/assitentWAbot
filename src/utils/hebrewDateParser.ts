@@ -163,6 +163,41 @@ export function parseHebrewDate(
   }
   } // Close if (!extractedTime)
 
+  // THIRD: Match time-only patterns without colon (BUG FIX for "ב 21" → should be 21:00 today, not 21st of month)
+  // Match: "בשעה 21", "ב 21", "ב-21", "21" (if it's a valid hour 0-23)
+  // This MUST come before date parsing to prevent "21" from being interpreted as day-of-month
+  if (!extractedTime) {
+    const timeOnlyMatch = trimmedInput.match(/^(?:,?\s*(?:בשעה|ב-?)\s*)?(\d{1,2})$/);
+    if (timeOnlyMatch) {
+      const hour = parseInt(timeOnlyMatch[1], 10);
+      // Only treat as time if it's a valid hour (0-23) AND has time context indicators
+      // Context indicators: "בשעה", "ב-", or trailing comma suggests time not date
+      const hasTimeContext = /(?:בשעה|ב-?)\s*\d{1,2}/.test(trimmedInput) || trimmedInput.includes(',');
+
+      if ((hour >= 0 && hour <= 23) && (hasTimeContext || hour > 12)) {
+        // If hour > 12, it's definitely time (can't be a date in DD/MM format)
+        // If hour <= 12, only treat as time if there's explicit context (בשעה, ב-)
+        extractedTime = { hour, minute: 0 };
+        dateInput = ''; // Clear input since we're interpreting this as time-only
+
+        console.warn(`[DATE_PARSER] Time-only input detected: "${trimmedInput}" → interpreted as today at ${hour}:00`);
+
+        const todayWithTime = now.set({ hour, minute: 0 });
+
+        // Safety check: if time is in the past today, assume user meant tomorrow
+        const nowWithMinutes = DateTime.now().setZone(timezone);
+        const finalDate = todayWithTime < nowWithMinutes
+          ? todayWithTime.plus({ days: 1 })
+          : todayWithTime;
+
+        return {
+          success: true,
+          date: finalDate.toJSDate(),
+        };
+      }
+    }
+  }
+
   // FIX #1: Support "עוד X ימים" (in X days) pattern
   const relativeDaysMatch = dateInput.match(/^עוד\s+(\d+)\s+ימים?$/);
   if (relativeDaysMatch) {
@@ -406,7 +441,7 @@ export function parseHebrewDate(
   return {
     success: false,
     date: null,
-    error: 'קלט לא מזוהה. נסה: היום, מחר 14:00, יום לפני בערב, עוד 2 דקות, עוד שעה, בערב, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00',
+    error: 'קלט לא מזוהה. נסה: היום, מחר 14:00, ב 21, בשעה 18, יום לפני בערב, עוד 2 דקות, עוד שעה, בערב, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00',
   };
 }
 
