@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Production Deployment Script with WhatsApp Notifications
-# Deploys to DigitalOcean and sends status updates via WhatsApp
+# Production Deployment Script - Optimized for Low-Memory Servers (512MB)
+# Strategy: Build locally → Push to GitHub → Rsync dist → Restart
+# This avoids TypeScript compilation on the 512MB server
 
 set -e
 
@@ -9,7 +10,7 @@ set -e
 SERVER="root@167.71.145.9"
 APP_DIR="/root/wAssitenceBot"
 PM2_APP_NAME="ultrathink"
-YOUR_PHONE="972555030746"  # Your phone number for notifications
+YOUR_PHONE="972555030746"
 
 # Deployment locking
 LOCK_FILE="/tmp/wAssitenceBot.deploy.lock"
@@ -39,7 +40,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Logging
-LOG_FILE="deployment-$(date +%Y%m%d-%H%M%S).log"
+LOG_FILE="logs/deployment-$(date +%Y%m%d-%H%M%S).log"
+mkdir -p logs
 
 log() {
     echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1" | tee -a "$LOG_FILE"
@@ -53,53 +55,19 @@ error() {
     echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR:${NC} $1" | tee -a "$LOG_FILE"
 }
 
-# Function to send WhatsApp notification (requires bot to be running)
-send_notification() {
-    local message="$1"
-    local severity="$2"  # "info", "warning", "error", "success"
-
-    local emoji=""
-    case "$severity" in
-        "info") emoji="ℹ️" ;;
-        "warning") emoji="⚠️" ;;
-        "error") emoji="❌" ;;
-        "success") emoji="✅" ;;
-    esac
-
-    ssh "$SERVER" "cd $APP_DIR && node -e \"
-const { BaileysProvider } = require('./dist/providers/BaileysProvider.js');
-(async () => {
-    try {
-        const provider = new BaileysProvider();
-        await provider.initialize();
-        await provider.sendMessage('${YOUR_PHONE}@s.whatsapp.net', {
-            text: '${emoji} *Deployment Notification*\n\n${message}\n\nTime: \$(date)'
-        });
-        console.log('Notification sent successfully');
-    } catch (error) {
-        console.error('Failed to send notification:', error.message);
-    }
-})();
-\"" 2>/dev/null || warn "Could not send WhatsApp notification"
-}
-
 # Trap errors
-trap 'error "Deployment failed! Check $LOG_FILE for details"; send_notification "Deployment FAILED at step: $BASH_COMMAND" "error"; exit 1' ERR
+trap 'error "Deployment failed! Check $LOG_FILE for details"; exit 1' ERR
 
-log "🚀 Starting Production Deployment..."
+log "🚀 Starting Production Deployment (Optimized for 512MB)"
+log "Strategy: Local build → GitHub → Rsync → Restart"
 log "Target: $SERVER"
 log "App: $APP_DIR"
 log ""
 
-# Step 1: Check local build
-log "📦 Step 1/8: Building locally..."
-npm run build
-log "✅ Local build successful"
-
-# Step 2: Check for uncommitted changes
-log "🔍 Step 2/8: Checking for uncommitted changes..."
+# Step 1: Check for uncommitted changes
+log "🔍 Step 1/7: Checking for uncommitted changes..."
 if [[ -n $(git status -s) ]]; then
-    warn "You have uncommitted changes. Commit them first?"
+    warn "You have uncommitted changes:"
     git status -s
     read -p "Continue anyway? (y/n) " -n 1 -r
     echo
@@ -107,99 +75,90 @@ if [[ -n $(git status -s) ]]; then
         exit 1
     fi
 fi
+log "✅ Git status checked"
 
-# Step 3: Push to Git
-log "📤 Step 3/8: Pushing to GitHub..."
+# Step 2: Build locally (FAST - done on your machine with lots of RAM)
+log "📦 Step 2/7: Building locally..."
+npm run build
+log "✅ Local build successful (TypeScript compiled locally)"
+
+# Step 3: Push to GitHub (source of truth)
+log "📤 Step 3/7: Pushing to GitHub..."
 CURRENT_BRANCH=$(git branch --show-current)
 log "Branch: $CURRENT_BRANCH"
 git push origin "$CURRENT_BRANCH"
 log "✅ Pushed to GitHub"
 
-# Step 4: Connect to server
-log "🌐 Step 4/8: Connecting to server..."
-if ! ssh -q "$SERVER" exit; then
-    error "Cannot connect to $SERVER"
-    exit 1
-fi
-log "✅ Connected to server"
-
-# Step 5: Backup current deployment
-log "💾 Step 5/8: Creating backup..."
-ssh "$SERVER" "cd $APP_DIR && tar -czf ../backup-\$(date +%Y%m%d-%H%M%S).tar.gz . --exclude=node_modules --exclude=sessions --exclude=.git || true"
-log "✅ Backup created"
-
-# Step 6: Pull latest code
-log "⬇️  Step 6/8: Pulling latest code..."
+# Step 4: Pull source code on server (without building)
+log "⬇️  Step 4/7: Pulling source code on server..."
 ssh "$SERVER" << 'ENDSSH'
 cd /root/wAssitenceBot
+
+# Remove git lock files if exists (prevents hanging)
+rm -f .git/*.lock .git/refs/heads/*.lock 2>/dev/null || true
+
+# Pull latest code (source only, no build)
 git fetch origin
 git reset --hard origin/main
 git pull origin main
-ENDSSH
-log "✅ Code updated"
 
-# Step 7: Install dependencies, rebuild natives, and build
-log "🔨 Step 7/8: Installing dependencies and building..."
+# Ensure node_modules are installed (one-time or when package.json changes)
+# Only installs if needed (npm checks timestamps)
+npm install --production=false --prefer-offline
+ENDSSH
+log "✅ Source code updated on server"
+
+# Step 5: Rsync dist folder (FAST - only transfers changed files)
+log "🚀 Step 5/7: Syncing compiled code to server..."
+log "Transferring dist/ folder via rsync..."
+
+# Rsync only the dist folder (much faster than building remotely)
+rsync -avz --delete \
+  --exclude='node_modules' \
+  --exclude='sessions' \
+  --exclude='.git' \
+  --exclude='logs' \
+  --exclude='*.log' \
+  ./dist/ "$SERVER:$APP_DIR/dist/"
+
+log "✅ Compiled code synced (rsync completed)"
+
+# Step 6: Quick server check and native module rebuild (only if needed)
+log "🔧 Step 6/7: Checking native modules..."
 ssh "$SERVER" << 'ENDSSH'
 cd /root/wAssitenceBot
 
-# Install dependencies
-npm install --production=false
-
-# CRITICAL: Rebuild native modules for Linux platform
-# This prevents crash loops from macOS-compiled binaries (bcrypt, puppeteer)
-echo "🔧 Rebuilding native modules for Linux..."
-npm rebuild bcrypt
-npm rebuild puppeteer || true  # May not need rebuild but safe to try
-
-# Build TypeScript
-npm run build
-
-# Deploy PM2 ecosystem config if exists
-if [ -f ecosystem.config.cjs ]; then
-    echo "📋 PM2 ecosystem config found - will use for restart"
+# Only rebuild natives if they're problematic (skip if working)
+# This saves time and memory
+if pm2 jlist 2>/dev/null | jq -r '.[] | select(.name=="ultrathink") | .pm2_env.status' | grep -q "errored"; then
+    echo "⚠️  App was errored, rebuilding native modules..."
+    npm rebuild bcrypt
+else
+    echo "✅ Native modules OK (skipping rebuild)"
 fi
 ENDSSH
-log "✅ Dependencies installed, natives rebuilt, and built"
+log "✅ Native modules checked"
 
-# Step 8: Check if QR code is needed
-log "🔐 Step 8/8: Checking authentication status..."
-QR_NEEDED=$(ssh "$SERVER" "cd $APP_DIR && [ ! -f sessions/auth_info.json ] && echo 'true' || echo 'false'")
-
-if [[ "$QR_NEEDED" == "true" ]]; then
-    warn "⚠️  QR CODE REQUIRED!"
-    warn "Sessions directory is empty - bot needs re-authentication"
-    send_notification "DEPLOYMENT PAUSED: QR code scan required!\n\nRun: ssh $SERVER\nThen: pm2 logs $PM2_APP_NAME\nScan QR code with WhatsApp" "warning"
-
-    echo ""
-    echo -e "${YELLOW}════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}  🔐 QR CODE AUTHENTICATION REQUIRED${NC}"
-    echo -e "${YELLOW}════════════════════════════════════════${NC}"
-    echo ""
-    echo "Run these commands to scan QR code:"
-    echo -e "${BLUE}  ssh $SERVER${NC}"
-    echo -e "${BLUE}  cd $APP_DIR && pm2 restart $PM2_APP_NAME && pm2 logs $PM2_APP_NAME${NC}"
-    echo ""
-    read -p "Press Enter after scanning QR code to continue..."
-fi
-
-# Restart PM2 with ecosystem config
-log "♻️  Restarting application..."
+# Step 7: Restart PM2
+log "♻️  Step 7/7: Restarting application..."
 ssh "$SERVER" << 'ENDSSH'
 cd /root/wAssitenceBot
 
-# Reset restart counter to clear old crash loop stats
+# Reset restart counter
 pm2 reset ultrathink 2>/dev/null || true
 
-# Use ecosystem config if available, otherwise standard restart
+# Restart with ecosystem config
 if [ -f ecosystem.config.cjs ]; then
-    echo "🔄 Restarting with ecosystem.config.cjs (restart limits enabled)"
-    pm2 reload ecosystem.config.cjs --update-env
+    echo "🔄 Restarting with ecosystem.config.cjs (crash limits enabled)"
+    pm2 restart ecosystem.config.cjs --update-env
 else
     echo "🔄 Restarting normally"
     pm2 restart ultrathink
 fi
 ENDSSH
+
+# Wait for app to start
+log "⏳ Waiting for app to start..."
 sleep 5
 
 # Check if app is running
@@ -209,42 +168,49 @@ APP_STATUS=$(ssh "$SERVER" "pm2 jlist | jq -r '.[] | select(.name==\"$PM2_APP_NA
 if [[ "$APP_STATUS" == "online" ]]; then
     log "✅ Application is running"
 
-    # Check for errors in logs
-    sleep 3
-    RECENT_ERRORS=$(ssh "$SERVER" "pm2 logs $PM2_APP_NAME --nostream --lines 50 --err | grep -i 'error' | wc -l")
+    # Get stats
+    APP_INFO=$(ssh "$SERVER" "pm2 jlist | jq -r '.[] | select(.name==\"$PM2_APP_NAME\") | {uptime: .pm2_env.pm_uptime, restarts: .pm2_env.restart_time, memory: .monit.memory}'")
+
+    log "📊 App Info: $APP_INFO"
+
+    # Check for recent errors
+    sleep 2
+    RECENT_ERRORS=$(ssh "$SERVER" "tail -100 $APP_DIR/logs/pm2-error.log 2>/dev/null | grep -i 'error' | tail -5 | wc -l || echo 0")
 
     if [[ $RECENT_ERRORS -gt 0 ]]; then
-        warn "Found $RECENT_ERRORS error(s) in recent logs"
-        send_notification "Deployment completed but found $RECENT_ERRORS errors in logs. Check: pm2 logs $PM2_APP_NAME" "warning"
+        warn "Found errors in recent logs - check: pm2 logs $PM2_APP_NAME"
     else
-        log "✅ No errors in recent logs"
-        send_notification "Deployment completed successfully!\n\nBranch: $CURRENT_BRANCH\nStatus: $APP_STATUS" "success"
+        log "✅ No recent errors"
     fi
 else
     error "Application is NOT running! Status: $APP_STATUS"
-    send_notification "Deployment FAILED! App status: $APP_STATUS\n\nCheck logs immediately!" "error"
+    error "Check logs: ssh $SERVER 'pm2 logs $PM2_APP_NAME'"
     exit 1
 fi
 
-# Show deployment summary
+# Deployment summary
 log ""
 log "═══════════════════════════════════════"
-log "🎉 Deployment Summary"
+log "🎉 Deployment Complete!"
 log "═══════════════════════════════════════"
 log "Server: $SERVER"
 log "Branch: $CURRENT_BRANCH"
 log "Status: $APP_STATUS"
 log "Time: $(date)"
-log "Logs: $LOG_FILE"
+log "Log File: $LOG_FILE"
 log "═══════════════════════════════════════"
 log ""
+log "✅ Deployment successful!"
+log ""
+log "Next steps:"
+log "  - View logs: ssh $SERVER 'pm2 logs $PM2_APP_NAME'"
+log "  - Monitor: ssh $SERVER 'pm2 monit'"
+log "  - Status: ssh $SERVER 'pm2 status $PM2_APP_NAME'"
+log ""
 
-# Tail logs
-echo ""
-read -p "View live logs? (y/n) " -n 1 -r
+# Offer to view logs
+read -p "View live logs now? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     ssh "$SERVER" "pm2 logs $PM2_APP_NAME"
 fi
-
-log "✅ Deployment complete!"
