@@ -191,9 +191,22 @@ export class EventService {
       const startDate = weekStart || new Date();
       const dt = DateTime.fromJSDate(startDate).setZone('Asia/Jerusalem');
 
-      // Get start of week (Sunday) and end of week (Saturday)
-      const startOfWeek = dt.startOf('week').toUTC().toJSDate();
-      const endOfWeek = dt.endOf('week').toUTC().toJSDate();
+      // CRITICAL FIX: In Israel, week starts on Sunday (not Monday)
+      // Luxon weekday: 1=Monday, 2=Tuesday, ..., 7=Sunday
+      // Calculate start of week (Sunday) manually
+      const daysFromSunday = dt.weekday === 7 ? 0 : dt.weekday;
+      const startOfWeek = dt.minus({ days: daysFromSunday }).startOf('day').toUTC().toJSDate();
+      // End of week is next Sunday (exclusive), which gives us through Saturday
+      const endOfWeek = dt.minus({ days: daysFromSunday }).plus({ days: 7 }).startOf('day').toUTC().toJSDate();
+
+      logger.info('Getting events for week (Israel: Sunday-Saturday)', {
+        userId,
+        requestedDate: dt.toFormat('yyyy-MM-dd (EEE)'),
+        weekday: dt.weekday,
+        daysFromSunday,
+        startOfWeek: DateTime.fromJSDate(startOfWeek).setZone('Asia/Jerusalem').toFormat('yyyy-MM-dd (EEE)'),
+        endOfWeek: DateTime.fromJSDate(endOfWeek).setZone('Asia/Jerusalem').toFormat('yyyy-MM-dd (EEE)')
+      });
 
       const query = `
         SELECT * FROM events
