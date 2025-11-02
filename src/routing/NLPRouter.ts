@@ -427,6 +427,7 @@ export class NLPRouter {
           time: entities.time,
           date: entities.date,
           recurrence: entities.recurrence?.rrule,
+          leadTimeMinutes: entities.leadTimeMinutes, // BUG FIX: Extract lead time from "תזכיר לי יום לפני"
           notes: entities.notes,
         },
         comment: {
