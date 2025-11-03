@@ -48,8 +48,9 @@ export async function scheduleReminder(
   let validatedLeadTime = 0;
   if (leadTimeMinutes !== undefined && leadTimeMinutes !== null) {
     if (typeof leadTimeMinutes === 'number' && !isNaN(leadTimeMinutes)) {
-      // Clamp to valid range [0, 120]
-      validatedLeadTime = Math.max(0, Math.min(120, Math.floor(leadTimeMinutes)));
+      // Clamp to valid range [0, 10080] (max 1 week = 7 days * 24 hours * 60 minutes)
+      // BUG FIX: Increased from 120 to 10080 to support "תזכיר לי יום לפני" (1440 min = 1 day)
+      validatedLeadTime = Math.max(0, Math.min(10080, Math.floor(leadTimeMinutes)));
     } else {
       logger.warn('Invalid lead time provided, using 0', {
         reminderId: job.reminderId,
