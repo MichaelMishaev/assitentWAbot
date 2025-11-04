@@ -164,10 +164,15 @@ Rules:
    - "תזכיר לי יומיים לפני" → leadTimeMinutes: 2880 (48 hours)
    - "תזכיר לי שעה לפני" → leadTimeMinutes: 60
    - "תזכיר לי שעתיים לפני" → leadTimeMinutes: 120
+   - "תזכיר לי 3 שעות לפני" → leadTimeMinutes: 180 (3 × 60)
+   - "תזכיר לי 6 שעות לפני" → leadTimeMinutes: 360 (6 × 60)
+   - "תזכיר לי 12 שעות לפני" → leadTimeMinutes: 720 (12 × 60)
    - "תזכיר לי 30 דקות לפני" → leadTimeMinutes: 30
+   - "תזכיר לי 15 דקות לפני" → leadTimeMinutes: 15
    - "תזכיר לי חצי שעה לפני" → leadTimeMinutes: 30
    - "תזכיר לי שבוע לפני" → leadTimeMinutes: 10080 (7 days * 24 * 60)
    - DO NOT put "תזכיר לי X לפני" in notes - extract it as leadTimeMinutes!
+   - **PATTERN**: "X שעות לפני" = X × 60 minutes, "X דקות לפני" = X minutes, "X ימים לפני" = X × 1440 minutes
 10. **CRITICAL - Event Context Reminder Date Calculation (BUG FIX #25):**
    - When text contains "תזכיר לי X לפני (בהקשר לאירוע: TITLE בתאריך DD.MM.YYYY בשעה HH:MM)"
    - Extract event date from context: "בתאריך 08.11.2025 בשעה 09:00" → date: "2025-11-08T09:00:00"
