@@ -301,20 +301,25 @@ export class NLPRouter {
             eventIds = [eventContextRaw];
           }
 
-          // Retrieve event titles
-          const eventTitles: string[] = [];
+          // BUG FIX: Retrieve event titles AND dates for reminder lead time calculation
+          // When user quotes event and says "תזכיר לי יום לפני", AI needs event date to calculate reminder date
+          const eventDescriptions: string[] = [];
           for (const eventId of eventIds.slice(0, 5)) { // Max 5 events for context
             const event = await this.eventService.getEventById(eventId, userId);
             if (event) {
-              eventTitles.push(event.title);
+              // Format event with date and time for AI context
+              const eventDateTime = DateTime.fromJSDate(new Date(event.startTsUtc)).setZone('Asia/Jerusalem');
+              const dateStr = eventDateTime.toFormat('dd.MM.yyyy');
+              const timeStr = eventDateTime.toFormat('HH:mm');
+              eventDescriptions.push(`${event.title} בתאריך ${dateStr} בשעה ${timeStr}`);
             }
           }
 
           // Inject event context into user text for NLP
-          if (eventTitles.length === 1) {
-            contextEnhancedText = `${text} (בהקשר לאירוע: ${eventTitles[0]})`;
-          } else if (eventTitles.length > 1) {
-            contextEnhancedText = `${text} (בהקשר לאירועים: ${eventTitles.join(', ')})`;
+          if (eventDescriptions.length === 1) {
+            contextEnhancedText = `${text} (בהקשר לאירוע: ${eventDescriptions[0]})`;
+          } else if (eventDescriptions.length > 1) {
+            contextEnhancedText = `${text} (בהקשר לאירועים: ${eventDescriptions.join(', ')})`;
           }
 
           logger.info('Injected event context into NLP', { userId, originalText: text, enhancedText: contextEnhancedText });
@@ -352,8 +357,19 @@ export class NLPRouter {
           // Use most recent event (first in array)
           const mostRecent = recentEvents[0];
 
-          // Inject recent event context into user text for NLP
-          contextEnhancedText = `${text} (בהקשר לאירוע האחרון שנוצר: ${mostRecent.title})`;
+          // BUG FIX: Fetch full event to get startTsUtc for reminder lead time calculation
+          const fullEvent = await this.eventService.getEventById(mostRecent.id, userId);
+          if (fullEvent) {
+            const eventDateTime = DateTime.fromJSDate(new Date(fullEvent.startTsUtc)).setZone('Asia/Jerusalem');
+            const dateStr = eventDateTime.toFormat('dd.MM.yyyy');
+            const timeStr = eventDateTime.toFormat('HH:mm');
+
+            // Inject recent event context into user text for NLP
+            contextEnhancedText = `${text} (בהקשר לאירוע האחרון שנוצר: ${mostRecent.title} בתאריך ${dateStr} בשעה ${timeStr})`;
+          } else {
+            // Fallback: use title only if event not found
+            contextEnhancedText = `${text} (בהקשר לאירוע האחרון שנוצר: ${mostRecent.title})`;
+          }
 
           logger.info('[BUG_FIX_#14] Injected recent event context for reminder intent', {
             userId,
