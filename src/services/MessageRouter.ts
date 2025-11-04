@@ -276,6 +276,7 @@ export class MessageRouter {
    * @throws Never throws - all errors are caught and handled gracefully
    */
   async routeMessage(from: string, text: string, messageId?: string, quotedMessage?: { messageId: string; participant?: string }): Promise<void> {
+    const routeStartTime = Date.now();
     try {
       logger.info('Routing message', { from, text, messageId, quotedMessage });
 
@@ -528,6 +529,17 @@ export class MessageRouter {
 
       await this.handleStateMessage(from, authState.userId!, state, text);
 
+      // Log end-to-end performance metrics
+      const routeDuration = Date.now() - routeStartTime;
+      logger.info('⏱️  Message processing completed', {
+        messageId,
+        from,
+        duration: `${routeDuration}ms`,
+        durationMs: routeDuration,
+        state,
+        performanceWarning: routeDuration > 3000 ? '🐌 SLOW (>3s)' : routeDuration > 1000 ? '⚠️  MODERATE (>1s)' : '✅ FAST'
+      });
+
       // Mark message as successfully processed (after all handlers complete)
       if (messageId) {
         await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString()); // 24h retention
@@ -536,7 +548,8 @@ export class MessageRouter {
       }
 
     } catch (error) {
-      logger.error('Error routing message', { from, error });
+      const routeDuration = Date.now() - routeStartTime;
+      logger.error('Error routing message', { from, error, duration: `${routeDuration}ms`, durationMs: routeDuration });
 
       // Clear processing flag on error so user can retry
       if (messageId) {

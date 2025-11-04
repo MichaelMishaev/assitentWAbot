@@ -517,7 +517,8 @@
     }
 
     function closeModal(event) {
-      if (!event || event.target.id === 'detailModal' || event.type === 'click') {
+      // Close modal when: clicking X button (no event) or clicking backdrop
+      if (!event || event.target.id === 'detailModal') {
         document.getElementById('detailModal').classList.remove('active');
       }
     }
@@ -551,11 +552,12 @@
         }
 
         const { events, stats } = result.data;
-        allEvents = events;
+        // Sort events by date descending (newest first)
+        allEvents = events.sort((a, b) => new Date(b.startTsUtc) - new Date(a.startTsUtc));
 
         renderStats(stats);
         renderLocations(stats.topLocations);
-        renderEvents(events);
+        renderEvents(allEvents); // Use sorted events
 
         console.log('✅ Data loaded successfully from API');
       } catch (error) {

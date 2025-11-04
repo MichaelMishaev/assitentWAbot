@@ -152,6 +152,7 @@ export class EnsembleClassifier extends BasePhase {
    * Classify with GPT-4o-mini (best OpenAI model for the price)
    */
   private async classifyWithGPT(prompt: string, context: PhaseContext): Promise<ModelVote> {
+    const apiStart = Date.now();
     try {
       // Import existing NLPService
       const { NLPService } = await import('../../../services/NLPService.js');
@@ -164,6 +165,17 @@ export class EnsembleClassifier extends BasePhase {
         context.userTimezone
       );
 
+      const apiDuration = Date.now() - apiStart;
+      logger.info('🤖 OpenAI API call completed', {
+        model: 'gpt-4o-mini',
+        operation: 'intent-classification',
+        duration: `${apiDuration}ms`,
+        durationMs: apiDuration,
+        intent: result.intent,
+        confidence: result.confidence,
+        performanceWarning: apiDuration > 2000 ? '🐌 SLOW (>2s)' : apiDuration > 1000 ? '⚠️  MODERATE (>1s)' : '✅ FAST'
+      });
+
       return {
         model: 'gpt-4o-mini',
         intent: result.intent,
@@ -172,7 +184,8 @@ export class EnsembleClassifier extends BasePhase {
       };
 
     } catch (error) {
-      logger.error('GPT classification failed', { error });
+      const apiDuration = Date.now() - apiStart;
+      logger.error('GPT classification failed', { error, duration: `${apiDuration}ms`, durationMs: apiDuration });
       throw error;
     }
   }
