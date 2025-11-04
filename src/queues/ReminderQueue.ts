@@ -67,38 +67,20 @@ export async function scheduleReminder(
   const delay = targetSendTime - now;
 
   // SAFETY CHECK #1: Reminder would be in the past
-  if (delay < 0) {
+  // BUG FIX: Only treat as "in the past" if it's more than 60 seconds behind
+  // (to account for computation delays). Otherwise, schedule normally with delay=0
+  if (delay < -60000) {
     const minutesInPast = Math.abs(Math.floor(delay / (60 * 1000)));
 
-    if (minutesInPast > 5) {
-      // More than 5 minutes in past - skip it
-      logger.warn('Reminder target time is too far in past, skipping', {
-        reminderId: job.reminderId,
-        dueDate,
-        leadTimeMinutes: validatedLeadTime,
-        minutesInPast,
-        targetSendTime: new Date(targetSendTime),
-      });
-      return;
-    } else {
-      // Less than 5 minutes in past - send immediately
-      logger.info('Reminder target time slightly in past, sending immediately', {
-        reminderId: job.reminderId,
-        dueDate,
-        leadTimeMinutes: validatedLeadTime,
-        minutesInPast,
-      });
-
-      await reminderQueue.add(
-        'send-reminder',
-        { ...job, leadTimeMinutes: validatedLeadTime },
-        {
-          delay: 0, // Send immediately
-          jobId: `reminder-${job.reminderId}`,
-        }
-      );
-      return;
-    }
+    // More than 5 minutes in past - skip it
+    logger.warn('Reminder target time is too far in past, skipping', {
+      reminderId: job.reminderId,
+      dueDate,
+      leadTimeMinutes: validatedLeadTime,
+      minutesInPast,
+      targetSendTime: new Date(targetSendTime),
+    });
+    return;
   }
 
   // SAFETY CHECK #2: Lead time is greater than time until due date

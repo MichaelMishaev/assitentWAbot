@@ -325,18 +325,19 @@ export class NLPRouter {
       }
 
       // ===== LAYER 1: PRE-AI KEYWORD DETECTION (Option 5 - Hybrid Approach) =====
-      // Check for explicit reminder keywords ANYWHERE in message (word boundary match)
+      // Check for explicit reminder keywords ANYWHERE in message
       // This catches obvious cases BEFORE expensive AI call
       // Hebrew verb conjugations from root ז-כ-ר (z-k-r): remind/remember
-      // Using \b (word boundary) to match whole words, not parts of words
-      const reminderKeywordPattern = /\b(תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|remind|reminder|remindme)\b/i;
+      // BUG FIX: Removed \b (word boundary) because it doesn't work with Hebrew characters!
+      // Hebrew regex needs manual spacing or start/end boundaries
+      const reminderKeywordPattern = /(^|[\s,.])(תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|אני רוצה תזכורת|תזכיר לי שוב|remind|reminder|remindme)($|[\s,.])/i;
       const hasExplicitReminderKeyword = reminderKeywordPattern.test(text.trim());
 
       if (hasExplicitReminderKeyword) {
         logger.info('🎯 Layer 1: Explicit reminder keyword detected anywhere in message', {
           userId,
           text: text.substring(0, 50),
-          keyword: text.trim().match(reminderKeywordPattern)?.[1]
+          keyword: text.trim().match(reminderKeywordPattern)?.[2] // Capture group 2 is the keyword
         });
         // Continue to AI but boost reminder confidence in Layer 2
       }
@@ -475,7 +476,7 @@ export class NLPRouter {
           threshold: requiredConfidence
         });
       } else if (isCreateIntent) {
-        requiredConfidence = 0.7; // User can confirm - higher threshold
+        requiredConfidence = 0.5; // BUG FIX: Lowered from 0.7 to 0.5 (was rejecting valid intents like "תזכיר לי שוב מחר" at 0.60)
       } else if (isDestructiveIntent) {
         requiredConfidence = 0.6; // Destructive but confirmable
       } else {
@@ -489,7 +490,8 @@ export class NLPRouter {
         // ===== LAYER 3: FALLBACK DISAMBIGUATION (Option 5 - Hybrid Approach) =====
         // If AI failed but user used reminder keywords ANYWHERE in message, ask for confirmation instead of generic error
         // Check for any Hebrew conjugation of ז-כ-ר root or English variants
-        const anywhereKeywordPattern = /(תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|remind)/i;
+        // BUG FIX: No word boundaries for Hebrew - simple substring match is enough for fallback
+        const anywhereKeywordPattern = /(תזכיר|תזכירי|תזכורת|הזכר|הזכרה|הזכירי|הזכירו|מזכיר|נזכיר|אזכיר|אני רוצה תזכורת|תזכיר לי שוב|remind)/i;
         const hasAnyReminderKeyword = anywhereKeywordPattern.test(text);
         const aiMissedReminder = hasAnyReminderKeyword && adaptedResult.intent !== 'create_reminder' && adaptedResult.intent !== 'update_reminder';
 
