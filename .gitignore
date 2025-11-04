@@ -49,6 +49,7 @@ backups/
 # Documentation with secrets
 DEPLOYMENT_CHECKLIST.md
 docs/digicatOcean/connect.md
+docs/tools/brave.md
 
 # Testing
 coverage/
