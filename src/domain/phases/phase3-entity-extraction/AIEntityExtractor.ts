@@ -160,19 +160,36 @@ Rules:
    - "פגישה 20.10 15:00" → date: "2025-10-20", time: "15:00"
    - "20.10 ב-15:00" → date: "2025-10-20", time: "15:00"
 9. **CRITICAL - Lead Time Extraction:** If text contains "תזכיר לי X לפני", extract as leadTimeMinutes:
-   - "תזכיר לי יום לפני" → leadTimeMinutes: 1440 (24 hours * 60 = 1440 minutes)
-   - "תזכיר לי יומיים לפני" → leadTimeMinutes: 2880 (48 hours)
+
+   **HOURS (ANY number is valid! Use formula: X שעות = X × 60 minutes)**:
    - "תזכיר לי שעה לפני" → leadTimeMinutes: 60
    - "תזכיר לי שעתיים לפני" → leadTimeMinutes: 120
-   - "תזכיר לי 3 שעות לפני" → leadTimeMinutes: 180 (3 × 60)
-   - "תזכיר לי 6 שעות לפני" → leadTimeMinutes: 360 (6 × 60)
-   - "תזכיר לי 12 שעות לפני" → leadTimeMinutes: 720 (12 × 60)
-   - "תזכיר לי 30 דקות לפני" → leadTimeMinutes: 30
+   - "תזכיר לי 3 שעות לפני" → leadTimeMinutes: 180
+   - "תזכיר לי 4 שעות לפני" → leadTimeMinutes: 240
+   - "תזכיר לי 5 שעות לפני" → leadTimeMinutes: 300 (BUG FIX #26: User explicitly asked for this!)
+   - "תזכיר לי 6 שעות לפני" → leadTimeMinutes: 360
+   - "תזכיר לי 7 שעות לפני" → leadTimeMinutes: 420
+   - "תזכיר לי 8 שעות לפני" → leadTimeMinutes: 480
+   - "תזכיר לי 10 שעות לפני" → leadTimeMinutes: 600
+   - "תזכיר לי 12 שעות לפני" → leadTimeMinutes: 720
+   - "תזכיר לי 24 שעות לפני" → leadTimeMinutes: 1440
+
+   **MINUTES (common values)**:
+   - "תזכיר לי 10 דקות לפני" → leadTimeMinutes: 10
    - "תזכיר לי 15 דקות לפני" → leadTimeMinutes: 15
+   - "תזכיר לי 20 דקות לפני" → leadTimeMinutes: 20
+   - "תזכיר לי 30 דקות לפני" → leadTimeMinutes: 30
+   - "תזכיר לי 45 דקות לפני" → leadTimeMinutes: 45
    - "תזכיר לי חצי שעה לפני" → leadTimeMinutes: 30
-   - "תזכיר לי שבוע לפני" → leadTimeMinutes: 10080 (7 days * 24 * 60)
+
+   **DAYS**:
+   - "תזכיר לי יום לפני" → leadTimeMinutes: 1440
+   - "תזכיר לי יומיים לפני" → leadTimeMinutes: 2880
+   - "תזכיר לי שבוע לפני" → leadTimeMinutes: 10080
+
    - DO NOT put "תזכיר לי X לפני" in notes - extract it as leadTimeMinutes!
-   - **PATTERN**: "X שעות לפני" = X × 60 minutes, "X דקות לפני" = X minutes, "X ימים לפני" = X × 1440 minutes
+   - **FORMULA**: For ANY number X: "X שעות לפני" = X × 60, "X דקות לפני" = X, "X ימים לפני" = X × 1440
+   - **IMPORTANT**: If user says "5 שעות לפני" or "9 שעות לפני" or ANY other number, calculate: number × 60!
 10. **CRITICAL - Event Context Reminder Date Calculation (BUG FIX #25):**
    - When text contains "תזכיר לי X לפני (בהקשר לאירוע: TITLE בתאריך DD.MM.YYYY בשעה HH:MM)"
    - Extract event date from context: "בתאריך 08.11.2025 בשעה 09:00" → date: "2025-11-08T09:00:00"
