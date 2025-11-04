@@ -43,9 +43,84 @@
 
 ---
 
-## ✅ FIXED - Commit [hash]
+## ✅ FIXED - Commit 67e1db3 (2025-11-04)
 
-### Bug #[NEW]: "תזכיר לי יום לפני" stored as notes instead of lead time for create_reminder
+### Bug #25: Lead Time Calculation for Quoted Event Reminders
+**Issue:**
+```
+User quotes event (Saturday 8.11 at 09:00) and says "תזכיר לי יום לפני"
+Bot creates reminder scheduled for: 5.11 ❌ (3 days before!)
+Expected reminder date: 7.11 ✅ (1 day before event)
+Off by 2 days! Critical bug affecting event-based reminders.
+
+Production Evidence:
+- Bug Report #1 (2025-11-04 07:36:16): "event scheduled for 7.11, asked to remind me a day before, it scheduled reminder for..."
+- Bug Report #2 (2025-11-04 07:57:14): "#asked to remind me day before a meeting, the meeting on 8.11, the reminder on 5.11, bug!"
+```
+
+**Root Cause:**
+When user quotes an event, system was only injecting event **title** into NLP context:
+```typescript
+contextEnhancedText = `${text} (בהקשר לאירוע: ${eventTitle})`;
+// Result: "תזכיר לי יום לפני (בהקשר לאירוע: טקס קבלת ספר תורה)"
+```
+
+AI tried to interpret "יום לפני" (day before) without any reference date!
+- No event date → AI extracted wrong date (e.g., "yesterday" or random past date)
+- leadTimeMinutes was correctly extracted (1440) but applied to wrong base date
+
+**Fix Applied:**
+
+**1. Context Injection Fix** (`src/routing/NLPRouter.ts` lines 304-323):
+Changed from:
+```typescript
+eventTitles.push(event.title); // ❌ Only title
+contextEnhancedText = `${text} (בהקשר לאירוע: ${eventTitles[0]})`;
+```
+
+To:
+```typescript
+// ✅ Include date AND time
+const eventDateTime = DateTime.fromJSDate(new Date(event.startTsUtc)).setZone('Asia/Jerusalem');
+const dateStr = eventDateTime.toFormat('dd.MM.yyyy');
+const timeStr = eventDateTime.toFormat('HH:mm');
+eventDescriptions.push(`${event.title} בתאריך ${dateStr} בשעה ${timeStr}`);
+contextEnhancedText = `${text} (בהקשר לאירוע: ${eventDescriptions[0]})`;
+// Result: "תזכיר לי יום לפני (בהקשר לאירוע: טקס בתאריך 08.11.2025 בשעה 09:00)"
+```
+
+**2. Recent Events Context** (`src/routing/NLPRouter.ts` lines 360-372):
+Same fix applied for recently created events (when user says "תזכיר לי" without quoting).
+
+**3. AI Training Examples** (`src/domain/phases/phase3-entity-extraction/AIEntityExtractor.ts` lines 171-178):
+Added explicit rule:
+```
+10. **CRITICAL - Event Context Reminder Date Calculation (BUG FIX #25):**
+   - When text contains "תזכיר לי X לפני (בהקשר לאירוע: TITLE בתאריך DD.MM.YYYY בשעה HH:MM)"
+   - Extract event date from context: "בתאריך 08.11.2025 בשעה 09:00" → date: "2025-11-08T09:00:00"
+   - Extract leadTimeMinutes from "X לפני": "יום לפני" → leadTimeMinutes: 1440
+   - DO NOT extract "יום לפני" as a date! Extract the event date from context instead!
+```
+
+**Impact:**
+- ✅ AI now extracts event date from context: `2025-11-08T09:00:00`
+- ✅ AI extracts leadTimeMinutes: `1440` (1 day)
+- ✅ Reminder calculated correctly: 8.11 - 1 day = 7.11
+- ✅ Fixes 2 critical production bug reports
+
+**Status:** ✅ FIXED (deployed to production 2025-11-04 10:05:27)
+**Commit:** 67e1db3
+**Test:**
+1. Create event: "טקס" on 8.11.2025 at 09:00
+2. Quote event message
+3. Say: "תזכיר לי יום לפני"
+4. Expected: Reminder scheduled for 7.11.2025 at 09:00 ✅
+
+**Severity:** CRITICAL - 100% failure rate for quoted event reminders with "X לפני" patterns
+
+---
+
+### Bug #[PREVIOUS]: "תזכיר לי יום לפני" stored as notes instead of lead time for create_reminder
 **Issue:**
 ```
 User (972542101057) sent: "יום שישי , 09:30\nטקס קבלת ספר תורה לאמה \nתזכיר לי יום לפני"
