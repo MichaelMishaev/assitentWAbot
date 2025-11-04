@@ -1004,8 +1004,43 @@ export class NLPRouter {
       }
     }
 
-    // Format date for display - use DateTime to ensure correct timezone display
-    const displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+    // BUG FIX: Calculate display date based on whether leadTimeMinutes was extracted
+    // If user said "תזכיר לי יום לפני", show when they'll GET NOTIFIED, not the event date
+    let displayDate: string;
+    let contextNote = '';
+
+    if (reminder.leadTimeMinutes && typeof reminder.leadTimeMinutes === 'number' && reminder.leadTimeMinutes > 0) {
+      // Lead time was extracted from user message - show NOTIFICATION time
+      const notificationTime = dt.minus({ minutes: reminder.leadTimeMinutes });
+      displayDate = notificationTime.toFormat('dd/MM/yyyy HH:mm');
+
+      // Add context note showing when the actual event/reminder is
+      const eventDate = dt.toFormat('dd/MM/yyyy HH:mm');
+
+      // Format lead time in human-readable Hebrew
+      let leadTimeText = '';
+      if (reminder.leadTimeMinutes >= 1440) {
+        const days = Math.floor(reminder.leadTimeMinutes / 1440);
+        leadTimeText = days === 1 ? 'יום' : `${days} ימים`;
+      } else if (reminder.leadTimeMinutes >= 60) {
+        const hours = Math.floor(reminder.leadTimeMinutes / 60);
+        leadTimeText = hours === 1 ? 'שעה' : `${hours} שעות`;
+      } else {
+        leadTimeText = `${reminder.leadTimeMinutes} דקות`;
+      }
+
+      contextNote = `⏰ תזכורת תישלח ${leadTimeText} לפני (${eventDate})`;
+
+      logger.info('Display shows notification time (not event time)', {
+        eventDate,
+        notificationDate: displayDate,
+        leadTimeMinutes: reminder.leadTimeMinutes,
+        leadTimeText
+      });
+    } else {
+      // No lead time extracted - show reminder due date as-is
+      displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+    }
 
     // Check if this is a recurring reminder
     const isRecurring = reminder.recurrence && reminder.recurrence.trim().length > 0;
@@ -1068,7 +1103,7 @@ export class NLPRouter {
 
 📌 ${reminder.title}
 📅 ${displayDate}
-${recurrenceText ? recurrenceText + '\n' : ''}${reminder.notes ? '📝 הערות: ' + reminder.notes + '\n' : ''}
+${contextNote ? contextNote + '\n' : ''}${recurrenceText ? recurrenceText + '\n' : ''}${reminder.notes ? '📝 הערות: ' + reminder.notes + '\n' : ''}
 ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת ' + reminder.title + '"\n' : ''}`;
 
       await this.sendMessage(phone, summaryMessage);
