@@ -2,6 +2,83 @@
 
 ## 📋 NEW FEATURES
 
+### Feature: Comprehensive Help Menu for New Users
+**Description:** Updated help menu (`/עזרה`, `/help`) to provide comprehensive onboarding guide for new users with all bot features, examples, and FAQ.
+**Status:** ✅ IMPLEMENTED (2025-11-05)
+**Components Modified:**
+1. `src/utils/menuRenderer.ts` - `renderHelpMenu()` function (lines 27-193)
+   - Expanded from basic help to comprehensive user guide
+   - Added sections: Main Features, Natural Language, Quick Commands, Beginner's Guide, Advanced Tips, Bug Reporting, FAQ
+   - Included detailed examples for events, reminders, tasks, and queries
+   - Added emoji-rich visual structure for better readability
+
+2. `src/routing/CommandRouter.ts` - `showHelp()` method (lines 106-274)
+   - Updated to match comprehensive help menu
+   - Ensures consistent help experience across all access points
+
+**Key Sections Added:**
+- 📱 **Main Features** (6 categories)
+  - Events Management (with Hebrew calendar support)
+  - Smart Reminders (with lead time)
+  - Tasks with Priorities
+  - Morning Summary (7 AM daily + /test command)
+  - Dashboard (HTML calendar)
+  - Settings (language, timezone)
+
+- 💬 **Natural Language Examples**
+  - Event creation: "קבע פגישה עם דני מחר ב-3"
+  - Reminders: "תזכיר לי להתקשר לאמא ביום רביעי"
+  - Queries: "מה יש לי היום?"
+
+- ⚡ **Quick Commands**
+  - `/תפריט` or `/menu` - Main menu
+  - `/ביטול` or `/cancel` - Cancel operation
+  - `/עזרה` or `/help` - Help
+  - `/test` or `/בדיקה` - Preview morning summary
+  - `/התנתק` or `/logout` - Logout
+
+- 🎯 **Beginner's Quick Start**
+  - Step-by-step instructions
+  - Both menu-based and natural language methods
+
+- 🔧 **Advanced Tips**
+  - Smart reminders ("3 שעות לפני")
+  - Flexible dates ("מחר", "יום רביעי", Hebrew dates)
+  - Task priorities (🔴🟠🟡🟢)
+
+- 🐛 **Bug Reporting**
+  - How to report: "# description"
+  - System logs feedback automatically
+
+- ❓ **FAQ**
+  - Common questions answered
+  - Quick solutions for beginners
+
+**How It Works:**
+- Users can access via `/עזרה`, `/help`, or menu option 6
+- Provides comprehensive onboarding for new users
+- Shows both menu-based and natural language approaches
+- Bilingual support (Hebrew primary, English commands)
+
+**Test:**
+1. Send `/עזרה` to bot
+2. Should receive comprehensive help menu with all sections
+3. Verify readability and emoji rendering
+4. Test from main menu: /תפריט → 6 (עזרה)
+
+**Expected Output:**
+Comprehensive multi-section help menu with:
+- Clear visual sections with emojis
+- All 6 main features explained
+- Natural language examples
+- Quick commands reference
+- Beginner's guide
+- Advanced tips
+- Bug reporting instructions
+- FAQ section
+
+---
+
 ### Feature: Morning Reminder with /test Command
 **Description:** Users receive a morning summary each day showing today's events and reminders. The feature can be toggled on/off in settings.
 **Status:** ✅ IMPLEMENTED
