@@ -147,8 +147,11 @@ Function immediately returned error if no `reminder.title` was extracted. Didn't
 ✅ Helpful bot behavior instead of immediate error
 ✅ Fixes production bug report
 
-**Status:** ✅ FIXED (needs deployment)
-**Commit:** PENDING
+**Status:** ✅ FIXED (deployed to production)
+**Commit:** fb483be
+
+**Production Bug Report Marked Fixed in Redis:**
+- `#why didnt delete memo? Why didn't recognize??` - 2025-11-06 ✅
 
 ---
 
