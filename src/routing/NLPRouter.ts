@@ -1433,13 +1433,17 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
       }
 
       // Multiple reminders - show list to choose from
-      let message = `🗑️ יש לך ${allReminders.length} תזכורות פעילות:\n\n`;
+      const showCount = Math.min(10, allReminders.length);
+      const hasMore = allReminders.length > 10;
+
+      let message = `🗑️ ${hasMore ? `מציג ${showCount} מתוך ${allReminders.length}` : `יש לך ${allReminders.length}`} תזכורות פעילות:\n\n`;
       allReminders.slice(0, 10).forEach((r, index) => {
         const dt = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
         const displayDate = dt.isValid ? dt.toFormat('dd/MM HH:mm') : '(תאריך לא זמין)';
         const isRecurring = r.rrule && r.rrule.trim().length > 0;
         message += `${index + 1}️⃣ ${r.title}\n   📅 ${displayDate}${isRecurring ? ' 🔄' : ''}\n\n`;
       });
+      message += hasMore ? '💡 עצה: ציין שם תזכורת לחיפוש מהיר\n\n' : '';
       message += 'איזו תזכורת למחוק? בחר מספר או שלח /ביטול';
 
       await this.sendMessage(phone, message);
