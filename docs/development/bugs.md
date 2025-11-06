@@ -174,6 +174,119 @@ Updated message to clarify partial list display:
 
 ---
 
+### Bug #30: Delete Reminder Text Filter Not Working - Crashes on Text Input
+**Issue:** When user sees list of 10+ reminders and tries to filter by text (as suggested by the tip "💡 עצה: ציין שם תזכורת לחיפוש מהיר"), bot crashes with "אירעה שגיאה. מתחילים מחדש" instead of filtering the list.
+
+**User Report:** Screenshot showing error after user said "מחק" → bot showed 35 reminders → user tried "מאז תזכורת שיעור" → bot crashed (2025-11-06)
+
+**Root Cause:**
+Actually **TWO bugs** causing the crash:
+
+1. **Context Key Mismatch:**
+   - `NLPRouter.ts` sets context with key `reminders` (just IDs)
+   - `StateRouter.ts` expects key `matchedReminders` (full objects)
+   - When StateRouter doesn't find `matchedReminders`, it shows error
+
+2. **No Text Input Support:**
+   - `handleDeletingReminderSelect` only accepts numbers with `parseInt()`
+   - When user sends text, `parseInt()` returns `NaN`
+   - Function shows error: "❌ מספר תזכורת לא תקין"
+   - But user wasn't trying to send a number - they were filtering by name!
+
+**Code Analysis:**
+
+```typescript
+// NLPRouter.ts line 1451 - Sets context with 'reminders' key (IDs only)
+await this.stateManager.setState(userId, ConversationState.DELETING_REMINDER_SELECT, {
+  reminders: allReminders.slice(0, 10).map(r => r.id),  // Just IDs!
+  fromNLP: true
+});
+
+// StateRouter.ts line 2484 - Expects 'matchedReminders' key (full objects)
+const matchedReminders = session?.context?.matchedReminders || [];
+
+if (matchedReminders.length === 0) {
+  await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');  // CRASH!
+}
+
+// StateRouter.ts line 2493 - Only accepts numbers
+const index = parseInt(text.trim()) - 1;
+
+if (isNaN(index) || index < 0 || index >= matchedReminders.length) {
+  await this.sendMessage(phone, '❌ מספר תזכורת לא תקין. נסה שוב או שלח /ביטול');
+  // No support for text filtering!
+}
+```
+
+**Solution:**
+Completely rewrote `handleDeletingReminderSelect` in `StateRouter.ts` to:
+
+1. **Support Both Context Keys:**
+   - Check for BOTH `matchedReminders` (old) and `reminders` (new from NLPRouter)
+   - If `reminders` contains just IDs, fetch full reminder objects from database
+
+2. **Support Text Filtering:**
+   - Try parsing input as number first (for backward compatibility)
+   - If not a number, treat as text filter and use fuzzy matching
+   - Threshold 0.45 (same as other reminder operations)
+
+3. **Smart Filtering Logic:**
+   - If text matches exactly 1 reminder → go directly to confirmation
+   - If text matches multiple reminders → show filtered list
+   - If text matches no reminders → show helpful error with suggestion
+
+4. **Progressive Narrowing:**
+   - User can keep refining search with more specific text
+   - Each search narrows down from current filtered set
+   - Helpful tip when >10 matches: "ציין שם ספציפי יותר לחיפוש מדויק"
+
+**Files Changed:**
+- `src/routing/StateRouter.ts` (lines 29, 2483-2602)
+  - Added `import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';`
+  - Rewrote `handleDeletingReminderSelect` with 120 lines of new logic
+
+**Commit:** `PENDING` (2025-11-06)
+
+**Test Cases:**
+
+1. **Number Selection (Backward Compatibility):**
+   - User: "מחק"
+   - Bot: Shows 10 reminders
+   - User: "3"
+   - Bot: "📌 שיעור... למחוק? (כן/לא)"
+   - ✅ Should work as before
+
+2. **Text Filter - Single Match:**
+   - User: "מחק"
+   - Bot: Shows 35 reminders (only 10 visible)
+   - User: "שיעור לדני"
+   - Bot: "✅ נמצאה תזכורת אחת: שיעור לדני... למחוק? (כן/לא)"
+   - ✅ Should skip directly to confirmation
+
+3. **Text Filter - Multiple Matches:**
+   - User: "מחק"
+   - Bot: Shows 35 reminders
+   - User: "שיעור"
+   - Bot: "🔍 נמצאו 5 תזכורות המכילות 'שיעור': 1️⃣ שיעור לדני 2️⃣ שיעור לאדוארד..."
+   - User: "אדוארד"
+   - Bot: "✅ נמצאה תזכורת אחת: שיעור לאדוארד... למחוק? (כן/לא)"
+   - ✅ Progressive narrowing works
+
+4. **Text Filter - No Match:**
+   - User: "מחק"
+   - Bot: Shows 35 reminders
+   - User: "xyz123"
+   - Bot: "❌ לא נמצאה תזכורת המכילה 'xyz123'. נסה מספר (1-10) או שלח /ביטול"
+   - ✅ Helpful error message
+
+**Impact:**
+- Fixes crash that was preventing users from using the text filter feature
+- Makes the helpful tip actually work: "💡 עצה: ציין שם תזכורת לחיפוש מהיר"
+- Dramatically improves UX for users with many reminders (>10)
+- Enables progressive narrowing for precise reminder selection
+
+---
+
 ### Feature: Morning Reminder with /test Command
 **Description:** Users receive a morning summary each day showing today's events and reminders. The feature can be toggled on/off in settings.
 **Status:** ✅ IMPLEMENTED

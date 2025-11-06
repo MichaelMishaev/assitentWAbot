@@ -26,6 +26,7 @@ import {
   formatEventWithComments,
   formatEventInList
 } from '../utils/commentFormatter.js';
+import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';
 // BUG FIX #20: Import RRule for recurring event support
 import rruleModule from 'rrule';
 
@@ -2481,7 +2482,16 @@ export class StateRouter {
 
   private async handleDeletingReminderSelect(phone: string, userId: string, text: string): Promise<void> {
     const session = await this.stateManager.getState(userId);
-    const matchedReminders = session?.context?.matchedReminders || [];
+
+    // BUG FIX: Support both old key (matchedReminders) and new key (reminders from NLPRouter)
+    let matchedReminders = session?.context?.matchedReminders || [];
+    const reminderIds = session?.context?.reminders || [];
+
+    // If we have IDs instead of full objects, fetch the full reminders
+    if (matchedReminders.length === 0 && reminderIds.length > 0) {
+      const allReminders = await this.reminderService.getActiveReminders(userId);
+      matchedReminders = allReminders.filter(r => reminderIds.includes(r.id));
+    }
 
     if (matchedReminders.length === 0) {
       await this.sendMessage(phone, 'אירעה שגיאה. מתחילים מחדש.');
@@ -2490,34 +2500,103 @@ export class StateRouter {
       return;
     }
 
+    // Try parsing as number first
     const index = parseInt(text.trim()) - 1;
 
-    if (isNaN(index) || index < 0 || index >= matchedReminders.length) {
-      await this.sendMessage(phone, '❌ מספר תזכורת לא תקין. נסה שוב או שלח /ביטול');
-      return;
-    }
+    // If it's a valid number selection
+    if (!isNaN(index) && index >= 0 && index < matchedReminders.length) {
+      const reminderToDelete = matchedReminders[index];
+      const isRecurring = reminderToDelete.rrule && reminderToDelete.rrule.trim().length > 0;
 
-    const reminderToDelete = matchedReminders[index];
-    const isRecurring = reminderToDelete.rrule && reminderToDelete.rrule.trim().length > 0;
+      const dt = DateTime.fromJSDate(reminderToDelete.dueTsUtc).setZone('Asia/Jerusalem');
+      const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
 
-    const dt = DateTime.fromJSDate(reminderToDelete.dueTsUtc).setZone('Asia/Jerusalem');
-    const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
-
-    let confirmMessage = `🗑️ תזכורת:
+      let confirmMessage = `🗑️ תזכורת:
 
 📌 ${reminderToDelete.title}
 📅 ${displayDate}`;
 
-    if (isRecurring) {
-      confirmMessage += '\n🔄 תזכורת חוזרת\n\n⚠️ מחיקה תבטל את כל התזכורות העתידיות!';
+      if (isRecurring) {
+        confirmMessage += '\n🔄 תזכורת חוזרת\n\n⚠️ מחיקה תבטל את כל התזכורות העתידיות!';
+      }
+
+      confirmMessage += '\n\nלמחוק את התזכורת? (כן/לא)';
+
+      await this.sendMessage(phone, confirmMessage);
+      await this.stateManager.setState(userId, ConversationState.DELETING_REMINDER_CONFIRM, {
+        reminderId: reminderToDelete.id,
+        isRecurring: isRecurring,
+        fromNLP: false
+      });
+      return;
     }
 
-    confirmMessage += '\n\nלמחוק את התזכורת? (כן/לא)';
+    // BUG FIX: Support text filtering by reminder title (fuzzy match)
+    // This enables the feature hinted at by "💡 עצה: ציין שם תזכורת לחיפוש מהיר"
+    const searchText = text.trim();
 
-    await this.sendMessage(phone, confirmMessage);
-    await this.stateManager.setState(userId, ConversationState.DELETING_REMINDER_CONFIRM, {
-      reminderId: reminderToDelete.id,
-      isRecurring: isRecurring,
+    if (searchText.length === 0) {
+      await this.sendMessage(phone, '❌ נא לציין מספר תזכורת או שם תזכורת.\n\nשלח /ביטול לביטול');
+      return;
+    }
+
+    // Filter reminders by text using fuzzy matching (threshold 0.45 for Hebrew flexibility)
+    const filteredReminders = filterByFuzzyMatch(matchedReminders, searchText, (r: any) => r.title, 0.45);
+
+    if (filteredReminders.length === 0) {
+      await this.sendMessage(phone, `❌ לא נמצאה תזכורת המכילה "${searchText}".\n\nנסה מספר (1-${matchedReminders.length}) או שלח /ביטול`);
+      return;
+    }
+
+    // If exactly one match, proceed directly to confirmation
+    if (filteredReminders.length === 1) {
+      const reminderToDelete = filteredReminders[0];
+      const isRecurring = reminderToDelete.rrule && reminderToDelete.rrule.trim().length > 0;
+
+      const dt = DateTime.fromJSDate(reminderToDelete.dueTsUtc).setZone('Asia/Jerusalem');
+      const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
+
+      let confirmMessage = `✅ נמצאה תזכורת אחת:
+
+📌 ${reminderToDelete.title}
+📅 ${displayDate}`;
+
+      if (isRecurring) {
+        confirmMessage += '\n🔄 תזכורת חוזרת\n\n⚠️ מחיקה תבטל את כל התזכורות העתידיות!';
+      }
+
+      confirmMessage += '\n\nלמחוק את התזכורת? (כן/לא)';
+
+      await this.sendMessage(phone, confirmMessage);
+      await this.stateManager.setState(userId, ConversationState.DELETING_REMINDER_CONFIRM, {
+        reminderId: reminderToDelete.id,
+        isRecurring: isRecurring,
+        fromNLP: false
+      });
+      return;
+    }
+
+    // Multiple matches - show filtered list
+    const showCount = Math.min(10, filteredReminders.length);
+    const hasMore = filteredReminders.length > 10;
+
+    let message = `🔍 נמצאו ${filteredReminders.length} תזכורות המכילות "${searchText}":\n\n`;
+    filteredReminders.slice(0, 10).forEach((r, index) => {
+      const dt = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
+      const displayDate = dt.isValid ? dt.toFormat('dd/MM HH:mm') : '(תאריך לא זמין)';
+      const isRecurring = r.rrule && r.rrule.trim().length > 0;
+      message += `${index + 1}️⃣ ${r.title}\n   📅 ${displayDate}${isRecurring ? ' 🔄' : ''}\n\n`;
+    });
+
+    if (hasMore) {
+      message += `\n💡 מציג ${showCount} מתוך ${filteredReminders.length} - ציין שם ספציפי יותר לחיפוש מדויק\n\n`;
+    }
+
+    message += 'איזו תזכורת למחוק? בחר מספר או שלח /ביטול';
+
+    await this.sendMessage(phone, message);
+    await this.stateManager.setState(userId, ConversationState.DELETING_REMINDER_SELECT, {
+      matchedReminders: filteredReminders.slice(0, 10),
       fromNLP: false
     });
   }
