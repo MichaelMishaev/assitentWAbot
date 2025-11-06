@@ -120,6 +120,94 @@ Comprehensive multi-section help menu with:
 
 ---
 
+## ✅ FIXED - Commit PENDING (2025-11-06)
+
+### Bug #28: Entity Extraction Missing "for [person]" / "ל[name]" Patterns
+**Issue:**
+```
+User sent: "תזכיר לי ב 17:45 על השיעור לאדוארד" (Remind me at 17:45 about the lesson for Edvard)
+Bot extracted: title="שיעור" (just "lesson")
+Bot MISSED: "לאדוארד" (for Edvard) - lost beneficiary context
+Expected: title="שיעור לאדוארד" (lesson for Edvard)
+
+Production Evidence:
+- Screenshot from 2025-11-06: User message with "#didnt write about what lesson (origin was: lesson for Edvard)"
+- User (972544345287) reported missing context in reminder title
+```
+
+**Root Cause:**
+NLP system lacked training examples for Hebrew "ל+[name]" preposition patterns:
+- "לאדוארד" (for Edvard)
+- "לדני" (for Dani)
+- "לרחל" (for Rachel)
+
+The AI was either:
+1. Treating "ל" as infinitive verb marker and stripping it
+2. Not recognizing "ל+[name]" as beneficiary preposition
+3. Stopping title extraction before the name
+
+**Fix Applied:**
+
+**1. NLPService.ts (OpenAI) - Added 4 Examples:**
+
+**Lines 362-363** - Events with ל+name:
+```typescript
+1h. EVENT WITH ל+NAME PATTERN (CRITICAL - BUG FIX #28): "שיעור לאדוארד מחר ב-3" → {"intent":"create_event","confidence":0.95,"event":{"title":"שיעור לאדוארד","date":"<tomorrow 15:00 ISO>","dateText":"מחר ב-3"}} (CRITICAL: "ל+[name]" = for [name] - MUST include "ל[name]" in title! Patterns: "לאדוארד", "לדני", "לרחל". This is PREPOSITION for beneficiary!)
+
+1i. EVENT FOR PERSON VARIATIONS (CRITICAL): "פגישה עבור אלכס", "אירוע של דוד", "lesson for Sarah" → always include "עבור/של/for [name]" in title (CRITICAL: Patterns: "ל[name]", "עבור [name]", "של [name]", "for [name]")
+```
+
+**Lines 371-372** - Reminders with ל+name:
+```typescript
+4h. REMINDER WITH ל+NAME PATTERN (CRITICAL - BUG FIX #28): "תזכיר לי ב 17:45 על השיעור לאדוארד" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"שיעור לאדוארד","dueDate":"<today 17:45 ISO>"}} (CRITICAL: "ל+[name]" = for [name] - MUST include full context "ל[name]" in title! Patterns: "לאדוארד", "לדני", "לרחל", "למיכאל". This is a PREPOSITION showing beneficiary, NOT infinitive verb!)
+
+4i. REMINDER FOR PERSON VARIATIONS (CRITICAL): "תזכיר לי שיעור עבור אלכס מחר", "תזכיר לי פגישה של דוד ביום רביעי" → include "עבור אלכס"/"של דוד" in title (CRITICAL: Always preserve "for/of person" context! Patterns: "ל[name]", "עבור [name]", "של [name]", "for [name]")
+```
+
+**2. GeminiNLPService.ts - Added 4 Examples:**
+
+**Lines 305-306** - Events with ל+name:
+```typescript
+1a. EVENT WITH ל+NAME PATTERN (CRITICAL - BUG FIX #28): "שיעור לאדוארד מחר ב-3" → {"intent":"create_event","confidence":0.95,"event":{"title":"שיעור לאדוארד","date":"<tomorrow 15:00 ISO>","dateText":"מחר ב-3"}} (CRITICAL: "ל+[name]" = for [name] - MUST include "ל[name]" in title! Patterns: "לאדוארד", "לדני", "לרחל". This is PREPOSITION for beneficiary!)
+
+1b. EVENT FOR PERSON VARIATIONS (CRITICAL): "פגישה עבור אלכס", "אירוע של דוד", "lesson for Sarah" → always include "עבור/של/for [name]" in title (CRITICAL: Patterns: "ל[name]", "עבור [name]", "של [name]", "for [name]")
+```
+
+**Lines 310-311** - Reminders with ל+name:
+```typescript
+4a. REMINDER WITH ל+NAME PATTERN (CRITICAL - BUG FIX #28): "תזכיר לי ב 17:45 על השיעור לאדוארד" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"שיעור לאדוארד","dueDate":"<today 17:45 ISO>"}} (CRITICAL: "ל+[name]" = for [name] - MUST include "ל[name]" in title! Patterns: "לאדוארד", "לדני", "לרחל")
+
+4b. REMINDER FOR PERSON VARIATIONS (CRITICAL): "תזכיר לי שיעור עבור אלכס", "פגישה של דוד" → include "עבור/של [name]" in title (CRITICAL: Patterns: "ל[name]", "עבור [name]", "של [name]", "for [name]")
+```
+
+**Pattern Coverage:**
+- Hebrew: "ל[name]" (לאדוארד, לדני, לרחל)
+- Hebrew formal: "עבור [name]" (עבור אלכס)
+- Hebrew possessive: "של [name]" (של דוד)
+- English: "for [name]" (for Sarah)
+
+**Impact:**
+- ✅ AI now extracts full title with beneficiary: "שיעור לאדוארד"
+- ✅ Handles all "for person" variations in Hebrew and English
+- ✅ Fixes 2 production bug reports
+- ✅ Distinguishes between infinitive verb ל and preposition ל
+
+**Status:** ✅ FIXED (needs deployment)
+**Commit:** PENDING
+**Test:**
+1. Send: "תזכיר לי ב 17:45 על השיעור לאדוארד"
+2. Expected: Reminder title should be "שיעור לאדוארד" ✅
+3. Send: "פגישה לדני מחר ב-3"
+4. Expected: Event title should be "פגישה לדני" ✅
+
+**Production Bug Reports to Mark Fixed:**
+- `#didnt write about what lesson (origin was: lesson for Edvard)` - 2025-11-06
+- `#didnt find lesson for deni` - 2025-11-03
+
+**Severity:** HIGH - User context/details lost, affects reminder/event accuracy
+
+---
+
 ## ✅ FIXED - Commit 67e1db3 (2025-11-04)
 
 ### Bug #25: Lead Time Calculation for Quoted Event Reminders

@@ -302,9 +302,13 @@ CRITICAL - Event Title Extraction for Delete/Update:
 
 KEY EXAMPLES (cover all intents):
 1. CREATE EVENT WITH TIME: "קבע פגישה עם דני מחר ב-3" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם דני","date":"2025-11-12T15:00:00+02:00","dateText":"מחר ב-3","contactName":"דני"}} (CRITICAL: include BOTH date ISO and dateText with time!)
+1a. EVENT WITH ל+NAME PATTERN (CRITICAL - BUG FIX #28): "שיעור לאדוארד מחר ב-3" → {"intent":"create_event","confidence":0.95,"event":{"title":"שיעור לאדוארד","date":"<tomorrow 15:00 ISO>","dateText":"מחר ב-3"}} (CRITICAL: "ל+[name]" = for [name] - MUST include "ל[name]" in title! Patterns: "לאדוארד", "לדני", "לרחל". This is PREPOSITION for beneficiary!)
+1b. EVENT FOR PERSON VARIATIONS (CRITICAL): "פגישה עבור אלכס", "אירוע של דוד", "lesson for Sarah" → always include "עבור/של/for [name]" in title (CRITICAL: Patterns: "ל[name]", "עבור [name]", "של [name]", "for [name]")
 2. CREATE EVENT EXPLICIT TIME: "קבע למחר פגישה עם יולי לשעה 14:00" → {"intent":"create_event","confidence":0.95,"event":{"title":"פגישה עם יולי","date":"2025-11-12T14:00:00+02:00","dateText":"מחר לשעה 14:00","contactName":"יולי"}} (CRITICAL: "לשעה 14:00" = 14:00 in ISO!)
 3. COMPLEX EVENT WITH ALL DETAILS: "משחק כדורגל נתניה סכנין יום ראשון 5 באוקטובר 20:00 אצטדיון נתניה" → {"intent":"create_event","confidence":0.95,"event":{"title":"משחק כדורגל נתניה סכנין","date":"2025-10-05T20:00:00+03:00","dateText":"יום ראשון 5 באוקטובר 20:00","location":"אצטדיון נתניה"}} (CRITICAL: Extract ALL details - title, date with time, and location!)
 4. CREATE REMINDER: "תזכיר לי בעוד שעתיים להתקשר לאמא" → {"intent":"create_reminder","confidence":0.9,"reminder":{"title":"התקשר לאמא","dueDate":"<now+2h ISO>"}}
+4a. REMINDER WITH ל+NAME PATTERN (CRITICAL - BUG FIX #28): "תזכיר לי ב 17:45 על השיעור לאדוארד" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"שיעור לאדוארד","dueDate":"<today 17:45 ISO>"}} (CRITICAL: "ל+[name]" = for [name] - MUST include "ל[name]" in title! Patterns: "לאדוארד", "לדני", "לרחל")
+4b. REMINDER FOR PERSON VARIATIONS (CRITICAL): "תזכיר לי שיעור עבור אלכס", "פגישה של דוד" → include "עבור/של [name]" in title (CRITICAL: Patterns: "ל[name]", "עבור [name]", "של [name]", "for [name]")
 5. SEARCH BY TITLE: "מתי רופא שיניים?" → {"intent":"search_event","confidence":0.95,"event":{"title":"רופא שיניים"}} (CRITICAL: "מתי" = search, NOT create!)
 6. LIST EVENTS TODAY: "מה יש לי היום?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"היום"}} (CRITICAL: ALWAYS extract "היום" to dateText!)
 6b. LIST EVENTS TODAY (PAST TENSE): "מה היה לי היום?" → {"intent":"list_events","confidence":0.95,"event":{"dateText":"היום"}} (CRITICAL: "היה" = past tense, still means TODAY!)

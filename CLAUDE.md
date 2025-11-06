@@ -4,3 +4,4 @@
 - each fix make qa test, update the qa tool
 - always push to prod via git hub, never directly to ssh prod
 - always mark fixed bugs
+- after finish bug fix mark in redis as fixed and update local file
