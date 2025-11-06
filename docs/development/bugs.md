@@ -122,6 +122,36 @@ Comprehensive multi-section help menu with:
 
 ## ✅ FIXED - Commit PENDING (2025-11-06)
 
+### Bug #29: Delete Reminder Without Title Not Working
+**Issue:**
+```
+User sent: "מחק" (delete)
+Bot response: "❌ לא זיהיתי איזו תזכורת למחוק" (I didn't recognize which reminder to delete)
+Expected: Show list of active reminders or offer to delete the only/recent one
+Actual: Bot gives up immediately
+
+Production Evidence:
+- Screenshot 2025-11-06: "#why didnt delete memo? Why didn't recognize??"
+```
+
+**Root Cause:**
+Function immediately returned error if no `reminder.title` was extracted. Didn't check context or show helpful options.
+
+**Fix Applied:**
+`src/routing/NLPRouter.ts` (lines 1405-1451) - Added intelligent handling:
+- If 1 reminder → Show it and ask for confirmation
+- If multiple → Show numbered list to choose from
+- Only error if no active reminders exist
+
+**Impact:**
+✅ Helpful bot behavior instead of immediate error
+✅ Fixes production bug report
+
+**Status:** ✅ FIXED (needs deployment)
+**Commit:** PENDING
+
+---
+
 ### Bug #28: Entity Extraction Missing "for [person]" / "ל[name]" Patterns
 **Issue:**
 ```

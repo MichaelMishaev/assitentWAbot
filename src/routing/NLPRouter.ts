@@ -1394,16 +1394,59 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
   private async handleNLPDeleteReminder(phone: string, userId: string, intent: any): Promise<void> {
     const { reminder } = intent;
 
-    if (!reminder?.title) {
-      await this.sendMessage(phone, '❌ לא זיהיתי איזו תזכורת למחוק.\n\nאנא נסה שוב או שלח /תפריט');
-      return;
-    }
-
-    // Search for reminders by title (fuzzy match)
+    // Get all active reminders first
     const allReminders = await this.reminderService.getActiveReminders(userId, 100);
 
     if (allReminders.length === 0) {
       await this.sendMessage(phone, '📭 אין לך תזכורות פעילות.\n\nשלח /תפריט לחזרה לתפריט');
+      return;
+    }
+
+    // If no title provided (user just said "מחק"), handle intelligently
+    if (!reminder?.title) {
+      // If only one active reminder, offer to delete it
+      if (allReminders.length === 1) {
+        const reminderToDelete = allReminders[0];
+        const dt = DateTime.fromJSDate(reminderToDelete.dueTsUtc).setZone('Asia/Jerusalem');
+        const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
+
+        const isRecurring = reminderToDelete.rrule && reminderToDelete.rrule.trim().length > 0;
+
+        let confirmMessage = `🗑️ יש לך תזכורת אחת פעילה:
+
+📌 ${reminderToDelete.title}
+📅 ${displayDate}`;
+
+        if (isRecurring) {
+          confirmMessage += '\n🔄 תזכורת חוזרת\n\n⚠️ מחיקה תבטל את כל התזכורות העתידיות!';
+        }
+
+        confirmMessage += '\n\nלמחוק את התזכורת? (כן/לא)';
+
+        await this.sendMessage(phone, confirmMessage);
+        await this.stateManager.setState(userId, ConversationState.DELETING_REMINDER_CONFIRM, {
+          reminderId: reminderToDelete.id,
+          isRecurring: isRecurring,
+          fromNLP: true
+        });
+        return;
+      }
+
+      // Multiple reminders - show list to choose from
+      let message = `🗑️ יש לך ${allReminders.length} תזכורות פעילות:\n\n`;
+      allReminders.slice(0, 10).forEach((r, index) => {
+        const dt = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
+        const displayDate = dt.isValid ? dt.toFormat('dd/MM HH:mm') : '(תאריך לא זמין)';
+        const isRecurring = r.rrule && r.rrule.trim().length > 0;
+        message += `${index + 1}️⃣ ${r.title}\n   📅 ${displayDate}${isRecurring ? ' 🔄' : ''}\n\n`;
+      });
+      message += 'איזו תזכורת למחוק? בחר מספר או שלח /ביטול';
+
+      await this.sendMessage(phone, message);
+      await this.stateManager.setState(userId, ConversationState.DELETING_REMINDER_SELECT, {
+        reminders: allReminders.slice(0, 10).map(r => r.id),
+        fromNLP: true
+      });
       return;
     }
 
