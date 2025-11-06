@@ -192,8 +192,8 @@ The AI was either:
 - ✅ Fixes 2 production bug reports
 - ✅ Distinguishes between infinitive verb ל and preposition ל
 
-**Status:** ✅ FIXED (needs deployment)
-**Commit:** PENDING
+**Status:** ✅ FIXED (deployed to production)
+**Commit:** 30570ee
 **Test:**
 1. Send: "תזכיר לי ב 17:45 על השיעור לאדוארד"
 2. Expected: Reminder title should be "שיעור לאדוארד" ✅
