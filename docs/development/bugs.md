@@ -79,6 +79,101 @@ Comprehensive multi-section help menu with:
 
 ---
 
+## 🐛 BUG FIXES (Nov 6, 2025)
+
+### Bug #28: Entity Extraction Missing "for [person]" / "ל[name]" Patterns (FIXED v2)
+**Issue:** When user says "תזכיר לי ב 17:45 על השיעור לאדוארד" (remind me at 17:45 about the lesson for Edward), the AI extracts title as "שיעור" instead of "שיעור לאדוארד". The "ל[name]" part (for [person]) is being stripped from the title.
+
+**User Reports:**
+- "#didnt write about what lesson (origin was: lesson for Edvard)" (2025-11-06)
+- "#didnt find lesson for deni" (2025-11-03)
+
+**Root Cause:**
+AI models (GPT-4o-mini, Gemini 2.0 Flash) were stopping title extraction when encountering the preposition "ל" before a name, treating it as a separate clause rather than part of the title. The pattern "על [noun] ל[name]" was being parsed as "על [noun]" only.
+
+**Solution:**
+Updated NLP training examples in both `NLPService.ts` and `GeminiNLPService.ts` to explicitly emphasize:
+- When text has "על [noun] ל[name]", extract BOTH parts into title
+- "ל+[name]" after a noun means "for [name]" and is PART of the title
+- Never stop extraction at "ל" before a name - it shows beneficiary
+
+**Files Changed:**
+- `src/services/NLPService.ts` (lines 373-374) - Added explicit "על+TITLE+ל+NAME" pattern examples
+- `src/services/GeminiNLPService.ts` (lines 310-312) - Added same pattern with emphasis
+
+**Commit:** `1050524` (2025-11-06)
+
+**Test:**
+1. Send: "תזכיר לי ב 17:30 על השיעור לאדוארד"
+2. Expected: Reminder created with title "שיעור לאדוארד" (not just "שיעור")
+3. Verify both GPT and Gemini extract full title including "לאדוארד"
+
+---
+
+### Bug #3: Main Menu Truncation in WhatsApp Buttons
+**Issue:** WhatsApp auto-detects numbered lists as buttons but has character limits (~17-20 chars). The menu option "📅 1) האירועים שלי" was being truncated to "האירועים של", losing the final "י" (my).
+
+**User Report:** Screenshot showing truncated button text (2025-11-06)
+
+**Root Cause:**
+WhatsApp's button rendering has strict character limits. The original menu labels were too long:
+- "📅 1) האירועים שלי" = 20 characters (borderline)
+- Including emoji + number + spaces pushes over the limit
+
+**Solution:**
+Shortened all main menu button labels in `CommandRouter.ts`:
+- "📅 1) האירועים שלי" → "1) 📅 היומן שלי" (18 chars - "my calendar")
+- "➕ 2) הוסף אירוע" → "2) ➕ אירוע חדש" (16 chars - "new event")
+- "⏰ 3) הוסף תזכורת" → "3) ⏰ תזכורת" (13 chars - "reminder")
+- Kept numbers first, emoji second for better WhatsApp rendering
+
+**Files Changed:**
+- `src/routing/CommandRouter.ts` (lines 321-326) - Shortened all menu labels
+
+**Commit:** `1050524` (2025-11-06)
+
+**Test:**
+1. Send `/תפריט` to bot
+2. WhatsApp should render buttons with full text
+3. No truncation - all labels should end properly
+4. "היומן שלי" should appear complete (not "היומן ש")
+
+---
+
+### Bug #2: Context Confusion When User Has Many Reminders (>10)
+**Issue:** When showing delete reminder options, bot says "יש לך 34 תזכורות פעילות" (you have 34 active reminders) but only shows 10 in the list. User gets confused thinking they can select from all 34, not understanding it's limited to first 10.
+
+**User Report:** Screenshot showing confusion with 34 reminders (2025-11-06)
+
+**Root Cause:**
+The delete reminder flow limits display to 10 reminders (to avoid overwhelming message length), but the header message said "you have X reminders" without clarifying only 10 are shown.
+
+```typescript
+// Old code:
+let message = `🗑️ יש לך ${allReminders.length} תזכורות פעילות:\n\n`;
+allReminders.slice(0, 10).forEach(...);  // Only shows 10!
+```
+
+**Solution:**
+Updated message to clarify partial list display:
+- When >10 reminders: "מציג 10 מתוך 34 תזכורות פעילות" (showing 10 out of 34 active reminders)
+- When ≤10 reminders: "יש לך 5 תזכורות פעילות" (you have 5 active reminders)
+- Added helpful tip when >10: "💡 עצה: ציין שם תזכורת לחיפוש מהיר" (Tip: specify reminder name for quick search)
+
+**Files Changed:**
+- `src/routing/NLPRouter.ts` (lines 1436-1447) - Clarified partial list message
+
+**Commit:** `1050524` (2025-11-06)
+
+**Test:**
+1. Create >10 reminders for a user
+2. Send "מחק תזכורת"
+3. Bot should say "מציג 10 מתוך X תזכורות" not "יש לך X תזכורות"
+4. Should see helpful tip about specifying name
+5. User understands they're seeing first 10 only
+
+---
+
 ### Feature: Morning Reminder with /test Command
 **Description:** Users receive a morning summary each day showing today's events and reminders. The feature can be toggled on/off in settings.
 **Status:** ✅ IMPLEMENTED
