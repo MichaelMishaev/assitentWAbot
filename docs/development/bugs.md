@@ -4957,3 +4957,225 @@ const reminderKeywordPattern = /(^|[\s,.])(תזכיר|תזכירי|תזכורת|
 3. Test with real WhatsApp messages
 4. Mark bugs as "fixed" in production Redis
 
+
+---
+
+## Bug #23: Reminder Date Display Confusion - Shows Notification Time Instead of Reminder Due Date
+
+**Date Reported:** 2025-11-08 19:53:12 UTC  
+**Reported By:** User 972542101057 (Production)  
+**User Comment:** `# התבלבל לו התאריכים` ("The dates got confused")  
+**Status:** PENDING  
+**Severity:** HIGH - Confusing UX, users can't trust the bot's date display
+
+### Symptom:
+When user creates a simple reminder like "תזכיר לי מחר ב2 לעשות לסמי ביטוח וניירת" (Remind me tomorrow at 2 to do insurance and paperwork for Sami), the bot shows confusing, swapped dates:
+
+**User's Intent:**
+- Reminder should fire: **Tomorrow (09/11) at 14:00** (2pm)
+
+**Bot's Displayed Response:**
+```
+✅ תזכורת נקבעה:
+
+📌 לעשות לסמי ביטוח וניירת
+📅 08/11/2025 14:00                          ← WRONG! This is TODAY, not tomorrow
+⏰ תזכורת תישלח יום לפני (09/11/2025 14:00)  ← This should be the MAIN date!
+```
+
+### Production Evidence:
+**Conversation Flow (from Redis user_messages):**
+
+1. **User Message (19:52:38):**
+   ```
+   תזכיר לי מחר ב2 לעשות לסמי ביטוח וניירת
+   ```
+   Translation: "Remind me tomorrow at 2 to do insurance and paperwork for Sami"
+
+2. **Bot Response (19:52:46):**
+   ```
+   ✅ תזכורת נקבעה:
+   
+   📌 לעשות לסמי ביטוח וניירת
+   📅 08/11/2025 14:00
+   ⏰ תזכורת תישלח יום לפני (09/11/2025 14:00)
+   ```
+
+3. **User Bug Report (19:53:12):**
+   ```
+   # התבלבל לו התאריכים
+   ```
+   Translation: "The dates got confused"
+
+### Root Cause Analysis:
+
+**File:** `src/routing/NLPRouter.ts` (lines 1007-1043)
+
+The display logic has a conceptual flaw when `leadTimeMinutes` is present:
+
+```typescript
+if (reminder.leadTimeMinutes && typeof reminder.leadTimeMinutes === 'number' && reminder.leadTimeMinutes > 0) {
+  // Lead time was extracted from user message - show NOTIFICATION time
+  const notificationTime = dt.minus({ minutes: reminder.leadTimeMinutes });
+  displayDate = notificationTime.toFormat('dd/MM/yyyy HH:mm');  // ← Shows WHEN notification is SENT
+  
+  // Add context note showing when the actual event/reminder is
+  const eventDate = dt.toFormat('dd/MM/yyyy HH:mm');  // ← Shows ACTUAL reminder due date
+  
+  contextNote = `⏰ תזכורת תישלח ${leadTimeText} לפני (${eventDate})`;
+}
+```
+
+**The Problem:**
+1. For **standalone reminders** (like "תזכיר לי מחר ב2"), users expect to see the reminder DUE DATE as the main date
+2. But if ANY leadTimeMinutes is present (even default 15 min, or in this case 1440 min), the code shows:
+   - **Main date:** Notification send time (when WhatsApp message will be sent)
+   - **Parentheses:** Actual reminder due date (what user cares about)
+
+3. This makes sense for **event-based reminders** with explicit lead time phrases like:
+   - "פגישה ביום שישי 09:00, תזכיר לי יום לפני" 
+   - Here user wants to know: "When will I GET the reminder?" (Thu 09:00) vs "When is the event?" (Fri 09:00)
+
+4. But for **standalone reminders** without "X לפני" phrases:
+   - User just wants to be reminded "tomorrow at 2pm"
+   - They don't care about internal notification scheduling
+   - Showing notification time as main date is confusing!
+
+### Why Did This Happen?
+
+**Mystery:** Where did `leadTimeMinutes: 1440` come from?
+
+Possible scenarios:
+1. **AI Misinterpretation:** Claude/Gemini NLP incorrectly extracted "מחר" (tomorrow) as a lead time phrase instead of a due date
+2. **User Setting:** User has a custom reminder lead time preference of 1440 min (unlikely, default is 15 min)
+3. **Code Bug:** System incorrectly applied a 1-day lead time to all standalone reminders
+
+**Need to check:** Production logs for NLP parse result
+
+### Expected Behavior:
+
+**For Standalone Reminders (no "X לפני" phrase):**
+```
+User: "תזכיר לי מחר ב2 לעשות לסמי ביטוח וניירת"
+
+Bot: ✅ תזכורת נקבעה:
+
+📌 לעשות לסמי ביטוח וניירת
+📅 09/11/2025 14:00  ← Show REMINDER DUE DATE (what user asked for)
+
+(No context note about notification time - internal detail)
+```
+
+**For Event-Based Reminders WITH "X לפני" phrase:**
+```
+User: "פגישה ביום שישי 09:00, תזכיר לי יום לפני"
+
+Bot: ✅ תזכורת נקבעה:
+
+📌 פגישה
+📅 06/11/2025 09:00  ← Show NOTIFICATION TIME (when user will GET reminded)
+⏰ תזכורת עבור אירוע ביום 07/11/2025 09:00  ← Context: actual event date
+```
+
+### Proposed Fix:
+
+**Strategy:** Distinguish between explicit vs. default lead times
+
+```typescript
+// Check if lead time was EXPLICITLY extracted from user message (e.g., "יום לפני")
+// vs. using default lead time preference (e.g., 15 minutes)
+const isExplicitLeadTime = reminder.leadTimeMinutes && 
+                           typeof reminder.leadTimeMinutes === 'number' && 
+                           reminder.leadTimeMinutes > 0 &&
+                           reminder.leadTimeMinutes !== await this.settingsService.getReminderLeadTime(userId);
+
+if (isExplicitLeadTime) {
+  // User explicitly said "remind me X before" - show notification time as main date
+  const notificationTime = dt.minus({ minutes: reminder.leadTimeMinutes });
+  displayDate = notificationTime.toFormat('dd/MM/yyyy HH:mm');
+  
+  const eventDate = dt.toFormat('dd/MM/yyyy HH:mm');
+  contextNote = `⏰ תזכורת עבור: ${eventDate}`;
+} else {
+  // Standalone reminder OR using default lead time - show due date as main date
+  displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+  // No context note needed - internal scheduling detail
+}
+```
+
+### Alternative Fix (Simpler):
+
+**Always show DUE DATE as main date for reminders:**
+
+```typescript
+// For reminders, ALWAYS show the reminder DUE DATE as main display
+// Notification scheduling (leadTimeMinutes) is an internal detail
+displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+
+// Only show context note if user EXPLICITLY requested lead time with "X לפני" phrase
+if (reminder.leadTimeMinutes && reminder.leadTimeMinutes > 60) { // More than 1 hour = likely explicit
+  contextNote = `⏰ תזכורת תישלח ${leadTimeText} לפני`;
+}
+```
+
+### Testing:
+
+**Test Cases:**
+
+1. **Simple future reminder:**
+   ```
+   Input: "תזכיר לי מחר ב2 לעשות לסמי ביטוח וניירת"
+   Expected: 
+   - ✅ תזכורת נקבעה
+   - 📌 לעשות לסמי ביטוח וניירת  
+   - 📅 09/11/2025 14:00  ← Tomorrow's date
+   - (No confusing context about notification)
+   ```
+
+2. **Reminder with explicit lead time:**
+   ```
+   Input: "פגישה ביום שישי 09:00, תזכיר לי יום לפני"
+   Expected:
+   - ✅ תזכורת נקבעה
+   - 📌 פגישה
+   - 📅 06/11/2025 09:00  ← Notification time (day before)
+   - ⏰ תזכורת עבור: 07/11/2025 09:00  ← Actual event
+   ```
+
+3. **Today reminder:**
+   ```
+   Input: "תזכיר לי ב 21:00"
+   Expected:
+   - ✅ תזכורת נקבעה
+   - 📌 [extracted title or default]
+   - 📅 08/11/2025 21:00  ← Today at 9pm
+   ```
+
+### Impact:
+- **Users Affected:** All users creating standalone reminders
+- **Frequency:** EVERY reminder without explicit "X לפני" phrase
+- **User Trust:** HIGH - Users lose confidence when dates don't match expectations
+
+### Files to Change:
+1. `src/routing/NLPRouter.ts` (lines 1007-1043) - Fix display logic
+2. OPTIONAL: `src/services/NLPService.ts` - Ensure "מחר" is NOT extracted as leadTimeMinutes
+
+### Related Bugs:
+- None directly related
+- This is a UX/display bug, not a date parsing bug
+
+### Deployment Checklist:
+- [ ] Fix display logic in NLPRouter.ts
+- [ ] Add test cases for reminder date display
+- [ ] Check production logs for NLP parse results  
+- [ ] Deploy via GitHub workflow (never direct SSH)
+- [ ] Test with real WhatsApp messages
+- [ ] Mark bug #23 as fixed in production Redis
+- [ ] Update this document with commit hash
+
+### Commit Information:
+- **Commit Hash**: [TO BE ADDED]
+- **Date Fixed**: [TO BE ADDED]
+- **Files Changed**: [TO BE ADDED]
+- **Build Status**: [TO BE ADDED]
+

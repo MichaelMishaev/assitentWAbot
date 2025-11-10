@@ -1004,13 +1004,21 @@ export class NLPRouter {
       }
     }
 
-    // BUG FIX: Calculate display date based on whether leadTimeMinutes was extracted
+    // BUG FIX #23: Calculate display date based on whether leadTimeMinutes was EXPLICITLY extracted
     // If user said "תזכיר לי יום לפני", show when they'll GET NOTIFIED, not the event date
+    // If no explicit lead time (or < 1 hour), show the reminder DUE DATE
     let displayDate: string;
     let contextNote = '';
 
-    if (reminder.leadTimeMinutes && typeof reminder.leadTimeMinutes === 'number' && reminder.leadTimeMinutes > 0) {
-      // Lead time was extracted from user message - show NOTIFICATION time
+    // Only show notification time if lead time is SIGNIFICANT (>= 1 hour)
+    // Small lead times (< 60 min) are likely defaults, not user's explicit intent
+    const isExplicitLeadTime = reminder.leadTimeMinutes &&
+                                typeof reminder.leadTimeMinutes === 'number' &&
+                                reminder.leadTimeMinutes >= 60;
+
+    if (isExplicitLeadTime) {
+      // Lead time >= 1 hour was extracted - user likely said "X לפני"
+      // Show NOTIFICATION time as main date
       const notificationTime = dt.minus({ minutes: reminder.leadTimeMinutes });
       displayDate = notificationTime.toFormat('dd/MM/yyyy HH:mm');
 
@@ -1019,11 +1027,11 @@ export class NLPRouter {
 
       // Format lead time in human-readable Hebrew
       let leadTimeText = '';
-      if (reminder.leadTimeMinutes >= 1440) {
-        const days = Math.floor(reminder.leadTimeMinutes / 1440);
+      if (reminder.leadTimeMinutes! >= 1440) {
+        const days = Math.floor(reminder.leadTimeMinutes! / 1440);
         leadTimeText = days === 1 ? 'יום' : `${days} ימים`;
-      } else if (reminder.leadTimeMinutes >= 60) {
-        const hours = Math.floor(reminder.leadTimeMinutes / 60);
+      } else if (reminder.leadTimeMinutes! >= 60) {
+        const hours = Math.floor(reminder.leadTimeMinutes! / 60);
         leadTimeText = hours === 1 ? 'שעה' : `${hours} שעות`;
       } else {
         leadTimeText = `${reminder.leadTimeMinutes} דקות`;
@@ -1031,15 +1039,22 @@ export class NLPRouter {
 
       contextNote = `⏰ תזכורת תישלח ${leadTimeText} לפני (${eventDate})`;
 
-      logger.info('Display shows notification time (not event time)', {
+      logger.info('Display shows notification time (explicit lead time)', {
         eventDate,
         notificationDate: displayDate,
         leadTimeMinutes: reminder.leadTimeMinutes,
         leadTimeText
       });
     } else {
-      // No lead time extracted - show reminder due date as-is
+      // No lead time OR small default lead time (< 1 hour) - show reminder DUE DATE
       displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+
+      if (reminder.leadTimeMinutes && reminder.leadTimeMinutes > 0) {
+        logger.info('Display shows due date (small/default lead time ignored for display)', {
+          dueDate: displayDate,
+          leadTimeMinutes: reminder.leadTimeMinutes
+        });
+      }
     }
 
     // Check if this is a recurring reminder

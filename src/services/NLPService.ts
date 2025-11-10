@@ -158,8 +158,8 @@ CREATE:
 - Event keywords: "פגישה", "אירוע", "meeting", "event", "appointment"
 - Reminder keywords: "תזכיר", "תזכורת", "remind", "reminder", "אל תשכח", "don't forget"
 
-LEAD TIME PARSING (CRITICAL - Extract from "תזכיר לי X לפני" phrases):
-When user says "תזכיר לי [TIME] לפני" in a reminder creation message, extract the lead time:
+LEAD TIME PARSING (CRITICAL - ONLY extract if EXPLICIT "X לפני" phrase present):
+ONLY extract leadTimeMinutes when user EXPLICITLY says "X לפני" (X before):
 - "תזכיר לי יום לפני" → leadTimeMinutes: 1440 (24 hours * 60 minutes)
 - "תזכיר לי יומיים לפני" → leadTimeMinutes: 2880 (48 hours)
 - "תזכיר לי שעה לפני" → leadTimeMinutes: 60
@@ -169,10 +169,19 @@ When user says "תזכיר לי [TIME] לפני" in a reminder creation message,
 - "תזכיר לי שבוע לפני" → leadTimeMinutes: 10080 (7 days)
 - "תזכיר לי בבוקר" or "ביום לפני" → leadTimeMinutes: 1440 (1 day)
 
+CRITICAL BUG FIX #23: DO NOT extract leadTimeMinutes without explicit "לפני"!
+- "תזכיר לי מחר ב2 לעשות משהו" → NO leadTimeMinutes (no "לפני" phrase!)
+- "תזכיר לי ל 15.11 להתכונן" → NO leadTimeMinutes (ל[DATE] is not lead time!)
+- "קבע תזכורת ל 16:00 לנסוע" → NO leadTimeMinutes (ל[TIME] is not lead time!)
+- ONLY extract if text contains: "X לפני" OR "X before" OR "ביום/בבוקר לפני"
+
 IMPORTANT: DO NOT include "תזכיר לי X לפני" in the notes field. Extract it as leadTimeMinutes!
-Examples:
+Examples WITH lead time:
 - "יום שישי 09:30 טקס קבלת ספר תורה תזכיר לי יום לפני" → {title: "טקס קבלת ספר תורה", dueDate: "Friday 09:30", leadTimeMinutes: 1440, notes: null}
 - "פגישה מחר 14:00 תזכיר לי שעה לפני" → {title: "פגישה", dueDate: "tomorrow 14:00", leadTimeMinutes: 60, notes: null}
+Examples WITHOUT lead time (common mistakes to avoid):
+- "תזכיר לי מחר ב2 לעשות משהו" → {title: "לעשות משהו", dueDate: "tomorrow 14:00"} NO leadTimeMinutes!
+- "תזכורת ל 15.11 להתכונן" → {title: "להתכונן", dueDate: "2025-11-15T12:00"} NO leadTimeMinutes!
 
 SEARCH/LIST (ALL VARIATIONS):
 EVENTS:
@@ -209,11 +218,15 @@ REMINDERS (CRITICAL - separate from events!):
 
 UPDATE/EDIT (CRITICAL - Distinguish between reminders and events):
 REMINDER Updates (use update_reminder):
-- If message contains "תזכורת" → update_reminder
-- If updating recurring item (mentions "ימי X", "כל X") → likely update_reminder
-- "עדכן תזכורת", "שנה תזכורת" → update_reminder
-- "עדכן ללכת לאימון" (if "ללכת לאימון" is a known reminder title) → update_reminder
-- "תזכורת של ימי ראשון, תעדכן" → update_reminder
+- "עדכן תזכורת", "שנה תזכורת", "תשנה תזכורת" → update_reminder
+- "תזכורת של/עבור [NAME], [ACTION]" → update_reminder (e.g., "תזכורת של ימי ראשון, תעדכן")
+- "עדכן [TITLE]" where TITLE is a known reminder → update_reminder
+- If updating recurring item (mentions "ימי X", "כל X") with update verb → likely update_reminder
+
+CRITICAL BUG FIX #31: "תזכורת ל[DATE/TIME]" is CREATE, NOT UPDATE!
+- "תזכורת ל 15.11 להתכונן" → create_reminder (ל[DATE] = for date, not updating!)
+- "קבע תזכורת ל 16:00" → create_reminder (setting NEW reminder)
+- ONLY use update_reminder if there's an explicit UPDATE verb ("עדכן", "שנה") OR context reference
 
 EVENT Updates (use update_event):
 - If message contains "אירוע", "פגישה", "meeting" → update_event
@@ -370,8 +383,9 @@ KEY EXAMPLES (cover all intents):
 4e. REMINDER WITH "ETZEL" VARIATIONS (CRITICAL): "תזכיר לי ללכת אצל הרופא מחר" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"ללכת אצל הרופא","dueDate":"<tomorrow 12:00 ISO>"}} (CRITICAL: Always include "אצל" and what follows it in the title!)
 4f. REMINDER WITH ל PREFIX VERBS (CRITICAL - BUG FIX #11): "קבע תזכורת ל 16:00 לנסוע הביתה" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"לנסוע הביתה","dueDate":"<today 16:00 ISO>"}} (CRITICAL: NEVER strip the ל prefix from infinitive verbs! "לנסוע" is the correct form, NOT "נסוע". Hebrew infinitive verbs start with ל - keep it!)
 4g. REMINDER WITH OTHER ל VERBS (CRITICAL): "תזכיר לי לקנות חלב" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"לקנות חלב","dueDate":"<today 12:00 ISO>"}} (CRITICAL: Keep ל prefix: "לקנות", "לנסוע", "ללכת", "לעשות", etc.)
-4h. REMINDER WITH על+TITLE+ל+NAME (CRITICAL - BUG FIX #28 v2): "תזכיר לי ב 17:45 על השיעור לאדוארד" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"שיעור לאדוארד","dueDate":"<today 17:45 ISO>"}} (CRITICAL: When text has "על [noun] ל[name]", extract BOTH parts into title! "על השיעור לאדוארד" = title:"שיעור לאדוארד" NOT just "שיעור"! The ל+name after the noun is PART OF THE TITLE showing beneficiary!)
-4i. MORE על+ל+NAME EXAMPLES (CRITICAL): "תזכיר לי על הפגישה לדני ב-3" → title:"פגישה לדני", "תזכיר לי על האימון למיכאל מחר" → title:"אימון למיכאל" (CRITICAL: Never stop extraction at ל before a name! "ל+[name]" after a noun = "for [name]" and is PART of the title!)
+4h. REMINDER WITH על+TITLE+ל+NAME (CRITICAL - BUG FIX #28 v2 + #32): "תזכיר לי ב 17:45 על השיעור לאדוארד" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"שיעור לאדוארד","dueDate":"<today 17:45 ISO>"}} (CRITICAL: When text has "על [noun] ל[name]", extract BOTH parts into title! "על השיעור לאדוארד" = title:"שיעור לאדוארד" NOT just "שיעור"! The ל+name after the noun is PART OF THE TITLE showing beneficiary!)
+4h2. על WITH DASH SEPARATOR (CRITICAL - BUG FIX #32): "תזכיר לי ב 17:30 על - שיעור לאדוורד" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"שיעור לאדוורד","dueDate":"<today 17:30 ISO>"}} (CRITICAL: "על -" with dash is same as "על"! The dash is a separator. Still extract full title including "ל[name]"! Pattern: "על[-\s]* [noun] ל[name]" → title:"[noun] ל[name]")
+4i. MORE על+ל+NAME EXAMPLES (CRITICAL): "תזכיר לי על הפגישה לדני ב-3" → title:"פגישה לדני", "תזכיר לי על האימון למיכאל מחר" → title:"אימון למיכאל", "תזכיר לי על - המשימה לרחל" → title:"משימה לרחל" (CRITICAL: Never stop extraction at ל before a name! "ל+[name]" after a noun = "for [name]" and is PART of the title!)
 4j. REMINDER FOR PERSON VARIATIONS (CRITICAL): "תזכיר לי שיעור עבור אלכס מחר", "תזכיר לי פגישה של דוד ביום רביעי" → include "עבור אלכס"/"של דוד" in title (CRITICAL: Always preserve "for/of person" context! Patterns: "ל[name]", "עבור [name]", "של [name]", "for [name]")
 4j. REMINDER MINIMAL FORM (CRITICAL - BUG FIX #12): "תזכיר לי" → {"intent":"create_reminder","confidence":0.95,"reminder":{"title":"","dueDate":"<today 12:00 ISO>"}} (CRITICAL: "תזכיר לי" alone IS valid! User will provide details when prompted. This is the MOST BASIC Hebrew reminder phrase - MUST be 0.95+ confidence!)
 4k. REMINDER STANDALONE VARIATIONS (CRITICAL): "הזכר לי", "תזכיר", "תזכירי לי" → all create_reminder with 0.95 confidence (CRITICAL: All variations of "remind me" must have HIGH confidence!)
