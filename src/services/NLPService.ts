@@ -176,9 +176,34 @@ CRITICAL BUG FIX #23: DO NOT extract leadTimeMinutes without explicit "לפני"
 - ONLY extract if text contains: "X לפני" OR "X before" OR "ביום/בבוקר לפני"
 
 IMPORTANT: DO NOT include "תזכיר לי X לפני" in the notes field. Extract it as leadTimeMinutes!
+
 Examples WITH lead time:
 - "יום שישי 09:30 טקס קבלת ספר תורה תזכיר לי יום לפני" → {title: "טקס קבלת ספר תורה", dueDate: "Friday 09:30", leadTimeMinutes: 1440, notes: null}
 - "פגישה מחר 14:00 תזכיר לי שעה לפני" → {title: "פגישה", dueDate: "tomorrow 14:00", leadTimeMinutes: 60, notes: null}
+
+CRITICAL BUG FIX #33: When user says "תזכיר לי X לפני" about an existing event:
+- dueDate MUST BE the EVENT DATE (what we're reminding about), NOT the notification date!
+- leadTimeMinutes is HOW EARLY to send the reminder BEFORE the event
+- The scheduler will calculate: notificationTime = dueDate - leadTimeMinutes
+- DO NOT do this calculation yourself! Just extract event date and lead time separately!
+
+Examples (WITH event context):
+- "תזכיר לי יום לפני (בהקשר לאירוע: פגישה חשובה בתאריך 07.11.2025 בשעה 13:00)"
+  → {title: "פגישה חשובה", dueDate: "2025-11-07T13:00", leadTimeMinutes: 1440}
+  (Scheduler will send on 06.11 at 13:00)
+
+- "תזכיר לי 3 שעות לפני (בהקשר לאירוע: פגישה בתאריך 09.11.2025 בשעה 11:00)"
+  → {title: "פגישה", dueDate: "2025-11-09T11:00", leadTimeMinutes: 180}
+  (Scheduler will send on 09.11 at 08:00)
+
+- "תזכיר לי שעה לפני (בהקשר לאירוע: פגישה בתאריך 06.11.2025 בשעה 15:00)"
+  → {title: "פגישה", dueDate: "2025-11-06T15:00", leadTimeMinutes: 60}
+  (Scheduler will send on 06.11 at 14:00)
+
+WRONG EXAMPLES (do NOT do this):
+❌ "תזכיר לי יום לפני (אירוע ב-07.11)" → {dueDate: "06.11"} - WRONG! Should be 07.11!
+❌ Calculating dueDate as (eventDate minus leadTime) - WRONG! Scheduler does this!
+
 Examples WITHOUT lead time (common mistakes to avoid):
 - "תזכיר לי מחר ב2 לעשות משהו" → {title: "לעשות משהו", dueDate: "tomorrow 14:00"} NO leadTimeMinutes!
 - "תזכורת ל 15.11 להתכונן" → {title: "להתכונן", dueDate: "2025-11-15T12:00"} NO leadTimeMinutes!
