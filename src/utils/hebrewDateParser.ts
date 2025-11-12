@@ -28,8 +28,12 @@ export function parseHebrewDate(
     'מחר': () => now.plus({ days: 1 }),
     'מחרתיים': () => now.plus({ days: 2 }),
     'אתמול': () => now.minus({ days: 1 }),
-    'יום לפני': () => now.minus({ days: 1 }), // Day before / yesterday
-    'לפני יום': () => now.minus({ days: 1 }),
+    // REMOVED: 'יום לפני' - causes double subtraction bug (#7/#8)
+    // When user says "תזכיר לי יום לפני [event]", this should be extracted as
+    // leadTimeMinutes by AI, NOT as a date. If it's parsed as date (yesterday),
+    // then AI also extracts leadTime=1440, causing 2 days before instead of 1.
+    // If user truly means "yesterday", they should use "אתמול" instead.
+    'לפני יום': () => now.minus({ days: 1 }), // Keep this alternative
     'סופש': () => getNextWeekday(now, 6), // Saturday
 
     // Week keywords - ALL VARIATIONS
@@ -124,6 +128,24 @@ export function parseHebrewDate(
       extractedTime = { hour: adjustedHour, minute: 0 };
       // Remove natural time from input for date parsing
       dateInput = trimmedInput.replace(/(?:,?\s*(?:בשעה|ב-?)?\s*)?\d{0,2}\s*(?:אחרי הצהריים|אחה"צ|אחה״צ|בערב|בלילה|בבוקר|בצהריים)/, '').trim();
+
+      // BUG FIX #15/#21: If ONLY time was provided (no date), default to TODAY
+      if (dateInput === '' || dateInput.length === 0) {
+        console.warn(`[DATE_PARSER] Time-only natural language: "${trimmedInput}" → today at ${adjustedHour}:00`);
+
+        const todayWithTime = now.set({ hour: adjustedHour, minute: 0 });
+
+        // Safety: if time is past, assume tomorrow
+        const nowWithMinutes = DateTime.now().setZone(timezone);
+        const finalDate = todayWithTime < nowWithMinutes
+          ? todayWithTime.plus({ days: 1 })
+          : todayWithTime;
+
+        return {
+          success: true,
+          date: finalDate.toJSDate(),
+        };
+      }
     }
   }
 
@@ -163,28 +185,53 @@ export function parseHebrewDate(
   }
   } // Close if (!extractedTime)
 
-  // THIRD: Match time-only patterns without colon (BUG FIX for "ב 21" → should be 21:00 today, not 21st of month)
+  // THIRD: Match time-only patterns without colon (BUG FIX #13/#14 for "ב 21" → should be 21:00 today, not 21st of month)
   // Match: "בשעה 21", "ב 21", "ב-21", "21" (if it's a valid hour 0-23)
   // This MUST come before date parsing to prevent "21" from being interpreted as day-of-month
+  // BUG FIX: Removed anchors (^$) to allow matching within larger text like "פגישה ב 21 עם דימה"
   if (!extractedTime) {
-    const timeOnlyMatch = trimmedInput.match(/^(?:,?\s*(?:בשעה|ב-?)\s*)?(\d{1,2})$/);
+    // Match patterns like "בשעה 21", "ב 21", "ב-21" anywhere in the text
+    // Look for time indicators followed by a number, but NOT followed by date separators (/, .)
+    const timeOnlyMatch = trimmedInput.match(/(?:בשעה|ב-?)\s*(\d{1,2})(?![\/\.])/);
+
     if (timeOnlyMatch) {
       const hour = parseInt(timeOnlyMatch[1], 10);
-      // Only treat as time if it's a valid hour (0-23) AND has time context indicators
-      // Context indicators: "בשעה", "ב-", or trailing comma suggests time not date
-      const hasTimeContext = /(?:בשעה|ב-?)\s*\d{1,2}/.test(trimmedInput) || trimmedInput.includes(',');
 
-      if ((hour >= 0 && hour <= 23) && (hasTimeContext || hour > 12)) {
-        // If hour > 12, it's definitely time (can't be a date in DD/MM format)
-        // If hour <= 12, only treat as time if there's explicit context (בשעה, ב-)
+      // Validate hour range
+      if (hour >= 0 && hour <= 23) {
         extractedTime = { hour, minute: 0 };
-        dateInput = ''; // Clear input since we're interpreting this as time-only
+        // Remove time pattern from input for further date parsing
+        dateInput = trimmedInput.replace(/(?:בשעה|ב-?)\s*\d{1,2}/, '').trim();
 
         console.warn(`[DATE_PARSER] Time-only input detected: "${trimmedInput}" → interpreted as today at ${hour}:00`);
 
         const todayWithTime = now.set({ hour, minute: 0 });
 
         // Safety check: if time is in the past today, assume user meant tomorrow
+        const nowWithMinutes = DateTime.now().setZone(timezone);
+        const finalDate = todayWithTime < nowWithMinutes
+          ? todayWithTime.plus({ days: 1 })
+          : todayWithTime;
+
+        return {
+          success: true,
+          date: finalDate.toJSDate(),
+        };
+      }
+    }
+
+    // FALLBACK: If no explicit time indicator but input is JUST a number 13-23 (definitely time, not date)
+    const bareNumberMatch = trimmedInput.match(/^(\d{1,2})$/);
+    if (bareNumberMatch) {
+      const hour = parseInt(bareNumberMatch[1], 10);
+      // Only treat as time if hour > 12 (can't be ambiguous with dates)
+      if (hour >= 13 && hour <= 23) {
+        extractedTime = { hour, minute: 0 };
+        dateInput = '';
+
+        console.warn(`[DATE_PARSER] Bare number > 12 detected: "${trimmedInput}" → interpreted as today at ${hour}:00`);
+
+        const todayWithTime = now.set({ hour, minute: 0 });
         const nowWithMinutes = DateTime.now().setZone(timezone);
         const finalDate = todayWithTime < nowWithMinutes
           ? todayWithTime.plus({ days: 1 })

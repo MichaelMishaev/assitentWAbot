@@ -1,5 +1,250 @@
 # Bugs Tracker
 
+
+
+## 🐛 CRITICAL BUG FIXES (Nov 12, 2025) - Date/Time Parsing
+
+### Bug #7, #8, #5: "Day Before" Calculation - Double Subtraction (FIXED)
+**Issue:** When user says "תזכיר לי יום לפני [event on 8.11]", reminder was scheduled for 5.11 (2 days before) instead of 7.11 (1 day before).
+
+**User Reports:**
+- "#asked to remind me day before a meeting, the meeting on 8.11, the reminder on 5.11, bug!" (2025-11-04)
+- "#the event scheduled for 7.11, asked for it to remind me a day before, it scheduler reminder for the 5.11, it's 2 days, not 1. Bug" (2025-11-04)
+- "#didnt understand the יום לפני" (2025-11-04)
+
+**Root Cause:**
+**DOUBLE SUBTRACTION BUG** - When user said "תזכיר לי יום לפני [event]":
+1. `hebrewDateParser.ts` matched "יום לפני" as date keyword → returned YESTERDAY
+2. `AIEntityExtractor.ts` also extracted `leadTimeMinutes: 1440` (1 day before)
+3. `ReminderQueue.ts` calculated: yesterday - 1 day = **2 days before** (WRONG!)
+
+The phrase "יום לפני" was being interpreted BOTH as:
+- A standalone date (yesterday) by the date parser  
+- A lead time offset (1 day before event) by the AI
+
+This caused double subtraction: Event date became yesterday, THEN subtract another 1440 minutes.
+
+**Solution:**
+**REMOVED "יום לפני" from date keywords** in `hebrewDateParser.ts:31-36`:
+- "יום לפני" should ONLY be used for lead time extraction by AI, NOT as a date
+- Users who truly mean "yesterday" should use "אתמול" instead
+- This prevents the double subtraction bug entirely
+
+**Files Changed:**
+1. `src/utils/hebrewDateParser.ts` (lines 31-36)
+   - Removed `'יום לפני': () => now.minus({ days: 1 })` from date keywords
+   - Added detailed comment explaining the bug and why it was removed
+   - Kept `'לפני יום'` as alternative (though rarely used)
+   - Preserved `'אתמול'` for users who actually mean "yesterday"
+
+**Technical Details:**
+```typescript
+// BEFORE (BUGGY):
+const keywords = {
+  'יום לפני': () => now.minus({ days: 1 }), // ❌ Causes double subtraction!
+  'אתמול': () => now.minus({ days: 1 }),
+  // ...
+};
+
+// AFTER (FIXED):
+const keywords = {
+  // REMOVED: 'יום לפני' - causes double subtraction bug (#7/#8/#5)
+  // When user says "תזכיר לי יום לפני [event]", this should be extracted as
+  // leadTimeMinutes by AI, NOT as a date. If it's parsed as date (yesterday),
+  // then AI also extracts leadTime=1440, causing 2 days before instead of 1.
+  'אתמול': () => now.minus({ days: 1 }), // ✅ Use this for "yesterday"
+  // ...
+};
+```
+
+**Test Results:**
+- ✅ "תזכיר לי יום לפני [event 8.11]" → Reminder on 7.11 (correct!)
+- ✅ "אתמול" → Yesterday (still works)
+- ✅ No more double subtraction
+
+**Impact:** HIGH - Affects ALL reminders with "יום לפני" lead time
+
+---
+
+### Bug #13, #14: Time Ambiguity - "21" Interpreted as Day 21 Instead of 21:00 (FIXED)
+**Issue:** When user says "פגישה ב 21 עם דימה", the system created event for **day 21 of next month** instead of **today at 21:00**.
+
+**User Reports:**
+- "#i asked: פגישה ב 21 עם דימה, להביא מחשב and it created event for 21/11/2025, why? When user uses only time without date, so it's for today." (2025-11-02)
+- "#i have event at 21 today, why not seen it? It's abug" (2025-11-02)
+
+**Root Cause:**
+Time-only regex pattern used **strict anchors** (`^...$`) that required exact match:
+```typescript
+// BUGGY CODE:
+const timeOnlyMatch = trimmedInput.match(/^(?:בשעה|ב-?)\s*(\d{1,2})$/);
+```
+
+**The Problem:**
+1. Input: "פגישה ב 21 עם דימה" has surrounding text
+2. Regex with `^` (start) and `$` (end) **failed to match** because of "פגישה" and "עם דימה"
+3. Parser fell through to DD/MM date parser (line 372)
+4. Date parser interpreted "21" as **day 21** of current/next month
+5. Created event for wrong date entirely!
+
+**Solution:**
+**Made time-only parsing MORE LENIENT** in `hebrewDateParser.ts:170-228`:
+
+1. **Removed strict anchors** - match "ב 21" anywhere in text
+2. **Added negative lookbehind** - don't match if followed by date separators (`/`, `.`)
+3. **Added fallback** for bare numbers > 12 (definitely time, not date)
+
+**Files Changed:**
+1. `src/utils/hebrewDateParser.ts` (lines 170-228)
+   - Replaced strict `^...$` regex with flexible pattern
+   - Added `(?![\/\.])` negative lookahead to avoid matching dates like "21/10"
+   - Added fallback for bare numbers 13-23 (unambiguous time)
+   - Improved context detection logic
+
+**Technical Details:**
+```typescript
+// BEFORE (BUGGY - strict anchors):
+const timeOnlyMatch = trimmedInput.match(/^(?:בשעה|ב-?)\s*(\d{1,2})$/);
+//                                        ↑                        ↑
+//                                   Start anchor            End anchor
+// ❌ Fails on "פגישה ב 21 עם דימה" because of surrounding text!
+
+// AFTER (FIXED - flexible matching):
+const timeOnlyMatch = trimmedInput.match(/(?:בשעה|ב-?)\s*(\d{1,2})(?![\/\.])/);
+//                                       No ^ anchor                 ↑
+//                                                       Negative lookahead
+// ✅ Matches "ב 21" even with surrounding text!
+// ✅ Won't match "21/10" or "21.10" (date formats)
+
+// FALLBACK: Bare numbers > 12 are definitely time
+const bareNumberMatch = trimmedInput.match(/^(\d{1,2})$/);
+if (bareNumberMatch) {
+  const hour = parseInt(bareNumberMatch[1], 10);
+  if (hour >= 13 && hour <= 23) {  // Can't be a date!
+    return { success: true, date: todayAt(hour) };
+  }
+}
+```
+
+**Test Results:**
+- ✅ "בשעה 21" → Today at 21:00
+- ✅ "ב 21" → Today at 21:00 (with surrounding text)
+- ✅ "ב-21" → Today at 21:00
+- ✅ "פגישה ב 15" → Today at 15:00 (Bug #14 scenario!)
+- ✅ "21" (bare) → Today at 21:00 (unambiguous)
+- ✅ "21/10" → Still parses as date October 21 (not broken)
+- ✅ "10" (bare) → Rejected as ambiguous (could be day 10 or 10 AM)
+
+**Impact:** CRITICAL - Affects ALL time-only event creation
+
+---
+
+### Bug #15, #21: Hebrew Time Patterns Not Recognized (FIXED)
+**Issue:** Natural language time expressions like "בערב" (evening), "בבוקר" (morning), "3 אחרי הצהריים" (3 PM) were not being recognized.
+
+**User Reports:**
+- "# לא מזהה שעה" (2025-10-29) - Doesn't recognize time
+- "#לא זיהה את השעה" (2025-10-28) - Didn't recognize the time
+
+**Root Cause:**
+Natural time extraction (lines 62-128) was working correctly, BUT:
+1. Time was extracted from input → `extractedTime` set
+2. Time pattern removed from `dateInput`
+3. If `dateInput` became **empty** (user said ONLY time, no date), parser continued looking for date
+4. No date keyword found → **parser failed** with "unrecognized input" error
+5. Valid time expressions were rejected!
+
+**The Bug:**
+```typescript
+// User input: "בערב"
+extractedTime = { hour: 19, minute: 0 };  // ✅ Time extracted correctly
+dateInput = '';  // ⚠️  Input now empty (no date keyword)
+
+// Parser continues...
+if (keywords[dateInput]) { ... }  // ❌ dateInput is empty, no match!
+// Falls through to error: "קלט לא מזוהה"
+```
+
+**Solution:**
+**Added early return when ONLY time is provided** in `hebrewDateParser.ts:132-148`:
+- After extracting natural time, check if `dateInput` is empty
+- If empty → **default to TODAY** at the extracted time
+- Return immediately, don't continue parsing for date
+
+**Files Changed:**
+1. `src/utils/hebrewDateParser.ts` (lines 132-148)
+   - Added early return after natural time extraction if `dateInput` is empty
+   - Defaults to TODAY at the specified time
+   - Safety check: if time is past today, use tomorrow instead
+
+**Technical Details:**
+```typescript
+// BEFORE (BUGGY):
+if (naturalTimeMatch) {
+  extractedTime = { hour: 19, minute: 0 };
+  dateInput = trimmedInput.replace(naturalTimePattern, '').trim();
+  // ⚠️  No check if dateInput is empty - continues to fail later!
+}
+
+// AFTER (FIXED):
+if (naturalTimeMatch) {
+  extractedTime = { hour: 19, minute: 0 };
+  dateInput = trimmedInput.replace(naturalTimePattern, '').trim();
+
+  // BUG FIX #15/#21: If ONLY time was provided, default to TODAY
+  if (dateInput === '') {
+    const todayWithTime = now.set({ hour: 19, minute: 0 });
+
+    // Safety: if time is past, assume tomorrow
+    const finalDate = todayWithTime < DateTime.now()
+      ? todayWithTime.plus({ days: 1 })
+      : todayWithTime;
+
+    return { success: true, date: finalDate.toJSDate() };  // ✅ Return immediately!
+  }
+}
+```
+
+**Test Results:**
+- ✅ "בערב" → Today at 19:00
+- ✅ "בבוקר" → Today at 08:00
+- ✅ "3 אחרי הצהריים" → Today at 15:00
+- ✅ "8 בערב" → Today at 20:00
+- ✅ "בלילה" → Today at 22:00
+- ✅ "בצהריים" → Today at 12:00
+- ✅ "מחר בערב" → Tomorrow at 19:00 (date + time both work)
+
+**Impact:** MEDIUM-HIGH - Affects natural language time expressions
+
+---
+
+### Summary of Changes
+
+**Files Modified:**
+1. `src/utils/hebrewDateParser.ts`
+   - Line 31-36: Removed "יום לפני" from date keywords (Bug #7/#8)
+   - Line 132-148: Added early return for time-only natural language (Bug #15/#21)
+   - Line 170-228: Made time-only parsing more flexible (Bug #13/#14)
+
+**Test Coverage:**
+- Created `src/test-bug-fixes.ts` with comprehensive tests
+- All tests passing ✅
+
+**Deployment:**
+- Build: ✅ Successful (no TypeScript errors)
+- Ready for production deployment
+
+**Bugs Fixed Count:** 8 user reports resolved
+- Bug #5: "didnt understand the יום לפני" → FIXED
+- Bug #7: "asked to remind me day before...reminder on 5.11, bug!" → FIXED
+- Bug #8: "the event scheduled for 7.11...scheduler reminder for the 5.11" → FIXED
+- Bug #13: "פגישה ב 21...created event for 21/11/2025" → FIXED
+- Bug #14: "i have event at 21 today, why not seen it?" → FIXED
+- Bug #15: "לא מזהה שעה" → FIXED
+- Bug #21: "לא זיהה את השעה" → FIXED
+
+**Impact:** CRITICAL bugs affecting core scheduling functionality now resolved.
+
 ## 📋 NEW FEATURES
 
 ### Feature: Comprehensive Help Menu for New Users
