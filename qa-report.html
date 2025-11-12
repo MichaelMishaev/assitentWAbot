@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QA Test Report - 10/30/2025</title>
+  <title>QA Test Report - 11/12/2025</title>
   <style>
     * {
       margin: 0;
@@ -196,7 +196,7 @@
     <!-- Header -->
     <div class="header">
       <h1>🧪 QA Test Report</h1>
-      <div class="timestamp">Generated: 30.10.2025, 1:22:10</div>
+      <div class="timestamp">Generated: 12.11.2025, 20:32:35</div>
     </div>
 
     <!-- Statistics -->
@@ -206,15 +206,15 @@
         <div class="stat-label">סה"כ בדיקות</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value stat-passed">1</div>
+        <div class="stat-value stat-passed">0</div>
         <div class="stat-label">עברו בהצלחה</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value stat-failed">1</div>
+        <div class="stat-value stat-failed">2</div>
         <div class="stat-label">נכשלו</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value stat-rate">50.0%</div>
+        <div class="stat-value stat-rate">0.0%</div>
         <div class="stat-label">אחוז הצלחה</div>
       </div>
     </div>
@@ -222,8 +222,8 @@
     <!-- Progress Bar -->
     <div class="test-section">
       <div class="progress-bar">
-        <div class="progress-fill" style="width: 50%">
-          50.0%
+        <div class="progress-fill" style="width: 0%">
+          0.0%
         </div>
       </div>
     </div>
@@ -231,7 +231,28 @@
     <!-- Failed Tests -->
     
     <div class="test-section">
-      <h2 class="section-title">❌ בדיקות שנכשלו (1)</h2>
+      <h2 class="section-title">❌ בדיקות שנכשלו (2)</h2>
+      
+        <div class="test-item test-failed">
+          <div class="test-header">
+            <div class="test-title">Bug #[TBD]: Date Parser: "יום לפני בערב" Not Recognized</div>
+            <span class="test-badge badge-failed">FAIL</span>
+          </div>
+          <div class="test-details">
+            <div>📌 <strong>Assertion:</strong> Should parse to yesterday at specified hour</div>
+            <div>🔧 <strong>Test Type:</strong> date-parser</div>
+          </div>
+          
+          <div class="error-details">
+            <div><span class="error-label">Expected:</span> Date -1 days from now</div>
+            <div><span class="error-label">Actual:</span> קלט לא מזוהה. נסה: היום, מחר 14:00, ב 21, בשעה 18, יום לפני בערב, עוד 2 דקות, עוד שעה, בערב, יום ראשון 18:00, 16/10 19:00, או 16.10.2025 בשעה 20:00</div>
+            
+          </div>
+          
+          <div class="test-meta">
+            <span class="execution-time">⏱️ 12ms</span>
+          </div>
+        </div>
       
         <div class="test-item test-failed">
           <div class="test-header">
@@ -250,7 +271,7 @@
           </div>
           
           <div class="test-meta">
-            <span class="execution-time">⏱️ 2ms</span>
+            <span class="execution-time">⏱️ 1ms</span>
           </div>
         </div>
       
@@ -258,22 +279,6 @@
     
 
     <!-- Passed Tests -->
-    
-    <div class="test-section">
-      <h2 class="section-title">✅ בדיקות שעברו בהצלחה (1)</h2>
-      
-        <div class="test-item test-passed">
-          <div class="test-header">
-            <div class="test-title">Bug #[TBD]: Date Parser: "יום לפני בערב" Not Recognized</div>
-            <span class="test-badge badge-passed">PASS</span>
-          </div>
-          <div class="test-meta">
-            🔧 date-parser
-            <span class="execution-time">⏱️ 13ms</span>
-          </div>
-        </div>
-      
-    </div>
     
 
     
