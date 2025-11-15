@@ -2,7 +2,7 @@
 
 ## Installation
 
-```bash
+```
 npm install whatsapp-web.js
 ```
 

@@ -1468,9 +1468,11 @@ ${preview}${moreText}
         return true; // Handled
       }
 
-      // Parse reminder time from text using V2 Pipeline
+      // HYBRID APPROACH: Local NLP first, GPT-4o-mini as fallback
       const { pipelineOrchestrator } = await import('../domain/orchestrator/PipelineOrchestrator.js');
+      const { gptDateTimeService } = await import('./GPTDateTimeService.js');
       const timezone = 'Asia/Jerusalem';
+      const parseStartTime = Date.now();
 
       // Get event time for relative reminders
       const { DateTime } = await import('luxon');
@@ -1487,33 +1489,100 @@ ${preview}${moreText}
         isFromMe: false
       };
 
-      // Execute V2 Pipeline to extract date/time and lead time
+      // STEP 1: Try local NLP first (FAST - ~50ms)
       const result = await pipelineOrchestrator.execute(incomingMessage, userId, timezone);
+      const localNlpTime = Date.now() - parseStartTime;
 
       let reminderDate: Date | null = null;
+      let usedGPT = false;
+      let gptLatency = 0;
 
       // Check for lead time patterns (e.g., "שעה לפני", "30 דקות לפני")
       if (result.entities?.leadTimeMinutes && typeof result.entities.leadTimeMinutes === 'number') {
         // Relative reminder: X minutes before event
         reminderDate = new Date(event.startTsUtc.getTime() - (result.entities.leadTimeMinutes * 60 * 1000));
 
-        logger.info('Quick reminder - relative time detected', {
+        logger.info('[HYBRID] Quick reminder - local NLP success (relative)', {
           userId,
           eventId,
           eventTime: event.startTsUtc,
           leadTimeMinutes: result.entities.leadTimeMinutes,
-          reminderTime: reminderDate
+          reminderTime: reminderDate,
+          localNlpMs: localNlpTime,
+          usedGPT: false
         });
       } else if (result.entities?.date) {
-        // Absolute reminder time provided
+        // Absolute reminder time provided by local NLP
         const dateQuery = this.parseDateFromNLP({ date: result.entities.date, dateText: result.entities.dateText }, 'quickReminderCreate');
         reminderDate = dateQuery.date;
 
-        logger.info('Quick reminder - absolute time detected', {
+        // VALIDATION: Check if local NLP result looks correct
+        // If it's midnight (00:00) but user specified a time, local NLP probably failed
+        const isProbablyWrong = reminderDate &&
+          reminderDate.getHours() === 0 &&
+          reminderDate.getMinutes() === 0 &&
+          (text.includes(':') || text.includes('בשעה') || text.includes('ב-'));
+
+        if (isProbablyWrong) {
+          logger.warn('[HYBRID] Local NLP returned midnight but user specified time - trying GPT fallback', {
+            userId,
+            text,
+            localResult: reminderDate
+          });
+          reminderDate = null; // Force GPT retry
+        } else {
+          logger.info('[HYBRID] Quick reminder - local NLP success (absolute)', {
+            userId,
+            eventId,
+            reminderTime: reminderDate,
+            localNlpMs: localNlpTime,
+            usedGPT: false
+          });
+        }
+      }
+
+      // STEP 2: If local NLP failed, use GPT-4o-mini (SMART FALLBACK)
+      if (!reminderDate || isNaN(reminderDate.getTime())) {
+        logger.info('[HYBRID] Local NLP failed - using GPT-4o-mini fallback', {
           userId,
-          eventId,
-          reminderTime: reminderDate
+          text,
+          localNlpMs: localNlpTime
         });
+
+        const gptStartTime = Date.now();
+        const gptResult = await gptDateTimeService.extractDateTime(text, timezone, {
+          eventTime: event.startTsUtc,
+          currentTime: new Date()
+        });
+        gptLatency = Date.now() - gptStartTime;
+        usedGPT = true;
+
+        if (gptResult.success) {
+          if (gptResult.leadTimeMinutes) {
+            // Relative time from GPT
+            reminderDate = new Date(event.startTsUtc.getTime() - (gptResult.leadTimeMinutes * 60 * 1000));
+          } else if (gptResult.datetime) {
+            // Absolute time from GPT
+            reminderDate = gptResult.datetime;
+          }
+
+          logger.info('[HYBRID] GPT-4o-mini success', {
+            userId,
+            eventId,
+            text,
+            reminderTime: reminderDate,
+            gptLatencyMs: gptLatency,
+            cacheHit: gptResult.cacheHit,
+            confidence: gptResult.confidence
+          });
+        } else {
+          logger.error('[HYBRID] GPT-4o-mini also failed', {
+            userId,
+            text,
+            gptError: gptResult.error,
+            gptLatencyMs: gptLatency
+          });
+        }
       }
 
       // If we couldn't parse a time, use default lead time from user preferences
@@ -1570,13 +1639,28 @@ ${preview}${moreText}
       // React with 🔔
       await this.reactToLastMessage(userId, '🔔');
 
-      logger.info('Quick reminder created', {
+      // Log success with performance metrics
+      const totalTime = Date.now() - parseStartTime;
+      logger.info('[HYBRID] Quick reminder created successfully', {
         userId,
         eventId,
         reminderId: reminder.id,
         reminderTime: reminderDate,
-        eventTime: event.startTsUtc
+        eventTime: event.startTsUtc,
+        performance: {
+          totalMs: totalTime,
+          localNlpMs: localNlpTime,
+          gptMs: gptLatency,
+          usedGPT,
+          estimatedCost: usedGPT ? '$0.0002' : '$0'
+        }
       });
+
+      // Track GPT usage for cost monitoring
+      if (usedGPT) {
+        await redis.incr('analytics:gpt:datetime:calls:daily');
+        await redis.incr('analytics:gpt:datetime:calls:total');
+      }
 
       return true; // Successfully handled
 
