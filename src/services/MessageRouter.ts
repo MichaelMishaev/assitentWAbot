@@ -1128,17 +1128,8 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
         return await this.handleQuickDelete(phone, userId, eventData);
       }
 
-      if (isTimeUpdate && timeMatch) {
-        // Phase 3.3: Analytics - track time update action
-        logger.info('[ANALYTICS] Quick time update initiated', {
-          analytics: 'quick_time_update',
-          userId,
-          eventCount: 1,
-          timePattern: timeMatch[0]
-        });
-        return await this.handleQuickTimeUpdate(phone, userId, eventData, text);
-      }
-
+      // IMPORTANT: Check reminder keywords BEFORE time patterns
+      // This prevents "תזכורת ב16:00" from being interpreted as time update
       if (isReminder) {
         // NEW: Quick reminder creation when replying to event
         logger.info('[ANALYTICS] Quick reminder creation initiated', {
@@ -1148,6 +1139,17 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
           keyword: reminderKeywords.find(k => normalized.includes(k))
         });
         return await this.handleQuickReminderCreate(phone, userId, eventData, text);
+      }
+
+      if (isTimeUpdate && timeMatch) {
+        // Phase 3.3: Analytics - track time update action
+        logger.info('[ANALYTICS] Quick time update initiated', {
+          analytics: 'quick_time_update',
+          userId,
+          eventCount: 1,
+          timePattern: timeMatch[0]
+        });
+        return await this.handleQuickTimeUpdate(phone, userId, eventData, text);
       }
 
       // Phase 3.1: Provide helpful suggestions if keyword detected but incomplete
@@ -1235,18 +1237,7 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
         return await this.handleQuickDelete(phone, userId, selectedEventId);
       }
 
-      if (isTimeUpdate && timeMatch) {
-        // Phase 3.3: Analytics - track multi-event time update
-        logger.info('[ANALYTICS] Quick time update multi-event', {
-          analytics: 'quick_time_update_multi',
-          userId,
-          eventCount: eventData.length,
-          selectedIndex: eventNumber,
-          timePattern: timeMatch[0]
-        });
-        return await this.handleQuickTimeUpdate(phone, userId, selectedEventId, text);
-      }
-
+      // IMPORTANT: Check reminder keywords BEFORE time patterns (same as single event)
       if (isReminder) {
         // NEW: Quick reminder creation for multi-event
         logger.info('[ANALYTICS] Quick reminder creation multi-event', {
@@ -1257,6 +1248,18 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
           keyword: reminderKeywords.find(k => normalized.includes(k))
         });
         return await this.handleQuickReminderCreate(phone, userId, selectedEventId, text);
+      }
+
+      if (isTimeUpdate && timeMatch) {
+        // Phase 3.3: Analytics - track multi-event time update
+        logger.info('[ANALYTICS] Quick time update multi-event', {
+          analytics: 'quick_time_update_multi',
+          userId,
+          eventCount: eventData.length,
+          selectedIndex: eventNumber,
+          timePattern: timeMatch[0]
+        });
+        return await this.handleQuickTimeUpdate(phone, userId, selectedEventId, text);
       }
 
       // Phase 3.1: Provide helpful suggestions if keyword detected but incomplete

@@ -1966,6 +1966,27 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
         return reminderTime >= now;
       });
 
+      // NEW FIX: Filter by date if user specified (e.g., "tomorrow", "today")
+      // Bug: User asks "what reminders tomorrow?" but gets reminders from 2026
+      if (reminder?.date) {
+        const targetDate = safeParseDate(reminder.date, 'handleNLPListReminders-dateFilter');
+        if (targetDate && !isNaN(targetDate.getTime())) {
+          const targetDt = DateTime.fromJSDate(targetDate).setZone('Asia/Jerusalem');
+          const startOfDay = targetDt.startOf('day');
+          const endOfDay = targetDt.endOf('day');
+
+          reminders = reminders.filter(r => {
+            const reminderTime = DateTime.fromJSDate(r.dueTsUtc).setZone('Asia/Jerusalem');
+            return reminderTime >= startOfDay && reminderTime <= endOfDay;
+          });
+
+          logger.info('Filtered reminders by date', {
+            targetDate: targetDt.toISO(),
+            reminderCount: reminders.length
+          });
+        }
+      }
+
       if (reminders.length === 0) {
         await this.sendMessage(phone, '📭 אין לך תזכורות פעילות.\n\nשלח /תפריט לחזרה לתפריט');
         return;
@@ -1983,7 +2004,8 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
 
       // Format reminders list
       const titleDescription = titleFilter ? ` עבור "${titleFilter}"` : '';
-      let message = `⏰ התזכורות שלך${titleDescription} (${reminders.length}):\n\n`;
+      const dateDescription = reminder?.date ? ` ל${DateTime.fromJSDate(safeParseDate(reminder.date, 'reminder-date-display') || new Date()).setZone('Asia/Jerusalem').toFormat('dd/MM')}` : '';
+      let message = `⏰ התזכורות שלך${titleDescription}${dateDescription} (${reminders.length}):\n\n`;
 
       reminders.forEach((reminder, index) => {
         const dt = DateTime.fromJSDate(reminder.dueTsUtc).setZone('Asia/Jerusalem');
