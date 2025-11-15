@@ -1096,9 +1096,13 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
     // Phase 1.3: Keyword patterns
     const deleteKeywords = ['מחק', 'מחה', 'x', 'delete', 'מצק'];
     const updateKeywords = ['עדכן', 'שנה', 'דחה', 'update'];
+    const reminderKeywords = ['תזכורת', 'תזכיר', 'הזכר', 'remind', 'reminder'];
 
     // Check if it's a delete action
     const isDelete = deleteKeywords.some(keyword => normalized.includes(keyword));
+
+    // Check if it's a reminder creation
+    const isReminder = reminderKeywords.some(keyword => normalized.includes(keyword));
 
     // Check if it's a time update (matches HH:MM or H:MM patterns)
     // Added support for single-digit minutes like "20:0" (interprets as "20:00")
@@ -1133,6 +1137,17 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
           timePattern: timeMatch[0]
         });
         return await this.handleQuickTimeUpdate(phone, userId, eventData, text);
+      }
+
+      if (isReminder) {
+        // NEW: Quick reminder creation when replying to event
+        logger.info('[ANALYTICS] Quick reminder creation initiated', {
+          analytics: 'quick_reminder_create',
+          userId,
+          eventCount: 1,
+          keyword: reminderKeywords.find(k => normalized.includes(k))
+        });
+        return await this.handleQuickReminderCreate(phone, userId, eventData, text);
       }
 
       // Phase 3.1: Provide helpful suggestions if keyword detected but incomplete
@@ -1232,6 +1247,18 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
         return await this.handleQuickTimeUpdate(phone, userId, selectedEventId, text);
       }
 
+      if (isReminder) {
+        // NEW: Quick reminder creation for multi-event
+        logger.info('[ANALYTICS] Quick reminder creation multi-event', {
+          analytics: 'quick_reminder_create_multi',
+          userId,
+          eventCount: eventData.length,
+          selectedIndex: eventNumber,
+          keyword: reminderKeywords.find(k => normalized.includes(k))
+        });
+        return await this.handleQuickReminderCreate(phone, userId, selectedEventId, text);
+      }
+
       // Phase 3.1: Provide helpful suggestions if keyword detected but incomplete
       if (isTimeUpdate && !timeMatch) {
         await this.sendMessage(phone, `⏰ זיהיתי בקשה לשינוי שעה לאירוע ${eventNumber}.\n\nדוגמאות:\n• "עדכן ${eventNumber} ל20:00"\n• "${eventNumber} 8 בערב"\n• "${eventNumber} 15:30"`);
@@ -1239,8 +1266,8 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
       }
 
       // If keyword detected but no action matched, let NLP handle it
-      if (isDelete || isTimeUpdate) {
-        logger.info('Multi-event quick action keyword detected but no match', { eventNumber, isDelete, isTimeUpdate });
+      if (isDelete || isTimeUpdate || isReminder) {
+        logger.info('Multi-event quick action keyword detected but no match', { eventNumber, isDelete, isTimeUpdate, isReminder });
       }
     }
 
@@ -1419,6 +1446,141 @@ ${preview}${moreText}
     } catch (error) {
       logger.error('Quick time update failed', { userId, eventId, error });
       return false; // Let normal flow handle error
+    }
+  }
+
+  /**
+   * Quick reminder creation when replying to event
+   * Supports patterns like:
+   * - "תזכורת ב20:00" (remind me at 20:00)
+   * - "תזכיר לי שעה לפני" (remind me an hour before)
+   * - "תזכורת 30 דקות לפני" (remind me 30 minutes before)
+   * - "remind me tomorrow at 10:00"
+   */
+  private async handleQuickReminderCreate(phone: string, userId: string, eventId: string, text: string): Promise<boolean> {
+    try {
+      const event = await this.eventService.getEventById(eventId, userId);
+      if (!event) {
+        await this.sendMessage(phone, '❌ האירוע לא נמצא (אולי כבר נמחק?).\n\nשלח /תפריט לתפריט ראשי');
+        return true; // Handled
+      }
+
+      // Parse reminder time from text using V2 Pipeline
+      const { pipelineOrchestrator } = await import('../domain/orchestrator/PipelineOrchestrator.js');
+      const timezone = 'Asia/Jerusalem';
+
+      // Get event time for relative reminders
+      const { DateTime } = await import('luxon');
+      const eventDt = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
+
+      // Create IncomingMessage for V2 Pipeline to parse reminder time
+      const incomingMessage = {
+        from: phone,
+        messageId: `quick-reminder-${Date.now()}`,
+        timestamp: Date.now(),
+        content: {
+          text: `תזכורת ל${event.title} ${text}` // Include event context for better parsing
+        },
+        isFromMe: false
+      };
+
+      // Execute V2 Pipeline to extract date/time and lead time
+      const result = await pipelineOrchestrator.execute(incomingMessage, userId, timezone);
+
+      let reminderDate: Date | null = null;
+
+      // Check for lead time patterns (e.g., "שעה לפני", "30 דקות לפני")
+      if (result.entities?.leadTimeMinutes && typeof result.entities.leadTimeMinutes === 'number') {
+        // Relative reminder: X minutes before event
+        reminderDate = new Date(event.startTsUtc.getTime() - (result.entities.leadTimeMinutes * 60 * 1000));
+
+        logger.info('Quick reminder - relative time detected', {
+          userId,
+          eventId,
+          eventTime: event.startTsUtc,
+          leadTimeMinutes: result.entities.leadTimeMinutes,
+          reminderTime: reminderDate
+        });
+      } else if (result.entities?.date) {
+        // Absolute reminder time provided
+        const dateQuery = this.parseDateFromNLP({ date: result.entities.date, dateText: result.entities.dateText }, 'quickReminderCreate');
+        reminderDate = dateQuery.date;
+
+        logger.info('Quick reminder - absolute time detected', {
+          userId,
+          eventId,
+          reminderTime: reminderDate
+        });
+      }
+
+      // If we couldn't parse a time, use default lead time from user preferences
+      if (!reminderDate || isNaN(reminderDate.getTime())) {
+        // Fallback: Use user's default reminder lead time (default: 15 minutes)
+        const user = await this.authService.getUserByPhone(phone);
+        const defaultLeadTime = user?.prefsJsonb?.reminderLeadTimeMinutes || 15;
+        reminderDate = new Date(event.startTsUtc.getTime() - (defaultLeadTime * 60 * 1000));
+
+        logger.info('Quick reminder - using default lead time', {
+          userId,
+          eventId,
+          defaultLeadTime,
+          reminderTime: reminderDate
+        });
+      }
+
+      // Validate reminder is in the future
+      if (reminderDate.getTime() <= Date.now()) {
+        await this.sendMessage(phone, '⚠️ זמן התזכורת עבר כבר.\n\nנסה זמן עתידי או "תזכיר לי לפני האירוע"');
+        return true; // Handled with error
+      }
+
+      // Create the reminder
+      const reminder = await this.reminderService.createReminder({
+        userId,
+        title: event.title,
+        dueTsUtc: reminderDate,
+        eventId: eventId
+      });
+
+      // Format confirmation message
+      const reminderDt = DateTime.fromJSDate(reminderDate).setZone(timezone);
+      const timeDiff = Math.floor((event.startTsUtc.getTime() - reminderDate.getTime()) / (1000 * 60));
+
+      let leadTimeText = '';
+      if (timeDiff > 0) {
+        if (timeDiff < 60) {
+          leadTimeText = `(${timeDiff} דקות לפני)`;
+        } else if (timeDiff < 1440) {
+          const hours = Math.floor(timeDiff / 60);
+          leadTimeText = `(${hours} שעות לפני)`;
+        } else {
+          const days = Math.floor(timeDiff / 1440);
+          leadTimeText = `(${days} ימים לפני)`;
+        }
+      }
+
+      await this.sendMessage(phone, `✅ תזכורת נוצרה
+
+📅 אירוע: ${event.title}
+⏰ תזכורת: ${reminderDt.toFormat('dd/MM/yyyy HH:mm')} ${leadTimeText}`);
+
+      // React with 🔔
+      await this.reactToLastMessage(userId, '🔔');
+
+      logger.info('Quick reminder created', {
+        userId,
+        eventId,
+        reminderId: reminder.id,
+        reminderTime: reminderDate,
+        eventTime: event.startTsUtc
+      });
+
+      return true; // Successfully handled
+
+    } catch (error) {
+      logger.error('Quick reminder creation failed', { userId, eventId, error });
+      await this.sendMessage(phone, '❌ שגיאה ביצירת התזכורת.\n\nנסה שוב או שלח /תפריט');
+      return true; // Handled (even if failed)
     }
   }
 
