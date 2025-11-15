@@ -125,7 +125,7 @@ Timezone: ${timezone}
 
 Extract and return JSON with these fields:
 {
-  "title": "event/reminder subject (without date/time/participants) - **CRITICAL**: If user just says 'תזכיר לי מחר' or 'תזכיר לי שוב' WITHOUT specifying WHAT, return null!",
+  "title": "event/reminder subject (without date/time/participants) - **CRITICAL**: If user just says 'תזכיר לי מחר' or 'תזכיר לי שוב' WITHOUT specifying WHAT, return null! - **IMPORTANT**: Preserve ל prefix in infinitive verbs (e.g., 'תזכיר לי לנסוע' → 'לנסוע', NOT 'נסוע')",
   "date": "YYYY-MM-DD (convert relative dates like 'היום', 'מחר')",
   "time": "HH:MM (24-hour format, extract from 'לשעה X', 'בשעה X', 'ב-X')",
   "dateText": "original date text from input",
@@ -167,6 +167,11 @@ Rules:
    - Pattern variations: "עם X", "ל-X", "אצל X"
    - IMPORTANT: Participant names should NOT appear in the title field!
 4. Title should NOT include date, time, or participants (unless title explicitly requested)
+   - **BUG FIX #10:** PRESERVE ל prefix in infinitive verbs!
+     * "תזכיר לי לנסוע הביתה" → title: "לנסוע הביתה" ✓ (NOT "נסוע הביתה" ❌)
+     * "תזכיר לי לקנות חלב" → title: "לקנות חלב" ✓ (NOT "קנות חלב" ❌)
+     * "תזכיר לי לשלוח מייל" → title: "לשלוח מייל" ✓ (NOT "שלוח מייל" ❌)
+     * Common infinitive verbs: לנסוע, לקנות, לשלוח, לקרוא, לכתוב, לעשות, לבדוק
 5. Return null for missing fields
 6. Be confident when patterns are clear
 7. **BUG FIX #24/#25:** When user searches for events by day name (e.g., "מה יש לי ביום רביעי?"), extract "רביעי" as dateText, NOT as title!
