@@ -47,7 +47,7 @@ export class ValidationEnrichmentPhase extends BasePhase {
       // 1. Validate date/time consistency
       if (context.entities.date && context.entities.endDate) {
         if (context.entities.endDate <= context.entities.date) {
-          errors.push('End time must be after start time');
+          errors.push('⚠️ שעת הסיום חייבת להיות אחרי שעת ההתחלה');
         }
       }
 
@@ -58,7 +58,7 @@ export class ValidationEnrichmentPhase extends BasePhase {
 
         if (eventDate < now.minus({ minutes: 5 })) {
           // Allow 5 minutes grace period for "now"
-          warnings.push('⚠️ Event date is in the past. Did you mean a future date?');
+          warnings.push('⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
         }
       }
 
@@ -66,14 +66,14 @@ export class ValidationEnrichmentPhase extends BasePhase {
       if (context.entities.time) {
         const timePattern = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
         if (!timePattern.test(context.entities.time)) {
-          errors.push('Invalid time format (expected HH:MM)');
+          errors.push('⚠️ פורמט השעה לא תקין (צריך להיות HH:MM)');
         }
       }
 
       // 4. Validate title exists for creation intents
       if ((context.intent === 'create_event' || context.intent === 'create_reminder')) {
         if (!context.entities.title || context.entities.title.trim().length === 0) {
-          warnings.push('⚠️ Event title is missing. Using default title.');
+          warnings.push('⚠️ כותרת האירוע חסרה. משתמש בכותרת ברירת מחדל.');
           context.entities.title = 'אירוע חדש'; // "New event" in Hebrew
           enrichments.push('Added default title');
         }
@@ -85,7 +85,7 @@ export class ValidationEnrichmentPhase extends BasePhase {
         const hour = eventDateTime.hour;
 
         if (hour < 6 || hour > 23) {
-          warnings.push('⚠️ Event is scheduled outside typical working hours (6 AM - 11 PM)');
+          warnings.push('⚠️ האירוע מתוכנן מחוץ לשעות העבודה הרגילות (6:00 - 23:00)');
         }
       }
 
@@ -97,10 +97,10 @@ export class ValidationEnrichmentPhase extends BasePhase {
       // 7. Validate recurrence pattern (if exists)
       if (context.entities.recurrence) {
         if (!context.entities.recurrence.pattern) {
-          errors.push('Recurrence pattern is missing');
+          errors.push('⚠️ דפוס החזרה חסר');
         }
         if (context.entities.recurrence.interval && context.entities.recurrence.interval < 1) {
-          errors.push('Recurrence interval must be at least 1');
+          errors.push('⚠️ מרווח החזרה חייב להיות לפחות 1');
         }
       }
 
