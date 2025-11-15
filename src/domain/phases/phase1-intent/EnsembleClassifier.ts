@@ -573,8 +573,13 @@ Respond with JSON:
 Examples:
 - "קבע פגישה מחר" → {"intent":"create_event","confidence":0.95,"reasoning":"Clear event creation with date"}
 - "תזכיר לי" → {"intent":"create_reminder","confidence":0.9,"reasoning":"Reminder request"}
+- "תזכיר לי שוב" → {"intent":"create_reminder","confidence":0.9,"reasoning":"Reminder request with 'again'"}
+- "אני רוצה תזכורת" → {"intent":"create_reminder","confidence":0.9,"reasoning":"Explicit reminder request"}
 - "מה יש לי" → {"intent":"list_events","confidence":0.9,"reasoning":"Query for events"}
 - "מחק פגישה" → {"intent":"delete_event","confidence":0.9,"reasoning":"Delete event command"}
+- "מחק הכל" → {"intent":"delete_event","confidence":0.9,"reasoning":"Delete all events"}
+- "תמחק לי את כל האירועים" → {"intent":"delete_event","confidence":0.9,"reasoning":"Delete all events command"}
+- "ביטול אירוע" → {"intent":"delete_event","confidence":0.9,"reasoning":"Cancel/delete event"}
 - "עדכן תזכורת" → {"intent":"update_reminder","confidence":0.9,"reasoning":"Update reminder command"}`;
   }
 }

@@ -77,6 +77,38 @@ export class RecurrencePhase extends BasePhase {
     // BUG FIX #19: Weekly patterns MUST be checked BEFORE daily patterns
     // Otherwise "כל יום ד" matches "כל יום" and returns daily instead of weekly
 
+    // BUG FIX #4/#32: Implicit recurring events from context words
+    // Examples: "חוג ביום שלישי" (class on Tuesday), "שיעור ביום ד'" (lesson on Wednesday)
+    // Keywords that imply recurrence: חוג (class), שיעור (lesson), אימון (training), קורס (course)
+    const implicitRecurringMatch = text.match(/(חוג|שיעור|אימון|קורס|תרגול).*?(יום\s+)?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|[א-ו])/i);
+    if (implicitRecurringMatch) {
+      const dayText = implicitRecurringMatch[3];
+
+      // Check if it's an abbreviation (single letter) or full day name
+      let dayOfWeek: number | null = null;
+      if (dayText.length === 1) {
+        // Abbreviation: א, ב, ג, etc.
+        dayOfWeek = this.hebrewDayAbbrevToNumber(dayText);
+      } else {
+        // Full name: ראשון, שני, etc.
+        dayOfWeek = this.hebrewDayToNumber(dayText);
+      }
+
+      if (dayOfWeek !== null) {
+        logger.info('🔄 Implicit recurring event detected', {
+          keyword: implicitRecurringMatch[1],
+          day: dayText,
+          dayOfWeek
+        });
+
+        return {
+          frequency: 'weekly',
+          interval: 1,
+          byweekday: dayOfWeek
+        };
+      }
+    }
+
     // Weekly patterns - full names (e.g., "כל יום רביעי", "כל רביעי")
     const weeklyMatch = text.match(/כל (יום )?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)/i);
     if (weeklyMatch) {

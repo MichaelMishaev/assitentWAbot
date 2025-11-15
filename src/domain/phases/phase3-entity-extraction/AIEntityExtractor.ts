@@ -125,7 +125,7 @@ Timezone: ${timezone}
 
 Extract and return JSON with these fields:
 {
-  "title": "event title (without date/time/participants)",
+  "title": "event/reminder subject (without date/time/participants) - **CRITICAL**: If user just says 'תזכיר לי מחר' or 'תזכיר לי שוב' WITHOUT specifying WHAT, return null!",
   "date": "YYYY-MM-DD (convert relative dates like 'היום', 'מחר')",
   "time": "HH:MM (24-hour format, extract from 'לשעה X', 'בשעה X', 'ב-X')",
   "dateText": "original date text from input",
@@ -143,23 +143,44 @@ Extract and return JSON with these fields:
 }
 
 Rules:
-1. Convert Hebrew relative dates: "היום"=today, "מחר"=tomorrow, "מחרתיים"=day after tomorrow
-2. Convert Hebrew time words: "בערב"=19:00, "בבוקר"=09:00, "אחרי הצהריים"=14:00, "בלילה"=22:00
-3. Extract participants from "עם X" patterns (e.g., "עם איתי" → ["איתי"])
-4. Title should NOT include date, time, or participants
+1. Convert Hebrew relative dates AND day names:
+   - Relative: "היום"=today, "מחר"=tomorrow, "מחרתיים"=day after tomorrow
+   - Day names: "רביעי" or "יום רביעי"=next Wednesday, "שני"=next Monday, etc.
+   - IMPORTANT: When user says "Wednesday" or "רביעי", extract it as dateText: "רביעי" (let parser find next Wednesday)
+   - Week: "השבוע"=this week, "שבוע הבא"=next week
+2. **BUG FIX #22:** Convert Hebrew time words - WITH or WITHOUT numbers:
+   - Standalone defaults: "בערב"=19:00, "בבוקר"=09:00, "אחרי הצהריים"=14:00, "בלילה"=22:00
+   - **CRITICAL**: If number appears BEFORE time word, use the number and convert to 24-hour:
+     * "11 בלילה" = 23:00 (NOT 22:00!)
+     * "10 בבוקר" = 10:00
+     * "8 בערב" = 20:00
+     * "3 אחרי הצהריים" = 15:00
+   - Conversion rules:
+     * "בלילה" (night): 10-12 → add 12 hours (10=22:00, 11=23:00, 12=00:00)
+     * "בערב" (evening): 1-11 → add 12 hours (8=20:00, 11=23:00)
+     * "בבוקר" (morning): use as-is (10=10:00)
+     * "אחרי הצהריים" (afternoon): 1-11 → add 12 hours (3=15:00)
+3. **BUG FIX #16/#33:** Extract ALL participants from text:
+   - Single: "פגישה עם גדי" → participants: ["גדי"]
+   - Multiple with ו: "פגישה עם מיכאל ודימה" → participants: ["מיכאל", "דימה"]
+   - Multiple names: "פגישה עם מיכאל דימה גיא" → participants: ["מיכאל", "דימה", "גיא"]
+   - Pattern variations: "עם X", "ל-X", "אצל X"
+   - IMPORTANT: Participant names should NOT appear in the title field!
+4. Title should NOT include date, time, or participants (unless title explicitly requested)
 5. Return null for missing fields
 6. Be confident when patterns are clear
-7. **CRITICAL - Date Without Year:** If user provides date without year (e.g., "20.10", "20/10"):
+7. **BUG FIX #24/#25:** When user searches for events by day name (e.g., "מה יש לי ביום רביעי?"), extract "רביעי" as dateText, NOT as title!
+8. **CRITICAL - Date Without Year:** If user provides date without year (e.g., "20.10", "20/10"):
    - First try using current year (${currentYear})
    - If that results in a PAST date, use NEXT year (${currentYear + 1})
    - Example: Today is ${today}. User says "10.10" → that's October 10
      * If using ${currentYear} would make it past (10-10-${currentYear} < ${today}), use ${currentYear + 1}
      * Always prefer future dates for events
-8. **CRITICAL - Time Extraction:** ALWAYS extract time when present, even if on same line as date
+9. **CRITICAL - Time Extraction:** ALWAYS extract time when present, even if on same line as date
    - Examples: "20.10 בשעה 15:00" → date: "2025-10-20", time: "15:00"
    - "פגישה 20.10 15:00" → date: "2025-10-20", time: "15:00"
    - "20.10 ב-15:00" → date: "2025-10-20", time: "15:00"
-9. **CRITICAL - Lead Time Extraction:** If text contains "תזכיר לי X לפני", extract as leadTimeMinutes:
+10. **CRITICAL - Lead Time Extraction:** If text contains "תזכיר לי X לפני", extract as leadTimeMinutes:
 
    **HOURS (ANY number is valid! Use formula: X שעות = X × 60 minutes)**:
    - "תזכיר לי שעה לפני" → leadTimeMinutes: 60
