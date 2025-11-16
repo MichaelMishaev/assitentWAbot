@@ -1531,13 +1531,40 @@ ${preview}${moreText}
           });
           reminderDate = null; // Force GPT retry
         } else {
-          logger.info('[HYBRID] Quick reminder - local NLP success (absolute)', {
-            userId,
-            eventId,
-            reminderTime: reminderDate,
-            localNlpMs: localNlpTime,
-            usedGPT: false
-          });
+          // FIX: If reminder time is in the past but event is in the future,
+          // apply the TIME to the EVENT's DATE instead of today
+          if (reminderDate && reminderDate.getTime() <= Date.now() && event.startTsUtc.getTime() > Date.now()) {
+            const reminderTime = DateTime.fromJSDate(reminderDate);
+            const eventDate = DateTime.fromJSDate(event.startTsUtc).setZone(timezone);
+
+            // Apply reminder time to event's date
+            const correctedReminder = eventDate.set({
+              hour: reminderTime.hour,
+              minute: reminderTime.minute,
+              second: 0,
+              millisecond: 0
+            });
+
+            reminderDate = correctedReminder.toJSDate();
+
+            logger.info('[HYBRID] Quick reminder - corrected date from event context', {
+              userId,
+              eventId,
+              originalReminder: reminderTime.toISO(),
+              eventDate: eventDate.toISO(),
+              correctedReminder: correctedReminder.toISO(),
+              localNlpMs: localNlpTime,
+              usedGPT: false
+            });
+          } else {
+            logger.info('[HYBRID] Quick reminder - local NLP success (absolute)', {
+              userId,
+              eventId,
+              reminderTime: reminderDate,
+              localNlpMs: localNlpTime,
+              usedGPT: false
+            });
+          }
         }
       }
 
