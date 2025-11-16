@@ -204,6 +204,7 @@ export class MessageRouter {
       reminderService,
       taskService,
       settingsService,
+      authService,
       messageProvider,
       this.authRouter,
       this.sendMessage.bind(this)

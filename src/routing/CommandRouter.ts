@@ -4,6 +4,7 @@ import { ReminderService } from '../services/ReminderService.js';
 import { TaskService } from '../services/TaskService.js';
 import { SettingsService } from '../services/SettingsService.js';
 import { MorningSummaryService } from '../services/MorningSummaryService.js';
+import { AuthService } from '../services/AuthService.js';
 import { IMessageProvider } from '../providers/IMessageProvider.js';
 import { ConversationState, MenuDisplayMode } from '../types/index.js';
 import { proficiencyTracker } from '../services/ProficiencyTracker.js';
@@ -21,6 +22,7 @@ export class CommandRouter {
     private reminderService: ReminderService,
     private taskService: TaskService,
     private settingsService: SettingsService,
+    private authService: AuthService,
     private messageProvider: IMessageProvider,
     private authRouter: AuthRouter,
     private sendMessage: (to: string, message: string) => Promise<string>
@@ -86,6 +88,15 @@ export class CommandRouter {
         await this.handleTestCommand(from, userId);
         break;
 
+      case '/intro':
+      case '/הקדמה':
+        if (!userId) {
+          await this.sendMessage(from, 'אנא התחבר תחילה.');
+          return;
+        }
+        await this.showIntro(from, userId);
+        break;
+
       default:
         await this.sendMessage(from, 'פקודה לא מוכרת. שלח /עזרה לרשימת פקודות.');
     }
@@ -96,7 +107,7 @@ export class CommandRouter {
    */
   private isCommand(text: string): boolean {
     const trimmed = text.trim();
-    const commandsWithoutSlash = ['תפריט', 'menu', 'ביטול', 'cancel', 'עזרה', 'help', 'התנתק', 'logout', 'test', 'בדיקה'];
+    const commandsWithoutSlash = ['תפריט', 'menu', 'ביטול', 'cancel', 'עזרה', 'help', 'התנתק', 'logout', 'test', 'בדיקה', 'intro', 'הקדמה'];
     return commandsWithoutSlash.some(cmd => trimmed === cmd || trimmed.toLowerCase() === cmd);
   }
 
@@ -271,6 +282,36 @@ export class CommandRouter {
 שאלות? שלח /עזרה או כתוב לי! 😊`;
 
     await this.sendMessage(phone, help);
+  }
+
+  /**
+   * Show onboarding intro message (same as new user registration)
+   */
+  private async showIntro(phone: string, userId: string): Promise<void> {
+    try {
+      // Get user's name
+      const user = await this.authService.getUserByPhone(phone);
+      const name = user?.name || 'משתמש';
+
+      const introMessage = `🎉 ברוך הבא, ${name}! 👋
+
+אני עוזר הווטסאפ שלך לניהול יומן ותזכורות.
+
+💬 דבר אליי בשפה טבעית:
+• "צור אירוע מחר בשעה 3 - פגישה עם דני"
+• "תזכיר לי להתקשר לרופא מחר ב-10:00"
+• "מה יש לי היום?"
+
+📋 או השתמש בתפריט:
+שלח /תפריט בכל עת
+
+💡 למדריך מלא: שלח /עזרה`;
+
+      await this.sendMessage(phone, introMessage);
+    } catch (error) {
+      logger.error('Failed to show intro', { phone, userId, error });
+      await this.sendMessage(phone, 'אירעה שגיאה. נסה שוב מאוחר יותר.');
+    }
   }
 
   /**
