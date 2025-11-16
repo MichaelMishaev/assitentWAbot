@@ -90,20 +90,25 @@ export class AuthRouter {
       await this.stateManager.setState(user.id, ConversationState.MAIN_MENU);
 
       // Send welcome message with onboarding instructions
-      const welcomeMessage = `🎉 הרישום הושלם בהצלחה!
+      const welcomeMessage = `👋 ברוך הבא, ${name}!
 
-ברוך הבא, ${name}! 👋
+אני עוזר הווטסאפ החכם שלך לניהול יומן ותזכורות 🤖
 
-אני עוזר הווטסאפ שלך לניהול יומן ותזכורות.
+🎯 מה אני יכול לעשות עבורך:
+• ניהול אירועים ופגישות 📅
+• תזכורות חכמות עם זמן הכנה ⏰
+• משימות עם עדיפויות ✅
+• סיכום בוקר יומי אוטומטי 🌅
+• דוח אישי מעוצב HTML 📊
 
 💬 דבר אליי בשפה טבעית:
 • "צור אירוע מחר בשעה 3 - פגישה עם דני"
 • "תזכיר לי להתקשר לרופא מחר ב-10:00"
 • "מה יש לי היום?"
-• "create personal report" - דוח HTML מעוצב 📊
+• "צור לי דוח אישי" - קבל קישור לדוח HTML מעוצב
 
-📋 או השתמש בתפריט:
-שלח /תפריט בכל עת`;
+📋 תפריט: שלח /תפריט
+💡 עזרה: שלח /עזרה`;
 
       await this.sendMessage(from, welcomeMessage);
 
