@@ -1717,10 +1717,7 @@ ${preview}${moreText}
         // Delete the event
         await this.eventService.deleteEvent(eventId, userId);
 
-        // Send success message with event title (UX improvement from user feedback)
-        await this.sendMessage(phone, `✅ האירוע "${eventTitle}" נמחק בהצלחה`);
-
-        // React with ✅ (deletion successful - green checkmark for completed action)
+        // React with ✅ (deletion successful - emoji reaction is enough confirmation, no text message needed)
         await this.reactToLastMessage(userId, '✅');
 
         // Phase 3.3: Analytics - track delete confirmation
@@ -1791,10 +1788,7 @@ ${preview}${moreText}
           }
         }
 
-        // Send success message
-        await this.sendMessage(phone, `✅ ${deletedCount} אירועים נמחקו בהצלחה`);
-
-        // React with ✅
+        // React with ✅ (deletion successful - emoji reaction is enough confirmation, no text message needed)
         await this.reactToLastMessage(userId, '✅');
 
         logger.info('[BUG_FIX_22] Bulk delete confirmed', {
