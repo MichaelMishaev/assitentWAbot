@@ -89,7 +89,22 @@ export class AuthRouter {
       await this.setAuthState(from, authState);
       await this.stateManager.setState(user.id, ConversationState.MAIN_MENU);
 
-      await this.sendMessage(from, `🎉 הרישום הושלם בהצלחה!\n\nברוך הבא, ${name}!`);
+      // Send welcome message with onboarding instructions
+      const welcomeMessage = `🎉 הרישום הושלם בהצלחה!
+
+ברוך הבא, ${name}! 👋
+
+אני עוזר הווטסאפ שלך לניהול יומן ותזכורות.
+
+💬 דבר אליי בשפה טבעית:
+• "צור אירוע מחר בשעה 3 - פגישה עם דני"
+• "תזכיר לי להתקשר לרופא מחר ב-10:00"
+• "מה יש לי היום?"
+
+📋 או השתמש בתפריט:
+שלח /תפריט בכל עת`;
+
+      await this.sendMessage(from, welcomeMessage);
 
       // Show main menu after successful registration
       if (this.showMenuCallback) {
