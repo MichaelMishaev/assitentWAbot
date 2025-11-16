@@ -58,13 +58,10 @@ export class ParticipantPhase extends BasePhase {
         return this.success({ hasParticipants: true, count: 1 });
       }
 
-      // Multiple participants - need clarification
-      // Ask: together or separate events?
-      context.needsClarification = true;
-      context.clarificationQuestion = this.generateClarificationQuestion(participants);
+      // Multiple participants - create one shared event (no clarification needed)
       context.entities.participants = participants;
 
-      logger.info('Multiple participants detected', {
+      logger.info('Multiple participants detected - creating shared event', {
         count: participants.length,
         participants: participants.map(p => p.name)
       });
@@ -72,7 +69,7 @@ export class ParticipantPhase extends BasePhase {
       return this.success({
         hasParticipants: true,
         count: participants.length,
-        needsClarification: true
+        mode: 'shared'
       });
 
     } catch (error) {
