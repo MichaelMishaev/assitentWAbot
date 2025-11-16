@@ -436,6 +436,7 @@ export class NLPRouter {
           notes: entities.notes,
           deleteAll: entities.deleteAll,
           participants: entities.participants, // ✅ FIX: Include participants from Phase 9
+          recurrence: entities.recurrence?.rrule, // ✅ FIX Bug #19/#32: Include recurrence from Phase 7
         },
         reminder: {
           title: entities.title,
