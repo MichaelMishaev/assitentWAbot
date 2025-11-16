@@ -29,35 +29,96 @@ export class RecurrencePhase extends BasePhase {
   readonly isRequired = false;
 
   async shouldRun(context: PhaseContext): Promise<boolean> {
-    // Only run if we don't already have recurrence
-    return !context.entities.recurrence;
+    // Always run - we might need to override AI's mistakes on Hebrew patterns
+    return true;
   }
 
   async execute(context: PhaseContext): Promise<PhaseResult> {
     try {
       const text = context.processedText;
 
-      // Detect recurrence pattern
-      const pattern = this.detectRecurrencePattern(text);
+      // Always try rule-based detection
+      const rulePattern = this.detectRecurrencePattern(text);
 
-      if (pattern) {
-        // Generate RRULE
-        const rrule = this.generateRRule(pattern, context);
+      // SMART HYBRID: If AI already extracted recurrence, decide whether to override
+      if (context.entities.recurrence) {
+        // Check if text has Hebrew day pattern
+        const hasHebrewDayPattern = this.isHebrewDayPattern(text);
+
+        if (rulePattern && hasHebrewDayPattern) {
+          // Check if AI got it right - only override if WRONG
+          if (context.entities.recurrence.pattern === rulePattern.frequency) {
+            // AI is correct, keep it
+            logger.info('✅ Keeping AI recurrence (AI got it right for Hebrew)', {
+              text: text.substring(0, 100),
+              pattern: context.entities.recurrence.pattern
+            });
+
+            return this.success({
+              detected: true,
+              keptAI: true,
+              pattern: context.entities.recurrence.pattern
+            });
+          }
+
+          // AI is wrong - override with rule-based (more accurate for Hebrew)
+          const rrule = this.generateRRule(rulePattern, context);
+
+          logger.info('🔄 Overriding AI recurrence with rule-based (Hebrew day pattern)', {
+            text: text.substring(0, 100),
+            aiPattern: context.entities.recurrence.pattern,
+            rulePattern: rulePattern.frequency,
+            aiRRule: context.entities.recurrence.rrule?.substring(0, 50),
+            ruleRRule: rrule.toString().substring(0, 50)
+          });
+
+          context.entities.recurrence = {
+            pattern: rulePattern.frequency,
+            interval: rulePattern.interval || 1,
+            rrule: rrule.toString()
+          };
+
+          return this.success({
+            detected: true,
+            overriddenAI: true,
+            pattern: rulePattern,
+            rrule: rrule.toString()
+          });
+        } else {
+          // Keep AI result (English/complex patterns, or no rule match)
+          logger.info('✅ Keeping AI recurrence (no Hebrew override needed)', {
+            text: text.substring(0, 100),
+            aiPattern: context.entities.recurrence.pattern,
+            hasRuleMatch: !!rulePattern,
+            hasHebrewPattern: hasHebrewDayPattern
+          });
+
+          return this.success({
+            detected: true,
+            keptAI: true,
+            pattern: context.entities.recurrence.pattern
+          });
+        }
+      }
+
+      // No AI recurrence - use rule-based if found
+      if (rulePattern) {
+        const rrule = this.generateRRule(rulePattern, context);
 
         context.entities.recurrence = {
-          pattern: pattern.frequency,
-          interval: pattern.interval || 1,
+          pattern: rulePattern.frequency,
+          interval: rulePattern.interval || 1,
           rrule: rrule.toString()
         };
 
-        logger.info('Recurrence detected', {
-          pattern: pattern.frequency,
+        logger.info('Recurrence detected (rule-based)', {
+          pattern: rulePattern.frequency,
           rrule: rrule.toString()
         });
 
         return this.success({
           detected: true,
-          pattern,
+          pattern: rulePattern,
           rrule: rrule.toString()
         });
       }
@@ -71,6 +132,20 @@ export class RecurrencePhase extends BasePhase {
   }
 
   /**
+   * Check if text contains Hebrew day pattern
+   * Used to decide whether to override AI with rule-based matching
+   */
+  private isHebrewDayPattern(text: string): boolean {
+    // Match Hebrew day patterns:
+    // 1. "כל יום ד" / "כל ד" (day abbreviations) - no \b as it doesn't work with Hebrew
+    // 2. "כל יום רביעי" / "כל רביעי" (full day names)
+    // 3. "חוג ביום שלישי" / "אימון ביום ד" (implicit recurring with day)
+    return /כל (יום )?[א-ו](?:\s|$|ב)/i.test(text) ||
+           /כל (יום )?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)/i.test(text) ||
+           /(חוג|שיעור|אימון|קורס|תרגול).*?ב?יום\s+(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|[א-ו])(?:\s|$|ב)/i.test(text);
+  }
+
+  /**
    * Detect recurrence pattern from text
    */
   private detectRecurrencePattern(text: string): RecurrencePattern | null {
@@ -80,9 +155,10 @@ export class RecurrencePhase extends BasePhase {
     // BUG FIX #4/#32: Implicit recurring events from context words
     // Examples: "חוג ביום שלישי" (class on Tuesday), "שיעור ביום ד'" (lesson on Wednesday)
     // Keywords that imply recurrence: חוג (class), שיעור (lesson), אימון (training), קורס (course)
-    const implicitRecurringMatch = text.match(/(חוג|שיעור|אימון|קורס|תרגול).*?(יום\s+)?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|[א-ו])/i);
+    // IMPORTANT: Require "יום" or "ביום" to avoid false matches (e.g., "גיטרה" matching "ג")
+    const implicitRecurringMatch = text.match(/(חוג|שיעור|אימון|קורס|תרגול).*?ב?יום\s+(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|[א-ו])(?:\s|$|ב)/i);
     if (implicitRecurringMatch) {
-      const dayText = implicitRecurringMatch[3];
+      const dayText = implicitRecurringMatch[2];
 
       // Check if it's an abbreviation (single letter) or full day name
       let dayOfWeek: number | null = null;
@@ -124,7 +200,7 @@ export class RecurrencePhase extends BasePhase {
 
     // Weekly patterns - abbreviations (e.g., "כל יום ד", "כל ד")
     // א=Sunday, ב=Monday, ג=Tuesday, ד=Wednesday, ה=Thursday, ו=Friday
-    const weeklyAbbrevMatch = text.match(/כל (יום )?([א-ו])\b/i);
+    const weeklyAbbrevMatch = text.match(/כל (יום )?([א-ו])(?:\s|$|ב)/i);
     if (weeklyAbbrevMatch) {
       const dayAbbrev = weeklyAbbrevMatch[2];
       const dayOfWeek = this.hebrewDayAbbrevToNumber(dayAbbrev);
