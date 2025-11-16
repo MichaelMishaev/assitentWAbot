@@ -39,10 +39,6 @@ export class AuthRouter {
   ): Promise<void> {
     if (authState.registrationStep === 'name') {
       await this.handleRegistrationName(from, text, authState);
-    } else if (authState.registrationStep === 'pin') {
-      await this.handleRegistrationPin(from, text, authState);
-    } else {
-      await this.handleLoginPin(from, text, authState);
     }
   }
 
@@ -84,39 +80,8 @@ export class AuthRouter {
       return;
     }
 
-    authState.tempData = { name };
-    authState.registrationStep = 'pin';
-    await this.setAuthState(from, authState);
-
-    await this.sendMessage(
-      from,
-      `נעים להכיר, ${name}! 😊\n\nעכשיו בחר קוד PIN בן 4 ספרות לאבטחה.\n(לדוגמה: 1234)`
-    );
-  }
-
-  /**
-   * Handle registration - PIN input step
-   */
-  async handleRegistrationPin(
-    from: string,
-    text: string,
-    authState: AuthState
-  ): Promise<void> {
-    const pin = text.trim();
-
-    if (!/^\d{4}$/.test(pin)) {
-      await this.sendMessage(from, 'PIN חייב להיות 4 ספרות בדיוק. נסה שוב.');
-      return;
-    }
-
-    const name = authState.tempData?.name;
-    if (!name) {
-      await this.startRegistration(from);
-      return;
-    }
-
     try {
-      const user = await this.authService.registerUser(from, name, pin);
+      const user = await this.authService.registerUser(from, name);
       authState.userId = user.id;
       authState.authenticated = true;
       authState.registrationStep = 'complete';
@@ -138,45 +103,13 @@ export class AuthRouter {
     }
   }
 
+
   /**
-   * Start user login flow
+   * Start user login flow (auto-login)
    */
   async startLogin(from: string): Promise<void> {
-    const isLockedOut = await this.authService.checkLockout(from);
-    if (isLockedOut) {
-      await this.sendMessage(from, 'החשבון נעול זמנית. אנא נסה שוב בעוד 5 דקות.');
-      return;
-    }
-
-    const authState: AuthState = {
-      userId: null,
-      phone: from,
-      authenticated: false,
-      failedAttempts: 0,
-      lockoutUntil: null
-    };
-
-    await this.setAuthState(from, authState);
-    await this.sendMessage(from, 'ברוך הבא! 👋\n\nאנא הזן את קוד ה-PIN שלך (4 ספרות):');
-  }
-
-  /**
-   * Handle login - PIN verification
-   */
-  async handleLoginPin(
-    from: string,
-    text: string,
-    authState: AuthState
-  ): Promise<void> {
-    const pin = text.trim();
-
-    if (!/^\d{4}$/.test(pin)) {
-      await this.sendMessage(from, 'PIN חייב להיות 4 ספרות בדיוק. נסה שוב.');
-      return;
-    }
-
     try {
-      const user = await this.authService.loginUser(from, pin);
+      const user = await this.authService.loginUser(from);
 
       if (!user) {
         // User doesn't exist
@@ -184,8 +117,14 @@ export class AuthRouter {
         return;
       }
 
-      authState.userId = user.id;
-      authState.authenticated = true;
+      const authState: AuthState = {
+        userId: user.id,
+        phone: from,
+        authenticated: true,
+        failedAttempts: 0,
+        lockoutUntil: null
+      };
+
       await this.setAuthState(from, authState);
       await this.stateManager.setState(user.id, ConversationState.MAIN_MENU);
 
@@ -197,17 +136,13 @@ export class AuthRouter {
       }
 
     } catch (error: any) {
-      // AuthService throws errors for wrong PIN (with attempts info) and lockout
       logger.error('Login failed', { from, error });
       const errorMessage = error.message || 'אירעה שגיאה בהתחברות. אנא נסה שוב.';
       await this.sendMessage(from, errorMessage);
-
-      // If account is locked, clear auth state
-      if (errorMessage.includes('נעול')) {
-        await this.clearAuthState(from);
-      }
+      await this.clearAuthState(from);
     }
   }
+
 
   // ========== AUTH STATE HELPERS ==========
 

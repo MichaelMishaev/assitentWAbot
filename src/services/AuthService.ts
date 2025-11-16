@@ -88,9 +88,9 @@ export class AuthService {
   }
 
   /**
-   * Register a new user
+   * Register a new user (no PIN required)
    */
-  async registerUser(phone: string, name: string, pin: string): Promise<User> {
+  async registerUser(phone: string, name: string): Promise<User> {
     try {
       // Check if user already exists
       const existingUser = await this.getUserByPhone(phone);
@@ -98,13 +98,8 @@ export class AuthService {
         throw new Error('User already exists');
       }
 
-      // Validate PIN (4 digits)
-      if (!/^\d{4}$/.test(pin)) {
-        throw new Error('PIN must be exactly 4 digits');
-      }
-
-      // Hash the PIN
-      const passwordHash = await bcrypt.hash(pin, SALT_ROUNDS);
+      // Generate a dummy password hash (not used, but DB requires it)
+      const passwordHash = await bcrypt.hash(phone, SALT_ROUNDS);
 
       // Default preferences with morning notifications ENABLED
       const defaultPrefs = {
@@ -137,18 +132,11 @@ export class AuthService {
   }
 
   /**
-   * Login user with phone and PIN
-   * Returns user on success, null on invalid credentials, throws error on lockout
+   * Login user (auto-login by phone only)
+   * Returns user on success, null if user doesn't exist
    */
-  async loginUser(phone: string, pin: string): Promise<User | null> {
+  async loginUser(phone: string): Promise<User | null> {
     try {
-      // Check if user is locked out
-      const isLockedOut = await this.checkLockout(phone);
-      if (isLockedOut) {
-        logger.warn('Login attempt on locked account', { phone });
-        throw new Error('Account is temporarily locked due to too many failed attempts. Please try again in 5 minutes.');
-      }
-
       // Get user
       const user = await this.getUserByPhone(phone);
       if (!user) {
@@ -156,23 +144,7 @@ export class AuthService {
         return null;
       }
 
-      // Verify PIN
-      const isValidPin = await bcrypt.compare(pin, user.passwordHash);
-      if (!isValidPin) {
-        const attempts = await this.incrementFailedAttempts(phone);
-        logger.warn('Invalid PIN attempt', { phone, attempts });
-
-        if (attempts >= MAX_FAILED_ATTEMPTS) {
-          throw new Error(`יותר מדי ניסיונות כושלים. החשבון נעול ל-5 דקות.`);
-        }
-
-        // Throw error with remaining attempts info
-        const remaining = MAX_FAILED_ATTEMPTS - attempts;
-        throw new Error(`PIN שגוי. נותרו ${remaining} ניסיונות.`);
-      }
-
-      // Successful login - clear failed attempts
-      await this.clearFailedAttempts(phone);
+      // Auto-login successful
       logger.info('User logged in successfully', { userId: user.id, phone });
 
       return user;

@@ -169,7 +169,7 @@ export interface AuthState {
   authenticated: boolean;
   failedAttempts: number;
   lockoutUntil: Date | null;
-  registrationStep?: 'name' | 'pin' | 'complete';
+  registrationStep?: 'name' | 'complete';
   tempData?: {
     name?: string;
   };
