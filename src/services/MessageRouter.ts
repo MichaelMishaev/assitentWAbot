@@ -20,6 +20,9 @@ import { AuthRouter } from '../routing/AuthRouter.js';
 import { CommandRouter } from '../routing/CommandRouter.js';
 import { NLPRouter } from '../routing/NLPRouter.js';
 import { StateRouter } from '../routing/StateRouter.js';
+import { isGreeting } from '../utils/greetingDetection.js';
+import { detectLanguage } from '../utils/languageDetection.js';
+import { multilingualOnboardingService } from './MultilingualOnboardingService.js';
 
 /**
  * Fuzzy match for yes/no confirmations with typo tolerance
@@ -497,8 +500,49 @@ export class MessageRouter {
       }
 
       if (!user) {
-        await this.authRouter.startRegistration(from);
-        // Mark as processed
+        // BUG FIX #4: Smart handling of unknown user messages based on language
+        if (isGreeting(text)) {
+          // Legitimate greeting in any language → Start registration
+          logger.info('New user greeting detected, starting registration', { phone: from, text });
+          await this.authRouter.startRegistration(from);
+        } else {
+          // Not a greeting - check language
+          const languageType = detectLanguage(text);
+
+          if (languageType === 'hebrew') {
+            // Hebrew non-greeting (maybe a command?) - ignore silently
+            logger.info('Ignored Hebrew non-greeting from unknown number', { phone: from, text });
+          } else if (languageType !== 'gibberish') {
+            // Non-Hebrew text (Arabic, English, etc.) - use GPT-4o-mini to respond in their language
+            logger.info('Non-Hebrew message from unknown number, sending multilingual onboarding', {
+              phone: from,
+              text,
+              languageType,
+            });
+
+            try {
+              const response = await multilingualOnboardingService.generateOnboardingMessage(text);
+              await this.messageProvider.sendMessage(from, response.message);
+
+              logger.info('Sent multilingual onboarding message', {
+                phone: from,
+                languageDetected: response.languageDetected,
+                cacheHit: response.cacheHit,
+                latencyMs: response.latencyMs,
+              });
+            } catch (error: any) {
+              logger.error('Failed to send multilingual onboarding', {
+                phone: from,
+                error: error.message,
+              });
+            }
+          } else {
+            // Gibberish/emoji only (👍, ططط, etc.) - ignore completely
+            logger.info('Ignored gibberish/emoji from unknown number', { phone: from, text });
+          }
+        }
+
+        // Mark as processed regardless (to prevent retry loops)
         if (messageId) {
           await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
           await redis.del(`msg:processing:${messageId}`);

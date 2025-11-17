@@ -6932,3 +6932,325 @@ try {
 - Fixes maintain backward compatibility with existing flows
 - No database schema changes required
 
+
+---
+
+# Bug #4: Overly Aggressive Registration Trigger (Emoji & Gibberish Triggering Registration)
+**Date Discovered:** November 17, 2025
+**Severity:** Medium
+**Status:** PENDING FIX
+**Discovered By:** User screenshot + Production log analysis
+
+## Problem Description
+
+When an unregistered phone number sends **any message** to the bot (including emoji, gibberish, or random text), the bot immediately starts the registration flow. This creates a poor user experience where:
+
+1. Random emoji reactions (👍) trigger full registration
+2. Gibberish or accidental messages in any language trigger registration
+3. Bot appears "too eager" and responds to non-intentional contact
+
+### User Impact
+**Real Examples from Production:**
+
+**Example 1: Thumbs Up Emoji (Oct 26, 2025)**
+```
+📩 User sent: 👍
+📤 Bot replied: ברוך הבא! 👋
+
+בואו נתחיל ברישום.
+מה השם שלך?
+```
+
+**Example 2: Arabic Gibberish (Nov 17, 2025)**
+```
+📩 User sent: ططط (random Arabic characters)
+📤 Bot replied: ברוך הבא! 👋
+
+בואו נתחיל ברישום.
+מה השם שלך?
+```
+
+### Root Cause
+
+In `src/services/MessageRouter.ts` lines 499-506, the routing logic immediately starts registration for **any message** from an unknown phone number:
+
+```typescript
+const user = await this.authService.getUserByPhone(from);
+
+// BUG: No validation if message is actually a greeting
+if (!user) {
+  await this.authRouter.startRegistration(from);
+  // Mark as processed
+  if (messageId) {
+    await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+    await redis.del(`msg:processing:${messageId}`);
+  }
+  return;
+}
+```
+
+**Missing Logic:** There's no check to verify if the message is an actual greeting (like "היי", "שלום", "hello") before starting registration.
+
+**Existing Greeting Detection:** The bot already has comprehensive greeting detection in `src/routing/NLPRouter.ts:544-659` with 100+ patterns, but it's only used for **existing users**, not for new user registration.
+
+### Production Log Evidence
+
+**Phone Number:** +972 59-961-36942
+
+**Log Entry 1 (Oct 26, 14:15):**
+```json
+{"level":"info","message":"📩 Received message from 972599613694: \"👍\"","timestamp":"2025-10-26 14:15:19"}
+{"level":"info","message":"📤 Sent message to 972599613694: \"ברוך הבא! 👋\n\nבואו נתחיל ברישום.\nמה השם שלך?\"","timestamp":"2025-10-26 14:15:21"}
+```
+
+**Log Entry 2 (Nov 17, 08:14):**
+```json
+{"level":"info","message":"📩 Received message from 972599613694: \"ططط\"","timestamp":"2025-11-17 08:14:59"}
+{"level":"info","message":"📤 Sent message to 972599613694: \"ברוך הבא! 👋\n\nבואו נתחיל ברישום.\nמה השם שלך?\"","timestamp":"2025-11-17 08:15:00"}
+```
+
+## Solution
+
+### Strategy
+1. **Extract greeting detection** from NLPRouter to a shared utility function
+2. **Add greeting validation** in MessageRouter before starting registration
+3. **Ignore or gently prompt** for non-greeting messages from unknown numbers
+
+### Implementation Plan
+
+#### 1. Create Shared Greeting Utility (src/utils/greetingDetection.ts)
+```typescript
+/**
+ * Check if a message is a greeting
+ * Supports Hebrew, English, Arabic, and other common greetings
+ */
+export function isGreeting(text: string): boolean {
+  const normalizedText = text.trim().toLowerCase();
+  
+  const greetingPatterns = [
+    // Hebrew greetings
+    /^היי$/, /^שלום$/, /^בוקר טוב$/, /^ערב טוב$/, /^הי$/,
+    /^מה נשמע$/, /^מה קורה$/, /^איך העניינים$/,
+    
+    // English greetings
+    /^hi$/, /^hello$/, /^hey$/, /^good morning$/, /^good evening$/,
+    
+    // Arabic greetings
+    /^مرحبا$/, /^السلام عليكم$/,
+    
+    // ... (100+ patterns from NLPRouter.ts:544-659)
+  ];
+  
+  return greetingPatterns.some(pattern => pattern.test(normalizedText));
+}
+```
+
+#### 2. Update MessageRouter.ts (lines 499-506)
+```typescript
+// BEFORE (BUG):
+if (!user) {
+  await this.authRouter.startRegistration(from);
+  return;
+}
+
+// AFTER (FIX):
+if (!user) {
+  // Only start registration if message is a legitimate greeting
+  if (isGreeting(text)) {
+    logger.info('New user greeting detected, starting registration', { phone: from, text });
+    await this.authRouter.startRegistration(from);
+  } else {
+    // Ignore non-greeting messages from unknown numbers
+    // This prevents emoji, gibberish, and accidental messages from triggering registration
+    logger.info('Ignored non-greeting message from unknown number', { phone: from, text });
+    
+    // Optional: Could send a gentle prompt instead of ignoring
+    // await this.sendMessage(from, 'היי! 👋\n\nכדי להתחיל להשתמש בבוט, שלח לי "היי" או "שלום"');
+  }
+  
+  // Mark as processed
+  if (messageId) {
+    await redis.setex(`msg:processed:${messageId}`, 86400, Date.now().toString());
+    await redis.del(`msg:processing:${messageId}`);
+  }
+  return;
+}
+```
+
+### Test Cases
+
+#### Positive Tests (Should Start Registration)
+- ✅ "היי" → Start registration
+- ✅ "שלום" → Start registration
+- ✅ "hello" → Start registration
+- ✅ "בוקר טוב" → Start registration
+
+#### Negative Tests (Should Ignore)
+- ❌ "👍" → Ignore (no registration)
+- ❌ "ططط" → Ignore (gibberish)
+- ❌ "asdfasdf" → Ignore (gibberish)
+- ❌ "😊" → Ignore (emoji only)
+- ❌ "123" → Ignore (numbers only)
+
+### Impact
+**User Experience:** 🎯 MEDIUM PRIORITY
+- Reduces false registrations from accidental messages
+- Makes bot appear more intelligent and intentional
+- Prevents spam/accidental emoji reactions from clogging registration flow
+- Better aligns with user expectations (only greet to start)
+
+### Files to Modify
+1. **Create:** `src/utils/greetingDetection.ts`
+   - Extract greeting patterns from NLPRouter
+   - Export `isGreeting()` function
+
+2. **Update:** `src/services/MessageRouter.ts`
+   - Lines 499-506: Add greeting check before starting registration
+   - Import `isGreeting` utility
+
+3. **Optional Update:** `src/routing/NLPRouter.ts`
+   - Lines 544-661: Replace inline greeting detection with imported utility
+   - Reduces code duplication
+
+---
+
+## Related Issues
+- Similar to greeting detection for existing users (NLPRouter.ts:541-680)
+- No related bugs in issue tracker yet
+
+## Notes
+- Discovered when user sent screenshot showing registration triggered by random messages
+- Production logs show two instances with same phone number
+- Common issue in chat bots: over-eager response to any input
+- Solution maintains backward compatibility (legitimate greetings still work)
+
+
+---
+
+## ENHANCED SOLUTION (Added Multilingual Onboarding)
+
+Based on user feedback: "maybe, when the language is non hebrew we should interact with gpt4 micro?"
+
+### Enhanced Strategy
+Instead of just ignoring non-greeting messages, we now provide intelligent multilingual onboarding:
+
+1. **Greeting (any language)** → Start registration ✅
+2. **Non-Hebrew text (Arabic, English, Russian, etc.)** → GPT-4o-mini responds in their language 🤖
+3. **Hebrew non-greeting** → Ignore silently ⚠️
+4. **Gibberish/Emoji only** → Ignore silently ⚠️
+
+### New Files Created
+
+#### 1. src/utils/languageDetection.ts (NEW)
+Simple language detection using Unicode character ranges:
+- Hebrew: `\u0590-\u05FF`
+- Arabic: `\u0600-\u06FF`
+- Latin: `a-zA-Z`
+- Cyrillic: `\u0400-\u04FF`
+
+**Functions:**
+```typescript
+detectLanguage(text: string): 'hebrew' | 'arabic' | 'english' | 'other' | 'gibberish'
+getLanguageName(languageType): string
+```
+
+#### 2. src/services/MultilingualOnboardingService.ts (NEW)
+Uses GPT-4o-mini to generate culturally appropriate onboarding messages in the user's language.
+
+**Features:**
+- Detects user's language
+- Generates response explaining bot is Hebrew-only
+- Provides Hebrew greeting examples ("שלום", "היי")
+- Caches responses by language (7-day TTL)
+- Fallback messages if GPT fails
+- Cost: ~$0.001 per message (gpt-4o-mini)
+- Latency: 500ms-1s
+
+**Example Responses:**
+
+**English:**
+```
+Hello! 👋
+
+This WhatsApp bot works exclusively in Hebrew. It helps manage your calendar events and reminders in Hebrew.
+
+To get started, please send a Hebrew greeting like "שלום" or "היי"
+```
+
+**Arabic:**
+```
+مرحباً! 👋
+
+يعمل هذا البوت فقط باللغة العبرية. يساعدك في إدارة الأحداث والتذكيرات بالعبرية.
+
+للبدء، أرسل تحية بالعبرية مثل "שלום" أو "היי"
+```
+
+### Updated Files
+
+#### src/services/MessageRouter.ts
+**Lines Changed:** 24-25, 502-550
+
+**New Logic:**
+```typescript
+if (!user) {
+  if (isGreeting(text)) {
+    // Start registration (any language greeting)
+    await this.authRouter.startRegistration(from);
+  } else {
+    const languageType = detectLanguage(text);
+    
+    if (languageType === 'hebrew') {
+      // Ignore Hebrew non-greeting
+      logger.info('Ignored Hebrew non-greeting from unknown number');
+    } else if (languageType !== 'gibberish') {
+      // Use GPT-4o-mini for non-Hebrew text
+      const response = await multilingualOnboardingService.generateOnboardingMessage(text);
+      await this.messageProvider.sendMessage(from, response.message);
+    } else {
+      // Ignore gibberish/emoji
+      logger.info('Ignored gibberish/emoji from unknown number');
+    }
+  }
+}
+```
+
+### Test Results
+
+All 14 test cases passed:
+- ✅ Hebrew greetings → Registration
+- ✅ English greetings → Registration
+- ✅ Arabic text → GPT-4o-mini response
+- ✅ English text → GPT-4o-mini response
+- ✅ Russian text → GPT-4o-mini response
+- ✅ Hebrew commands → Ignored
+- ✅ Emoji only → Ignored
+
+**Example: User sends "ططط" (Arabic chars):**
+- **Old behavior:** Start registration (BAD ❌)
+- **Enhanced behavior:** GPT-4o-mini responds in Arabic explaining bot is Hebrew-only (GOOD ✅)
+
+### Impact of Enhancement
+
+**User Experience:** 🎯 SIGNIFICANT IMPROVEMENT
+- **Professional:** Non-Hebrew speakers get helpful, culturally appropriate responses
+- **Intelligent:** Bot explains itself in user's language instead of confusing silence
+- **Welcoming:** Reduces friction for users who don't speak Hebrew
+
+**Cost:** 💰 Very low (~$0.001 per non-Hebrew message, cached for 7 days)
+**Latency:** ⚡ 500ms-1s (acceptable for onboarding)
+
+### Files Modified Summary
+
+**Created:**
+1. `src/utils/greetingDetection.ts` (155 lines)
+2. `src/utils/languageDetection.ts` (80 lines)
+3. `src/services/MultilingualOnboardingService.ts` (160 lines)
+
+**Modified:**
+1. `src/services/MessageRouter.ts` (lines 23-25, 502-550)
+
+**Total:** 3 new files, 1 modified file, 395+ lines of code
+
+---
+
