@@ -528,7 +528,7 @@ export class MessageRouter {
         await this.stateManager.addToHistory(authState.userId!, 'user', text);
       }
 
-      await this.handleStateMessage(from, authState.userId!, state, text);
+      await this.handleStateMessage(from, authState.userId!, state, text, quotedMessage?.messageId);
 
       // Log end-to-end performance metrics
       const routeDuration = Date.now() - routeStartTime;
@@ -582,11 +582,12 @@ export class MessageRouter {
     phone: string,
     userId: string,
     state: ConversationState,
-    text: string
+    text: string,
+    quotedMessageId?: string
   ): Promise<void> {
     // Handle MAIN_MENU state here (not delegated to StateRouter)
     if (state === ConversationState.IDLE || state === ConversationState.MAIN_MENU) {
-      await this.handleMainMenuChoice(phone, userId, text);
+      await this.handleMainMenuChoice(phone, userId, text, quotedMessageId);
       return;
     }
 
@@ -598,7 +599,8 @@ export class MessageRouter {
   private async handleMainMenuChoice(
     phone: string,
     userId: string,
-    text: string
+    text: string,
+    quotedMessageId?: string
   ): Promise<void> {
     const choice = text.trim();
 
@@ -671,7 +673,7 @@ export class MessageRouter {
     }
 
     // If not a menu number, try NLP parsing
-    await this.nlpRouter.handleNLPMessage(phone, userId, text);
+    await this.nlpRouter.handleNLPMessage(phone, userId, text, quotedMessageId);
   }
 
 

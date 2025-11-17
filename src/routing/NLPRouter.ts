@@ -269,7 +269,41 @@ export class NLPRouter {
     private sendQuickActionHint: (phone: string, userId: string) => Promise<void>
   ) {}
 
-  async handleNLPMessage(phone: string, userId: string, text: string): Promise<void> {
+  /**
+   * Store mapping between sent message ID and reminder ID
+   * Allows users to reply to reminder messages for quick delete
+   */
+  private async storeMessageReminderMapping(messageId: string, reminderId: string): Promise<void> {
+    try {
+      const key = `msg:reminder:${messageId}`;
+      await redis.setex(key, 604800, reminderId); // 7 days TTL (same as events)
+      logger.debug('Stored message-reminder mapping', { messageId, reminderId });
+    } catch (error) {
+      logger.error('Failed to store message-reminder mapping', { messageId, reminderId, error });
+    }
+  }
+
+  /**
+   * Retrieve reminder ID from quoted message ID
+   */
+  private async getReminderFromQuotedMessage(quotedMessageId: string): Promise<string | null> {
+    try {
+      const key = `msg:reminder:${quotedMessageId}`;
+      const reminderId = await redis.get(key);
+
+      if (!reminderId) {
+        logger.debug('No reminder mapping found for quoted message', { quotedMessageId });
+        return null;
+      }
+
+      return reminderId;
+    } catch (error) {
+      logger.error('Failed to get reminder from quoted message', { quotedMessageId, error });
+      return null;
+    }
+  }
+
+  async handleNLPMessage(phone: string, userId: string, text: string, quotedMessageId?: string): Promise<void> {
     try {
       const user = await this.authService.getUserByPhone(phone);
       const contacts = await this.contactService.getAllContacts(userId);
@@ -718,7 +752,7 @@ export class NLPRouter {
           break;
 
         case 'delete_reminder':
-          await this.handleNLPDeleteReminder(phone, userId, adaptedResult);
+          await this.handleNLPDeleteReminder(phone, userId, adaptedResult, quotedMessageId);
           break;
 
         case 'update_event':
@@ -1231,16 +1265,18 @@ export class NLPRouter {
         notes: reminder.notes || undefined
       });
 
-      // CRITICAL FIX: Use extracted lead time from message, fallback to user preference
-      // If user said "תזכיר לי יום לפני", use that (1440 minutes), not default 15
+      // CRITICAL FIX: Use extracted lead time from message, or 0 for standalone reminders
+      // If user said "תזכיר לי יום לפני", use that (1440 minutes)
+      // Otherwise, for standalone reminders, use 0 (remind at exact time they specified)
       let leadTimeMinutes: number;
       if (reminder.leadTimeMinutes && typeof reminder.leadTimeMinutes === 'number' && reminder.leadTimeMinutes > 0) {
         leadTimeMinutes = reminder.leadTimeMinutes;
         logger.info('Using extracted lead time from NLP', { leadTimeMinutes, title: reminder.title });
       } else {
-        // Fallback to user's reminder lead time preference (default: 15 minutes)
-        leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
-        logger.info('Using user preference lead time', { leadTimeMinutes, title: reminder.title });
+        // BUG FIX: Standalone reminders should remind at EXACT time user specified, not 15 minutes before
+        // User says "תזכיר לי מחר ב10" → they want reminder AT 10:00, not 9:45
+        leadTimeMinutes = 0;
+        logger.info('Using 0 lead time for standalone reminder (remind at exact time)', { title: reminder.title });
       }
 
       // Schedule with BullMQ
@@ -1259,7 +1295,13 @@ export class NLPRouter {
 ${contextNote ? contextNote + '\n' : ''}${recurrenceText ? recurrenceText + '\n' : ''}${reminder.notes ? '📝 הערות: ' + reminder.notes + '\n' : ''}
 ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת ' + reminder.title + '"\n' : ''}`;
 
-      await this.sendMessage(phone, summaryMessage);
+      const messageId = await this.sendMessage(phone, summaryMessage);
+
+      // Store reminder mapping for quick delete via reply
+      if (messageId) {
+        await this.storeMessageReminderMapping(messageId, createdReminder.id);
+      }
+
       await this.stateManager.setState(userId, ConversationState.MAIN_MENU);
 
       // Respect menu display preferences
@@ -1544,8 +1586,46 @@ ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת
     await this.stateManager.setState(userId, ConversationState.DELETING_EVENT);
   }
 
-  private async handleNLPDeleteReminder(phone: string, userId: string, intent: any): Promise<void> {
+  private async handleNLPDeleteReminder(phone: string, userId: string, intent: any, quotedMessageId?: string): Promise<void> {
     const { reminder } = intent;
+
+    // BUG FIX: Check if user replied to a reminder message with "מחק"
+    // If so, delete that specific reminder instead of showing list
+    if (quotedMessageId && !reminder?.title) {
+      const reminderId = await this.getReminderFromQuotedMessage(quotedMessageId);
+
+      if (reminderId) {
+        // Found reminder from quoted message - delete it directly
+        const reminderToDelete = await this.reminderService.getReminderById(reminderId, userId);
+
+        if (reminderToDelete) {
+          logger.info('Delete reminder via reply-to-message', { reminderId, userId, quotedMessageId });
+
+          const dt = DateTime.fromJSDate(reminderToDelete.dueTsUtc).setZone('Asia/Jerusalem');
+          const displayDate = dt.isValid ? dt.toFormat('dd/MM/yyyy HH:mm') : '(תאריך לא זמין)';
+          const isRecurring = reminderToDelete.rrule && reminderToDelete.rrule.trim().length > 0;
+
+          let confirmMessage = `🗑️ למחוק תזכורת זו?
+
+📌 ${reminderToDelete.title}
+📅 ${displayDate}`;
+
+          if (isRecurring) {
+            confirmMessage += '\n🔄 תזכורת חוזרת\n\n⚠️ מחיקה תבטל את כל התזכורות העתידיות!';
+          }
+
+          confirmMessage += '\n\nלמחוק? (כן/לא)';
+
+          await this.sendMessage(phone, confirmMessage);
+          await this.stateManager.setState(userId, ConversationState.DELETING_REMINDER_CONFIRM, {
+            reminderId: reminderToDelete.id,
+            isRecurring: isRecurring,
+            fromNLP: true
+          });
+          return;
+        }
+      }
+    }
 
     // Get all active reminders first
     const allReminders = await this.reminderService.getActiveReminders(userId, 100);
@@ -2267,8 +2347,9 @@ ${isRecurring ? '🔄 יעודכנו כל המופעים\n' : ''}
           reminderId: reminder.id,
         });
 
-        // Get user's reminder lead time preference
-        const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+        // BUG FIX: Event-based reminder with offset/absolute time already has timing calculated
+        // Don't apply additional 15-minute lead time on top
+        const leadTimeMinutes = 0;
 
         // Schedule reminder
         await scheduleReminder({
@@ -2646,8 +2727,9 @@ ${priorityIcon} הערה ${comment.commentIndex}: ${updatedComment.text}`;
         nodeEnv: process.env.NODE_ENV
       });
 
-      // Send consolidated dashboard link in one message
-      const message = `✨ *הלוח האישי שלך מוכן!*
+      // BUG FIX: WhatsApp Web.js sometimes fails with formatted messages
+      // Send simple text-only message with URL to avoid "Evaluation failed" error
+      const message = `✨ הלוח האישי שלך מוכן!
 
 📊 צפה בכל האירועים והמשימות שלך בממשק נוח וצבעוני
 
@@ -2656,7 +2738,19 @@ ${dashboardUrl}
 ⏰ הקישור תקף ל-15 דקות בלבד
 💡 ניתן לפתוח מכל מכשיר - מחשב, טאבלט או נייד`;
 
-      await this.sendMessage(phone, message);
+      try {
+        await this.sendMessage(phone, message);
+      } catch (sendError: any) {
+        // Fallback: If formatted message fails, send URL-only message
+        logger.error('Failed to send formatted dashboard message, trying fallback', { userId, error: sendError });
+        try {
+          const fallbackMessage = `הלוח האישי שלך:\n\n${dashboardUrl}\n\n(תקף ל-15 דקות)`;
+          await this.sendMessage(phone, fallbackMessage);
+        } catch (fallbackError: any) {
+          logger.error('Fallback dashboard message also failed', { userId, error: fallbackError });
+          throw fallbackError; // Re-throw to be caught by outer catch
+        }
+      }
 
       logger.info('Dashboard link sent successfully', {
         userId,

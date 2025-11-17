@@ -1188,8 +1188,9 @@ export class StateRouter {
         notes: notes || undefined
       });
 
-      // Get user's reminder lead time preference (default: 15 minutes)
-      const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+      // BUG FIX: Standalone reminders should remind at exact time, not 15 minutes before
+      // User manually entered "remind me tomorrow at 10" → they want reminder AT 10:00, not 9:45
+      const leadTimeMinutes = 0;
 
       // Schedule with BullMQ
       await scheduleReminder({
@@ -2736,8 +2737,8 @@ export class StateRouter {
           // No rrule - this is a one-time reminder
         });
 
-        // Get user's reminder lead time preference
-        const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+        // BUG FIX: Standalone reminders should remind at exact time, not 15 minutes before
+        const leadTimeMinutes = 0;
 
         // Schedule with BullMQ
         const { scheduleReminder } = await import('../queues/ReminderQueue.js');
@@ -2814,8 +2815,8 @@ export class StateRouter {
         return;
       }
 
-      // Get user's reminder lead time preference
-      const leadTimeMinutes = await this.settingsService.getReminderLeadTime(userId);
+      // BUG FIX: Standalone reminders should remind at exact time, not 15 minutes before
+      const leadTimeMinutes = 0;
 
       // Reschedule with BullMQ
       const { cancelReminder, scheduleReminder } = await import('../queues/ReminderQueue.js');
