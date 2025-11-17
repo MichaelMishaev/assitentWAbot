@@ -27,6 +27,7 @@ import {
 import { DateTime } from 'luxon';
 import { scheduleReminder } from '../queues/ReminderQueue.js';
 import { filterByFuzzyMatch } from '../utils/hebrewMatcher.js';
+import { detectLanguage, shouldSkipLanguageDetection, getUnsupportedLanguageMessage } from '../utils/languageDetector.js';
 import { CommandRouter } from './CommandRouter.js';
 import { parseHebrewDate, validateDayNameMatchesDate } from '../utils/hebrewDateParser.js';
 import { pipelineOrchestrator } from '../domain/orchestrator/PipelineOrchestrator.js';
@@ -717,6 +718,30 @@ export class NLPRouter {
           // Ask user for clarification with reminder-specific prompt
           await this.sendMessage(phone, '🤔 זיהיתי שאתה מזכיר "תזכורת".\n\nהאם רצית ליצור תזכורת חדשה? (כן/לא)\n\nאו שלח /תפריט לתפריט ראשי');
           return;
+        }
+
+        // ===== LANGUAGE DETECTION: Detect unsupported languages =====
+        // Only runs AFTER all other fallback logic to avoid false positives
+        // Skip for commands and quick actions (voice messages handled by Phase 0)
+        const hasQuotedMessage = !!quotedMessageId;
+
+        if (!shouldSkipLanguageDetection(text, hasQuotedMessage, false)) {
+          const langResult = detectLanguage(text);
+
+          // If detected unsupported language with high confidence
+          if (langResult.language !== 'supported' && langResult.language !== 'unknown') {
+            logger.info('🌐 Unsupported language detected', {
+              userId,
+              language: langResult.language,
+              confidence: langResult.confidence,
+              percentages: langResult.percentages,
+              textSample: text.substring(0, 50)
+            });
+
+            const errorMessage = getUnsupportedLanguageMessage(langResult.language);
+            await this.sendMessage(phone, errorMessage);
+            return;
+          }
         }
 
         // ✅ FIX: Don't show menu after failed NLP - it breaks context and UX
