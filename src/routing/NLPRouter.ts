@@ -31,6 +31,7 @@ import { detectLanguage, shouldSkipLanguageDetection, getUnsupportedLanguageMess
 import { CommandRouter } from './CommandRouter.js';
 import { parseHebrewDate, validateDayNameMatchesDate } from '../utils/hebrewDateParser.js';
 import { pipelineOrchestrator } from '../domain/orchestrator/PipelineOrchestrator.js';
+import { gptDateTimeService } from '../services/GPTDateTimeService.js';
 
 /**
  * Date query type - single date vs range
@@ -983,26 +984,110 @@ export class NLPRouter {
           // Use fallback date and continue processing
           eventDate = fallbackDate;
         } else {
-          // Fallback also returned past date - reject
-          logger.warn('[BUG_FIX_21_HYBRID] Fallback also returned past date', {
+          // Fallback also returned past date - try GPT roundtrip for relative expressions
+          logger.info('[GPT_ROUNDTRIP] Fallback also past, trying GPT roundtrip for relative expressions', {
             gptDate: eventDate.toISOString(),
             fallbackDate: fallbackDate.toISOString(),
+            originalText: originalText
+          });
+
+          const relativeTimePattern = /בערב|בבוקר|בלילה|היום|מחר|הערב/;
+          if (relativeTimePattern.test(originalText)) {
+            logger.info('[GPT_ROUNDTRIP] Detected relative time expression, asking GPT again', { originalText });
+
+            const dt = DateTime.fromJSDate(eventDate).setZone('Asia/Jerusalem');
+            const roundtripResult = await gptDateTimeService.extractDateTime(
+              `${originalText} (הזמן שנתת ${dt.toFormat('HH:mm')} כבר עבר. תן לי את המועד הבא של ${originalText})`,
+              'Asia/Jerusalem',
+              { currentTime: now }
+            );
+
+            if (roundtripResult.success && roundtripResult.datetime) {
+              const roundtripDate = roundtripResult.datetime;
+
+              if (roundtripDate.getTime() >= (now.getTime() - bufferMs)) {
+                logger.info('[GPT_ROUNDTRIP] Success! Using roundtrip result', {
+                  originalGptDate: eventDate.toISOString(),
+                  roundtripDate: roundtripDate.toISOString(),
+                  difference: roundtripDate.getTime() - now.getTime()
+                });
+
+                eventDate = roundtripDate;
+              } else {
+                logger.warn('[GPT_ROUNDTRIP] Roundtrip also returned past date', {
+                  roundtripDate: roundtripDate.toISOString()
+                });
+                await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+                return;
+              }
+            } else {
+              logger.warn('[GPT_ROUNDTRIP] Roundtrip failed', { error: roundtripResult.error });
+              await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+              return;
+            }
+          } else {
+            logger.warn('[BUG_FIX_21_HYBRID] Fallback also returned past date (no relative expression)', {
+              gptDate: eventDate.toISOString(),
+              fallbackDate: fallbackDate.toISOString(),
+              originalText: originalText
+            });
+
+            await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+            return;
+          }
+        }
+      } else {
+        // Fallback failed - try GPT roundtrip for relative expressions
+        logger.info('[GPT_ROUNDTRIP] parseHebrewDate failed, checking for relative expressions', {
+          gptDate: eventDate.toISOString(),
+          fallbackError: fallbackResult.error,
+          originalText: originalText
+        });
+
+        const relativeTimePattern = /בערב|בבוקר|בלילה|היום|מחר|הערב/;
+        if (relativeTimePattern.test(originalText)) {
+          logger.info('[GPT_ROUNDTRIP] Detected relative time expression, asking GPT again', { originalText });
+
+          const dt = DateTime.fromJSDate(eventDate).setZone('Asia/Jerusalem');
+          const roundtripResult = await gptDateTimeService.extractDateTime(
+            `${originalText} (הזמן שנתת ${dt.toFormat('HH:mm')} כבר עבר. תן לי את המועד הבא של ${originalText})`,
+            'Asia/Jerusalem',
+            { currentTime: now }
+          );
+
+          if (roundtripResult.success && roundtripResult.datetime) {
+            const roundtripDate = roundtripResult.datetime;
+
+            if (roundtripDate.getTime() >= (now.getTime() - bufferMs)) {
+              logger.info('[GPT_ROUNDTRIP] Success! Using roundtrip result', {
+                originalGptDate: eventDate.toISOString(),
+                roundtripDate: roundtripDate.toISOString(),
+                difference: roundtripDate.getTime() - now.getTime()
+              });
+
+              eventDate = roundtripDate;
+            } else {
+              logger.warn('[GPT_ROUNDTRIP] Roundtrip also returned past date', {
+                roundtripDate: roundtripDate.toISOString()
+              });
+              await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+              return;
+            }
+          } else {
+            logger.warn('[GPT_ROUNDTRIP] Roundtrip failed', { error: roundtripResult.error });
+            await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+            return;
+          }
+        } else {
+          logger.warn('[BUG_FIX_21_HYBRID] Fallback failed to parse date (no relative expression)', {
+            gptDate: eventDate.toISOString(),
+            fallbackError: fallbackResult.error,
             originalText: originalText
           });
 
           await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
           return;
         }
-      } else {
-        // Fallback failed - reject with original error
-        logger.warn('[BUG_FIX_21_HYBRID] Fallback failed to parse date', {
-          gptDate: eventDate.toISOString(),
-          fallbackError: fallbackResult.error,
-          originalText: originalText
-        });
-
-        await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
-        return;
       }
     }
 
@@ -1178,26 +1263,115 @@ export class NLPRouter {
           // BUG FIX #23: Update dt to reflect the new fallback date for correct display formatting
           dt = DateTime.fromJSDate(fallbackDate).setZone('Asia/Jerusalem');
         } else {
-          // Fallback also returned past date - reject
-          logger.warn('[BUG_FIX_21_HYBRID] Fallback also returned past date', {
+          // Fallback also returned past date - try GPT roundtrip for relative time expressions
+          logger.info('[GPT_ROUNDTRIP] Fallback also past, trying GPT roundtrip for relative expressions', {
             gptDate: dueDate.toISOString(),
             fallbackDate: fallbackDate.toISOString(),
+            originalText: originalText
+          });
+
+          // Check if message contains relative time expressions like "evening", "morning", "night"
+          const relativeTimePattern = /בערב|בבוקר|בלילה|היום|מחר|הערב/;
+          if (relativeTimePattern.test(originalText)) {
+            // Try GPT roundtrip with explicit instruction to find next occurrence
+            logger.info('[GPT_ROUNDTRIP] Detected relative time expression, asking GPT again', { originalText });
+
+            const roundtripResult = await gptDateTimeService.extractDateTime(
+              `${originalText} (הזמן שנתת ${dt.toFormat('HH:mm')} כבר עבר. תן לי את המועד הבא של ${originalText})`,
+              'Asia/Jerusalem',
+              { currentTime: now }
+            );
+
+            if (roundtripResult.success && roundtripResult.datetime) {
+              const roundtripDate = roundtripResult.datetime;
+
+              // Verify roundtrip result is in the future
+              if (roundtripDate.getTime() >= (now.getTime() - bufferMs)) {
+                logger.info('[GPT_ROUNDTRIP] Success! Using roundtrip result', {
+                  originalGptDate: dueDate.toISOString(),
+                  roundtripDate: roundtripDate.toISOString(),
+                  difference: roundtripDate.getTime() - now.getTime()
+                });
+
+                dueDate = roundtripDate;
+                dt = DateTime.fromJSDate(roundtripDate).setZone('Asia/Jerusalem');
+              } else {
+                logger.warn('[GPT_ROUNDTRIP] Roundtrip also returned past date', {
+                  roundtripDate: roundtripDate.toISOString()
+                });
+                await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+                return;
+              }
+            } else {
+              logger.warn('[GPT_ROUNDTRIP] Roundtrip failed', { error: roundtripResult.error });
+              await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+              return;
+            }
+          } else {
+            // No relative time expression - reject
+            logger.warn('[BUG_FIX_21_HYBRID] Fallback also returned past date (no relative expression)', {
+              gptDate: dueDate.toISOString(),
+              fallbackDate: fallbackDate.toISOString(),
+              originalText: originalText
+            });
+
+            await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+            return;
+          }
+        }
+      } else {
+        // Fallback failed - try GPT roundtrip for relative expressions
+        logger.info('[GPT_ROUNDTRIP] parseHebrewDate failed, checking for relative expressions', {
+          gptDate: dueDate.toISOString(),
+          fallbackError: fallbackResult.error,
+          originalText: originalText
+        });
+
+        const relativeTimePattern = /בערב|בבוקר|בלילה|היום|מחר|הערב/;
+        if (relativeTimePattern.test(originalText)) {
+          logger.info('[GPT_ROUNDTRIP] Detected relative time expression, asking GPT again', { originalText });
+
+          const roundtripResult = await gptDateTimeService.extractDateTime(
+            `${originalText} (הזמן שנתת ${dt.toFormat('HH:mm')} כבר עבר. תן לי את המועד הבא של ${originalText})`,
+            'Asia/Jerusalem',
+            { currentTime: now }
+          );
+
+          if (roundtripResult.success && roundtripResult.datetime) {
+            const roundtripDate = roundtripResult.datetime;
+
+            if (roundtripDate.getTime() >= (now.getTime() - bufferMs)) {
+              logger.info('[GPT_ROUNDTRIP] Success! Using roundtrip result', {
+                originalGptDate: dueDate.toISOString(),
+                roundtripDate: roundtripDate.toISOString(),
+                difference: roundtripDate.getTime() - now.getTime()
+              });
+
+              dueDate = roundtripDate;
+              dt = DateTime.fromJSDate(roundtripDate).setZone('Asia/Jerusalem');
+            } else {
+              logger.warn('[GPT_ROUNDTRIP] Roundtrip also returned past date', {
+                roundtripDate: roundtripDate.toISOString()
+              });
+              await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+              return;
+            }
+          } else {
+            logger.warn('[GPT_ROUNDTRIP] Roundtrip failed', { error: roundtripResult.error });
+            await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
+            return;
+          }
+        } else {
+          // No relative expression - reject
+          logger.warn('[BUG_FIX_21_HYBRID] Fallback failed to parse date (no relative expression)', {
+            gptDate: dueDate.toISOString(),
+            fallbackError: fallbackResult.error,
             originalText: originalText
           });
 
           await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
           return;
         }
-      } else {
-        // Fallback failed - reject with original error
-        logger.warn('[BUG_FIX_21_HYBRID] Fallback failed to parse date', {
-          gptDate: dueDate.toISOString(),
-          fallbackError: fallbackResult.error,
-          originalText: originalText
-        });
-
-        await this.sendMessage(phone, '⚠️ התאריך שזיהיתי הוא בעבר. אנא נסח מחדש את הבקשה.');
-        return;
       }
     }
 
