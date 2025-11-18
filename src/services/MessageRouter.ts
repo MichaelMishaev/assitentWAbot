@@ -510,8 +510,9 @@ export class MessageRouter {
           const languageType = detectLanguage(text);
 
           if (languageType === 'hebrew') {
-            // Hebrew non-greeting (maybe a command?) - ignore silently
-            logger.info('Ignored Hebrew non-greeting from unknown number', { phone: from, text });
+            // Hebrew non-greeting - start registration with friendly message
+            logger.info('Hebrew non-greeting from unknown number, starting registration', { phone: from, text });
+            await this.authRouter.startRegistration(from);
           } else if (languageType !== 'gibberish') {
             // Non-Hebrew text (Arabic, English, etc.) - use GPT-4o-mini to respond in their language
             logger.info('Non-Hebrew message from unknown number, sending multilingual onboarding', {
