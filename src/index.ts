@@ -157,6 +157,24 @@ async function main() {
     // Initialize connection
     await whatsappProvider.initialize();
 
+    // 🩹 ONE-TIME RECOVERY: Send onboarding message to user 972505900799
+    // This user was ignored due to bug (MessageRouter.ts silently ignored Hebrew non-greetings)
+    // Check Redis flag to ensure we only send once
+    const RECOVERY_FLAG_KEY = 'recovery:sent:972505900799';
+    const recoverySent = await redis.get(RECOVERY_FLAG_KEY);
+
+    if (!recoverySent && whatsappProvider.isConnected()) {
+      try {
+        logger.info('🩹 Sending one-time recovery message to user 972505900799...');
+        const recoveryMessage = `ברוך הבא! 👋\n\nבואו נתחיל ברישום.\nמה השם שלך?`;
+        await whatsappProvider.sendMessage('972505900799', recoveryMessage);
+        await redis.set(RECOVERY_FLAG_KEY, 'sent', 'EX', 604800); // 7 days
+        logger.info('✅ Recovery message sent successfully to 972505900799');
+      } catch (error) {
+        logger.error('❌ Failed to send recovery message:', error);
+      }
+    }
+
     logger.info('✅ WhatsApp Assistant Bot is running!');
     logger.info('📋 Status:');
     logger.info('  ✅ Database connected');
