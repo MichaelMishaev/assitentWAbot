@@ -13,6 +13,7 @@ import { DateTime } from 'luxon';
 import { scheduleReminder } from '../queues/ReminderQueue.js';
 import { CommandRouter } from './CommandRouter.js';
 import logger from '../utils/logger.js';
+import { gptDateTimeService } from '../services/GPTDateTimeService.js';
 import {
   formatEventComments,
   formatCommentAdded,
@@ -1009,7 +1010,44 @@ export class StateRouter {
       return;
     }
 
-    // ✅ FIX Bug #2: If date already exists (from NLP), allow just entering time
+    // 🔥 NEW APPROACH: Try natural language parsing first with GPT
+    // This handles "בשעה 20:30", "היום ב 21:00", "מחר בערב", etc.
+    logger.info('[Reminder DateTime] Attempting GPT natural language parsing', { text });
+
+    const gptResult = await gptDateTimeService.extractDateTime(text, 'Asia/Jerusalem');
+
+    if (gptResult.success && gptResult.datetime) {
+      // GPT successfully parsed the datetime
+      const dueDate = gptResult.datetime;
+
+      // Check if in the past
+      if (dueDate < new Date()) {
+        await this.sendMessage(phone, '❌ לא ניתן להגדיר תזכורת בעבר. נסה שוב.');
+        return;
+      }
+
+      logger.info('[Reminder DateTime] GPT parsing successful', {
+        input: text,
+        parsedDate: dueDate.toISOString(),
+        cacheHit: gptResult.cacheHit
+      });
+
+      await this.stateManager.setState(userId, ConversationState.ADDING_REMINDER_RECURRENCE, {
+        title,
+        dueDate: dueDate.toISOString()
+      });
+
+      const formattedDateTime = DateTime.fromJSDate(dueDate).setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy HH:mm');
+      await this.sendMessage(
+        phone,
+        `טוב! תזכורת ל-${formattedDateTime} 🔁\n\nהאם זו תזכורת חוזרת?\n\n1️⃣ לא, פעם אחת\n2️⃣ כל יום\n3️⃣ כל שבוע\n4️⃣ כל חודש\n\nבחר מספר או שלח "דלג"`
+      );
+      return;
+    }
+
+    // FALLBACK: Old parsing logic for simple "DATE TIME" format
+    logger.info('[Reminder DateTime] GPT failed, trying fallback split parsing', { text });
+
     const parts = text.trim().split(/\s+/);
 
     let datePart: string;
