@@ -531,6 +531,11 @@ export class MessageRouter {
                 cacheHit: response.cacheHit,
                 latencyMs: response.latencyMs,
               });
+
+              // AUTO-REGISTER: Start registration after multilingual onboarding
+              // This prevents users from getting stuck in onboarding loop
+              logger.info('Starting registration after multilingual onboarding', { phone: from });
+              await this.authRouter.startRegistration(from);
             } catch (error: any) {
               logger.error('Failed to send multilingual onboarding', {
                 phone: from,
