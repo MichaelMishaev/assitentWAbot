@@ -1389,14 +1389,15 @@ export class NLPRouter {
 
     // Helper function to get Hebrew weekday name
     const getHebrewWeekday = (dateTime: DateTime): string => {
+      // Luxon weekday: Monday=1, Tuesday=2, Wednesday=3, Thursday=4, Friday=5, Saturday=6, Sunday=7
       const weekdayNames = [
-        'יום ראשון',   // Sunday (1)
-        'יום שני',     // Monday (2)
-        'יום שלישי',   // Tuesday (3)
-        'יום רביעי',   // Wednesday (4)
-        'יום חמישי',   // Thursday (5)
-        'יום שישי',    // Friday (6)
-        'יום שבת'      // Saturday (7)
+        'יום שני',     // Monday (1) - index 0
+        'יום שלישי',   // Tuesday (2) - index 1
+        'יום רביעי',   // Wednesday (3) - index 2
+        'יום חמישי',   // Thursday (4) - index 3
+        'יום שישי',    // Friday (5) - index 4
+        'יום שבת',     // Saturday (6) - index 5
+        'יום ראשון'    // Sunday (7) - index 6
       ];
       return weekdayNames[dateTime.weekday - 1];
     };
