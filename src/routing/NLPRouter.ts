@@ -1387,11 +1387,26 @@ export class NLPRouter {
                                 typeof reminder.leadTimeMinutes === 'number' &&
                                 reminder.leadTimeMinutes >= 60;
 
+    // Helper function to get Hebrew weekday name
+    const getHebrewWeekday = (dateTime: DateTime): string => {
+      const weekdayNames = [
+        'יום ראשון',   // Sunday (1)
+        'יום שני',     // Monday (2)
+        'יום שלישי',   // Tuesday (3)
+        'יום רביעי',   // Wednesday (4)
+        'יום חמישי',   // Thursday (5)
+        'יום שישי',    // Friday (6)
+        'יום שבת'      // Saturday (7)
+      ];
+      return weekdayNames[dateTime.weekday - 1];
+    };
+
     if (isExplicitLeadTime) {
       // Lead time >= 1 hour was extracted - user likely said "X לפני"
       // Show NOTIFICATION time as main date
       const notificationTime = dt.minus({ minutes: reminder.leadTimeMinutes });
-      displayDate = notificationTime.toFormat('dd/MM/yyyy HH:mm');
+      const weekday = getHebrewWeekday(notificationTime);
+      displayDate = `${notificationTime.toFormat('dd/MM/yyyy HH:mm')}\n${weekday}`;
 
       // Add context note showing when the actual event/reminder is
       const eventDate = dt.toFormat('dd/MM/yyyy HH:mm');
@@ -1418,7 +1433,8 @@ export class NLPRouter {
       });
     } else {
       // No lead time OR small default lead time (< 1 hour) - show reminder DUE DATE
-      displayDate = dt.toFormat('dd/MM/yyyy HH:mm');
+      const weekday = getHebrewWeekday(dt);
+      displayDate = `${dt.toFormat('dd/MM/yyyy HH:mm')}\n${weekday}`;
 
       if (reminder.leadTimeMinutes && reminder.leadTimeMinutes > 0) {
         logger.info('Display shows due date (small/default lead time ignored for display)', {
@@ -1486,15 +1502,11 @@ export class NLPRouter {
         phone
       }, dueDate, leadTimeMinutes);
 
-      // Get creation date/time (when the reminder was set)
-      const creationDateTime = DateTime.now().setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy HH:mm');
-
       // Send success summary (not confirmation question)
       const summaryMessage = `✅ תזכורת נקבעה:
 
 📌 ${reminder.title}
 📅 ${displayDate}
-🕐 נקבעה ב: ${creationDateTime}
 ${contextNote ? contextNote + '\n' : ''}${recurrenceText ? recurrenceText + '\n' : ''}${reminder.notes ? '📝 הערות: ' + reminder.notes + '\n' : ''}
 ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת ' + reminder.title + '"\n' : ''}`;
 
