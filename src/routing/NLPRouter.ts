@@ -1486,11 +1486,15 @@ export class NLPRouter {
         phone
       }, dueDate, leadTimeMinutes);
 
+      // Get creation date/time (when the reminder was set)
+      const creationDateTime = DateTime.now().setZone('Asia/Jerusalem').toFormat('dd/MM/yyyy HH:mm');
+
       // Send success summary (not confirmation question)
       const summaryMessage = `✅ תזכורת נקבעה:
 
 📌 ${reminder.title}
 📅 ${displayDate}
+🕐 נקבעה ב: ${creationDateTime}
 ${contextNote ? contextNote + '\n' : ''}${recurrenceText ? recurrenceText + '\n' : ''}${reminder.notes ? '📝 הערות: ' + reminder.notes + '\n' : ''}
 ${isRecurring ? '\n💡 לביטול בעתיד: שלח "ביטול תזכורת ' + reminder.title + '"\n' : ''}`;
 
