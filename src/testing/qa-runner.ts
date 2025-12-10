@@ -9,6 +9,7 @@ import { BugTestExtractor } from './qa/BugTestExtractor.js';
 import { TestRunner } from './qa/TestRunner.js';
 import { ReportGenerator } from './qa/ReportGenerator.js';
 import { TestResult } from './qa/types.js';
+import { initializePipeline } from '../domain/orchestrator/PhaseInitializer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,11 @@ async function main() {
   console.log('========================================\n');
 
   const startTime = Date.now();
+
+  // Initialize pipeline (CRITICAL: Register all phases)
+  console.log('🔧 Initializing pipeline...');
+  await initializePipeline();
+  console.log('✅ Pipeline initialized\n');
 
   try {
     // Step 1: Extract test cases from bugs.md
