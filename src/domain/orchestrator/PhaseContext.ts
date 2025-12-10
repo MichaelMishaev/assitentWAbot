@@ -193,6 +193,15 @@ export interface ExtractedEntities {
   isMultiEvent?: boolean;
   splitEvents?: Array<Partial<ExtractedEntities>>;
 
+  // Multi-reminder (NEW)
+  isMultiReminder?: boolean;
+  splitItems?: Array<{
+    type: 'event' | 'reminder';
+    text: string;
+    timeExpression?: string;
+    taskDescription?: string;
+  }>;
+
   // Event operations (update/delete)
   eventId?: string; // ID of event being updated/deleted
 }
