@@ -126,9 +126,9 @@ Timezone: ${timezone}
 Extract and return JSON with these fields:
 {
   "title": "event/reminder subject (without date/time/participants) - **CRITICAL**: If user just says 'תזכיר לי מחר' or 'תזכיר לי שוב' WITHOUT specifying WHAT, return null! - **IMPORTANT**: Preserve ל prefix in infinitive verbs (e.g., 'תזכיר לי לנסוע' → 'לנסוע', NOT 'נסוע')",
-  "date": "YYYY-MM-DD (convert relative dates like 'היום', 'מחר')",
+  "date": "YYYY-MM-DD (ONLY for absolute dates like '12.01' or simple keywords like 'היום', 'מחר'. For weekday names, use dateText instead!)",
   "time": "HH:MM (24-hour format, extract from 'לשעה X', 'בשעה X', 'ב-X')",
-  "dateText": "original date text from input",
+  "dateText": "original date/weekday text from input - USE THIS for weekday names like 'רביעי', 'שני', etc.",
   "location": "location if mentioned",
   "participants": ["name1", "name2"] (extract from 'עם X', 'עם X ו-Y'),
   "priority": "low|normal|high|urgent",
@@ -142,13 +142,22 @@ Extract and return JSON with these fields:
   }
 }
 
+**CRITICAL Examples - Weekday Names:**
+Input: "תזכיר לי ביום רביעי בשעה 17:00 להזמין בייביסיטר"
+Output: { "title": "להזמין בייביסיטר", "date": null, "time": "17:00", "dateText": "רביעי" }
+
+Input: "פגישה ביום שני"
+Output: { "title": "פגישה", "date": null, "dateText": "שני" }
+
+Input: "יום שלישי תזכורת"
+Output: { "title": "תזכורת", "date": null, "dateText": "שלישי" }
+
 Rules:
-1. Convert Hebrew relative dates AND day names:
-   - Relative: "היום"=today, "מחר"=tomorrow, "מחרתיים"=day after tomorrow
-   - Day names: "רביעי" or "יום רביעי"=next Wednesday, "שני"=next Monday, etc.
-   - IMPORTANT: When user says "Wednesday" or "רביעי", extract it as dateText: "רביעי" (let parser find next Wednesday)
-   - Week: "השבוע"=this week, "שבוע הבא"=next week
-2. **BUG FIX #22:** Convert Hebrew time words - WITH or WITHOUT numbers:
+1. **Weekday Names:** If text contains weekday name (ראשון, שני, שלישי, רביעי, חמישי, שישי, שבת), extract it to dateText and leave date=null
+2. **Absolute dates:** If text has DD/MM or DD.MM format, convert to YYYY-MM-DD in date field AND copy original to dateText
+3. **Simple keywords:** היום/מחר/מחרתיים → convert to date AND set dateText
+4. **Week/month keywords:** השבוע/שבוע הבא/החודש → extract to dateText only, leave date=null
+5. **BUG FIX #22:** Convert Hebrew time words - WITH or WITHOUT numbers:
    - Standalone defaults: "בערב"=19:00, "בבוקר"=09:00, "אחרי הצהריים"=14:00, "בלילה"=22:00
    - **CRITICAL**: If number appears BEFORE time word, use the number and convert to 24-hour:
      * "11 בלילה" = 23:00 (NOT 22:00!)
@@ -247,6 +256,12 @@ Return ONLY valid JSON, no explanation.`;
       result.title = parsed.title.trim();
     }
 
+    // DateText - MUST be extracted independently of date (for weekday names!)
+    // BUG FIX: Weekday names come as dateText without date field
+    if (parsed.dateText && typeof parsed.dateText === 'string') {
+      result.dateText = parsed.dateText.trim();
+    }
+
     // Date
     if (parsed.date && typeof parsed.date === 'string') {
       let dt = DateTime.fromISO(parsed.date, { zone: timezone });
@@ -270,7 +285,10 @@ Return ONLY valid JSON, no explanation.`;
         }
 
         result.date = dt.toJSDate();
-        result.dateText = parsed.dateText || parsed.date;
+        // Only override dateText if it wasn't already set from weekday name
+        if (!result.dateText) {
+          result.dateText = parsed.date;
+        }
       }
     }
 
