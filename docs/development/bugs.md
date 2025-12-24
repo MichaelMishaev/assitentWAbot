@@ -6,7 +6,7 @@
 - Bug #R: "# אמרתי לו 11 ... רשם 10" (I told it 11... it recorded 10)
 **User Phone:** 972542101057
 **Status:** ✅ FIXED (2025-12-24)
-**Commit:** [PENDING]
+**Commit:** 8c2acc3
 
 ### Problem
 Users inputting bare number times (e.g., "11", "ב 15") had them NOT extracted, while times with colons or "בשעה" worked fine.
