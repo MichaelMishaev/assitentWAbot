@@ -127,7 +127,7 @@ Extract and return JSON with these fields:
 {
   "title": "event/reminder subject (without date/time/participants) - **CRITICAL**: If user just says 'תזכיר לי מחר' or 'תזכיר לי שוב' WITHOUT specifying WHAT, return null! - **IMPORTANT**: Preserve ל prefix in infinitive verbs (e.g., 'תזכיר לי לנסוע' → 'לנסוע', NOT 'נסוע')",
   "date": "YYYY-MM-DD (ONLY for absolute dates like '12.01' or simple keywords like 'היום', 'מחר'. For weekday names, use dateText instead!)",
-  "time": "HH:MM (24-hour format, extract from 'לשעה X', 'בשעה X', 'ב-X')",
+  "time": "HH:MM (24-hour format, extract from 'לשעה X', 'בשעה X', 'ב-X', 'ב X' - **CRITICAL**: ALWAYS extract bare numbers 0-23 as time! '11' = 11:00, '8' = 08:00, '15' = 15:00)",
   "dateText": "original date/weekday text from input - USE THIS for weekday names like 'רביעי', 'שני', etc.",
   "location": "location if mentioned",
   "participants": ["name1", "name2"] (extract from 'עם X', 'עם X ו-Y'),
@@ -141,6 +141,27 @@ Extract and return JSON with these fields:
     "location": 0.0-1.0
   }
 }
+
+**CRITICAL Examples - Time Extraction (Bug #B, #R fix):**
+Input: "תזכורת ב 11"
+Output: { "title": "תזכורת", "time": "11:00" }
+
+Input: "עדכן ל 09:45"
+Output: { "time": "09:45" }
+
+Input: "ב 8"
+Output: { "time": "08:00" }
+
+Input: "תזכורת ב 15"
+Output: { "title": "תזכורת", "time": "15:00" }
+
+Input: "20"
+Output: { "time": "20:00" }
+
+Rules for time extraction:
+- ANY single/double digit number (0-23) should be extracted as time in HH:00 format
+- Numbers with colon (e.g., "14:30") are already in HH:MM format
+- "ב X" or "בשעה X" both mean "at time X"
 
 **CRITICAL Examples - Weekday Names:**
 Input: "תזכיר לי ביום רביעי בשעה 17:00 להזמין בייביסיטר"
