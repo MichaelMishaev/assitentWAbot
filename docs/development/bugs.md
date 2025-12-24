@@ -1,3 +1,153 @@
+## Bug #34: Weekday Mismapping - Wednesday→Saturday (FIXED) ⭐ PRODUCTION BUG
+
+**Date Reported:** 2025-12-22 14:24 UTC (Production)
+**User Report:** "# ביקשתי רביעי סגר לשבת" (Asked for Wednesday, got Saturday)
+**User Phone:** 972542101057
+**Status:** ✅ FIXED (2025-12-24)
+**Commit:** bd28f55
+
+### Problem
+Users requesting reminders for specific weekdays got them scheduled for completely different days.
+
+**Production Example:**
+- User input: "תזכיר לי ביום **רביעי** בשעה 17:00 להזמין בייביסיטר"
+- Translation: "Remind me on **Wednesday** at 17:00 to order babysitter"
+- Bot created: "✅ תזכורת נקבעה: 📅 27/12/2025 17:00 **יום שבת**"
+- Translation: "Reminder set for **Saturday** 27/12/2025 17:00"
+- **Error:** Wednesday (רביעי) → Saturday (שבת) - **3 days off!**
+
+**Other Confirmed Cases:**
+- Bug #D (2025-11-20): Monday → Thursday (same user)
+- Bug #P (2025-11-04): Day name search regression
+
+### Root Cause Analysis
+
+#### Investigation Steps
+1. ✅ Tested Hebrew parser (`parseHebrewDate`) → **Working correctly**
+   - From Monday 2025-12-22 → correctly calculates Wednesday 2025-12-24
+   - All 7 weekdays calculated accurately
+
+2. ⚠️ Found bug in **AI entity extraction** (GPT-4 Mini)
+   - Prompt was ambiguous: said "convert day names" AND "extract as dateText"
+   - AI was calculating weekday dates itself (incorrectly!)
+   - When AI returns `date: "2025-12-27"` without `dateText`, parser never runs
+
+3. 🐛 **Secondary bug in parsing logic:**
+   - `result.dateText = parsed.dateText || parsed.date` (line 282)
+   - `dateText` only extracted when `date` field existed
+   - Weekday names with `date=null` were being ignored!
+
+**Code Location:** `src/domain/phases/phase3-entity-extraction/AIEntityExtractor.ts`
+
+### Solution
+
+#### 1. Clarified AI Prompt (Lines 126-160)
+Added explicit examples and CRITICAL section:
+
+```typescript
+**CRITICAL Examples - Weekday Names:**
+Input: "תזכיר לי ביום רביעי בשעה 17:00 להזמין בייביסיטר"
+Output: { "title": "להזמין בייביסיטר", "date": null, "time": "17:00", "dateText": "רביעי" }
+
+Input: "פגישה ביום שני"
+Output: { "title": "פגישה", "date": null, "dateText": "שני" }
+
+Rules:
+1. **Weekday Names:** If text contains weekday name (ראשון, שני, שלישי, רביעי, חמישי, שישי, שבת),
+   extract it to dateText and leave date=null
+```
+
+#### 2. Fixed dateText Extraction Logic (Lines 259-293)
+
+**Before (BROKEN):**
+```typescript
+// Date
+if (parsed.date && typeof parsed.date === 'string') {
+  result.date = dt.toJSDate();
+  result.dateText = parsed.dateText || parsed.date; // ← BUG: dateText ignored if no date!
+}
+```
+
+**After (FIXED):**
+```typescript
+// DateText - MUST be extracted independently of date (for weekday names!)
+if (parsed.dateText && typeof parsed.dateText === 'string') {
+  result.dateText = parsed.dateText.trim();
+}
+
+// Date
+if (parsed.date && typeof parsed.date === 'string') {
+  result.date = dt.toJSDate();
+  // Only override dateText if it wasn't already set from weekday name
+  if (!result.dateText) {
+    result.dateText = parsed.date;
+  }
+}
+```
+
+### Testing
+
+Created comprehensive test suite in `tests/bugfixes/`:
+
+#### Test 1: AI Extraction (`test-weekday-extraction.ts`)
+Tests that GPT-4 Mini correctly extracts all 7 weekdays as `dateText` with `date=null`:
+
+```
+Production Bug - Wednesday: ✓ PASSED (dateText: "רביעי", date: null)
+Monday: ✓ PASSED (dateText: "שני", date: null)
+Tuesday: ✓ PASSED (dateText: "שלישי", date: null)
+Thursday: ✓ PASSED (dateText: "חמישי", date: null)
+Friday: ✓ PASSED (dateText: "שישי", date: null)
+Saturday: ✓ PASSED (dateText: "שבת", date: null)
+Sunday: ✓ PASSED (dateText: "ראשון", date: null)
+
+Results: 7/7 passed ✓
+```
+
+#### Test 2: Hebrew Parser (`test-weekday-parser.ts`)
+Verifies `parseHebrewDate()` calculates correct next weekday for each name:
+
+```
+✓ ראשון (Sunday) → Next Sunday
+✓ שני (Monday) → Next Monday
+✓ שלישי (Tuesday) → Next Tuesday
+✓ רביעי (Wednesday) → Next Wednesday
+✓ חמישי (Thursday) → Next Thursday
+✓ שישי (Friday) → Next Friday
+✓ שבת (Saturday) → Next Saturday
+
+Results: 7/7 passed ✓
+```
+
+### Impact
+
+**Fixes Production Bugs:**
+- ✅ Bug #A (this bug): Wednesday→Saturday
+- ✅ Bug #D: Monday→Thursday
+- ✅ Bug #P: Day name search regression
+
+**User Experience:**
+- Users now get reminders on the **correct weekday**
+- Eliminates catastrophic multi-day errors (3+ days off)
+- More reliable: rule-based parser is deterministic vs AI calculation
+
+**Code Quality:**
+- Clearer separation of concerns: AI extracts, parser calculates
+- Better debuggability: Can inspect AI output vs parser calculation
+- Prevents regression with comprehensive test coverage
+
+### Files Changed
+- `src/domain/phases/phase3-entity-extraction/AIEntityExtractor.ts` (prompt + logic fix)
+- `tests/bugfixes/test-weekday-extraction.ts` (new - AI tests)
+- `tests/bugfixes/test-weekday-parser.ts` (new - parser tests)
+
+### Related Bugs (Also Fixed)
+- Bug #A: Wednesday→Saturday (this bug)
+- Bug #D: Monday→Thursday mismapping
+- Bug #P: Day name search regression
+
+---
+
 # 🔥 Bug Fixes - December 10, 2025 (Performance Optimization)
 
 ## Summary
